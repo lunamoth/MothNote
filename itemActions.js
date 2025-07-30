@@ -96,6 +96,27 @@ export const handleRestoreItem = async (id) => {
     const itemToRestore = { ...state.trash[itemIndex] };
 
     if (itemToRestore.type === 'folder') {
+        // [수정] 폴더 복원 시 이름 중복 확인 로직 추가
+        if (state.folders.some(f => f.name === itemToRestore.name)) {
+            const newName = await showPrompt({
+                title: '📁 폴더 이름 중복',
+                message: `'${itemToRestore.name}' 폴더가 이미 존재합니다. 복원할 폴더의 새 이름을 입력해주세요.`,
+                initialValue: `${itemToRestore.name} (복사본)`,
+                validationFn: (value) => {
+                    const trimmedValue = value.trim();
+                    if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
+                    if (state.folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+                    return { isValid: true };
+                }
+            });
+
+            if (newName) {
+                itemToRestore.name = newName.trim();
+            } else {
+                return; // 사용자가 프롬프트를 취소하면 복원 중단
+            }
+        }
+
         const notesFromTrash = state.trash.filter(i => i.originalFolderId === id && i.type === 'note');
         const noteIdsToRestore = new Set(notesFromTrash.map(n => n.id));
 
@@ -453,6 +474,13 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     let isDuplicate = false;
     const newNameLower = newName.toLowerCase();
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+        // [수정] 가상 폴더 이름으로 변경하는 것을 방지
+        const virtualFolderNames = Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(vf => vf.name.toLowerCase());
+        if (virtualFolderNames.includes(newNameLower)) {
+            showToast('시스템에서 사용하는 이름으로는 변경할 수 없습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            nameSpan.textContent = originalName;
+            return;
+        }
         isDuplicate = state.folders.some(f => f.id !== id && f.name.toLowerCase() === newNameLower);
     } else {
         isDuplicate = folder.notes.some(n => n.id !== id && n.title.toLowerCase() === newNameLower);
