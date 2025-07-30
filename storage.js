@@ -1,5 +1,7 @@
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes } from './components.js';
+import { handleNoteUpdate } from './itemActions.js';
+
 
 export const saveData = async () => {
     try {
@@ -105,13 +107,19 @@ export const loadData = async () => {
 const sanitizeContentData = data => {
     if (!data || !Array.isArray(data.folders)) throw new Error("유효하지 않은 파일 구조입니다.");
     const usedIds = new Set();
+    const idMap = new Map(); 
+
     const getUniqueId = (prefix, id) => {
+        const oldId = id; 
         let finalId = String(id ?? `${prefix}-${Date.now()}`).slice(0, 50);
         let counter = 1;
         while (usedIds.has(finalId)) {
             finalId = `${String(id).slice(0, 40)}-${counter++}`;
         }
         usedIds.add(finalId);
+        if (oldId) {
+            idMap.set(oldId, finalId); 
+        }
         return finalId;
     };
 
@@ -122,17 +130,18 @@ const sanitizeContentData = data => {
     };
 
     const sanitizeNote = (n, isTrash = false) => {
+        const noteId = getUniqueId('note', n.id);
         const note = {
-            id: getUniqueId('note', n.id),
+            id: noteId,
             title: sanitizeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
             content: sanitizeHtml(String(n.content ?? '')),
             createdAt: Number(n.createdAt) || Date.now(),
             updatedAt: Number(n.updatedAt) || Date.now(),
             isPinned: !!n.isPinned,
-            isFavorite: !!n.isFavorite,
+            isFavorite: !!n.isFavorite, 
         };
         if (isTrash) {
-            note.originalFolderId = n.originalFolderId;
+            note.originalFolderId = idMap.get(n.originalFolderId) || n.originalFolderId;
             note.type = 'note';
             note.deletedAt = n.deletedAt || Date.now();
         }
@@ -173,20 +182,21 @@ const sanitizeContentData = data => {
         }
         return acc;
     }, []) : [];
-
-    const sanitizedFavorites = Array.isArray(data.favorites) ? data.favorites.filter(id => typeof id === 'string' && id) : [];
+    
+    const sanitizedFavorites = Array.isArray(data.favorites) 
+        ? data.favorites.map(oldId => idMap.get(oldId)).filter(Boolean)
+        : [];
 
     return {
         folders: sanitizedFolders,
         trash: sanitizedTrash,
-        favorites: sanitizedFavorites
+        favorites: sanitizedFavorites 
     };
 };
 
-// [수정] 설정 데이터 유효성 검사 및 정제 함수 export
 export const sanitizeSettings = (settingsData) => {
     const defaults = CONSTANTS.DEFAULT_SETTINGS;
-    const sanitized = JSON.parse(JSON.stringify(defaults)); // Deep copy
+    const sanitized = JSON.parse(JSON.stringify(defaults)); 
 
     if (!settingsData || typeof settingsData !== 'object') {
         return sanitized;
@@ -196,12 +206,10 @@ export const sanitizeSettings = (settingsData) => {
         sanitized.layout.col1 = parseInt(settingsData.layout.col1, 10) || defaults.layout.col1;
         sanitized.layout.col2 = parseInt(settingsData.layout.col2, 10) || defaults.layout.col2;
     }
-    // [추가] 젠 모드 설정 정제
     if (settingsData.zenMode) {
         sanitized.zenMode.maxWidth = parseInt(settingsData.zenMode.maxWidth, 10) || defaults.zenMode.maxWidth;
     }
     if (settingsData.editor) {
-        // [개선] 가져오기 시에도 font-family 유효성 검사
         const importedFontFamily = settingsData.editor.fontFamily;
         if (importedFontFamily && typeof CSS.supports === 'function' && CSS.supports('font-family', importedFontFamily)) {
              sanitized.editor.fontFamily = importedFontFamily;
@@ -228,8 +236,11 @@ export const handleExport = async (settings) => {
         }
     }
 
+    if (state.isDirty) {
+        await handleNoteUpdate(true);
+    }
+
     try {
-        // [수정] 내보낼 데이터에 설정(settings) 객체 포함
         const dataToExport = {
             settings: settings,
             folders: state.folders,
@@ -240,9 +251,17 @@ export const handleExport = async (settings) => {
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
         const blob = new Blob([bom, dataStr], { type: 'application/json;charset=utf-8' });
         const url = URL.createObjectURL(blob);
+        
+        // [파일명 규칙 변경] YYMMDD 형식의 날짜 프리픽스를 생성합니다.
+        const now = new Date();
+        const year = now.getFullYear().toString().slice(-2);
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const filename = `${year}${month}${day}_MothNote_Backup.json`;
+
         chrome.downloads.download({
             url: url,
-            filename: `new-tab-note-backup-${new Date().toISOString().slice(0, 10)}.json`
+            filename: filename // 새로 생성된 파일명을 사용합니다.
         }, () => {
             URL.revokeObjectURL(url);
             showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
@@ -261,6 +280,10 @@ export const handleImport = async () => {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
     }
+    if (state.isDirty) {
+        await handleNoteUpdate(true);
+    }
+    
     importFileInput.click();
 };
 
@@ -281,7 +304,6 @@ export const setupImportHandler = () => {
                 const importedData = JSON.parse(event.target.result);
                 const sanitizedContent = sanitizeContentData(importedData);
                 
-                // [BUG FIX] settings 객체가 파일에 존재하는지 확인
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
                 const sanitizedSettings = hasSettingsInFile ? sanitizeSettings(importedData.settings) : null;
 
@@ -309,7 +331,6 @@ export const setupImportHandler = () => {
                         lastActiveNotePerFolder: {}
                     };
 
-                    // [BUG FIX] settings가 파일에 있었을 경우에만 localStorage를 업데이트
                     if (sanitizedSettings) {
                         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                     }

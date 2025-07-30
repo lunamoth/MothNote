@@ -569,53 +569,63 @@ let debounceTimer;
 const debounce = (fn, delay) => { clearTimeout(debounceTimer); debounceTimer = setTimeout(fn, delay); };
 let isSaving = false;
 
-export const handleNoteUpdate = async (isForced = false) => {
-    if (state.renamingItemId && isForced) return;
-    if (isSaving && !isForced) return;
+// [BUGFIX] handleNoteUpdate가 Promise를 반환하도록 구조 변경
+export const handleNoteUpdate = (isForced = false) => {
+    return new Promise(async (resolve) => {
+        if (state.renamingItemId && isForced) return resolve();
+        if (isSaving && !isForced) return resolve();
 
-    const noteIdToUpdate = state.activeNoteId;
-    if (!noteIdToUpdate) return;
+        const noteIdToUpdate = state.activeNoteId;
+        if (!noteIdToUpdate) return resolve();
 
-    const { item: activeNote } = findNote(noteIdToUpdate);
-    if (activeNote) {
-        let newTitle = noteTitleInput.value;
-        const newContent = noteContentTextarea.value;
-        if (!state.isDirty && !newTitle.trim() && newContent.trim()) {
-            newTitle = newContent.split('\n')[0].trim().slice(0, CONSTANTS.AUTO_TITLE_LENGTH);
-            if (document.activeElement !== noteTitleInput) noteTitleInput.value = newTitle;
-        }
-
-        if (activeNote.title !== newTitle || activeNote.content !== newContent) {
-            if (!state.isDirty) { setState({ isDirty: true }); updateSaveStatus('dirty'); }
-            activeNote.title = newTitle; activeNote.content = newContent; activeNote.updatedAt = Date.now();
-
-            const saveAndUpdate = async () => {
-                if (state.activeNoteId !== noteIdToUpdate) {
-                    if (state.isDirty) setState({ isDirty: false });
-                    updateSaveStatus('saved'); 
-                    isSaving = false;
-                    return;
-                }
-                isSaving = true;
-                updateSaveStatus('saving');
-                await saveData();
-                
-                // 변경 사항을 저장했으므로 캐시를 초기화
-                clearSortedNotesCache();
-                state._virtualFolderCache.recent = null;
-
-                setState({});
-                updateSaveStatus('saved');
-                if (state.isDirty) setState({ isDirty: false });
-                isSaving = false;
-            };
-
-            if (isForced) {
-                clearTimeout(debounceTimer);
-                await saveAndUpdate();
-            } else {
-                debounce(saveAndUpdate, CONSTANTS.DEBOUNCE_DELAY.SAVE);
+        const { item: activeNote } = findNote(noteIdToUpdate);
+        if (activeNote) {
+            let newTitle = noteTitleInput.value;
+            const newContent = noteContentTextarea.value;
+            if (!state.isDirty && !newTitle.trim() && newContent.trim()) {
+                newTitle = newContent.split('\n')[0].trim().slice(0, CONSTANTS.AUTO_TITLE_LENGTH);
+                if (document.activeElement !== noteTitleInput) noteTitleInput.value = newTitle;
             }
+
+            if (activeNote.title !== newTitle || activeNote.content !== newContent) {
+                if (!state.isDirty) { setState({ isDirty: true }); updateSaveStatus('dirty'); }
+                activeNote.title = newTitle; activeNote.content = newContent; activeNote.updatedAt = Date.now();
+
+                const saveAndUpdate = async () => {
+                    if (state.activeNoteId !== noteIdToUpdate) {
+                        if (state.isDirty) setState({ isDirty: false });
+                        updateSaveStatus('saved'); 
+                        isSaving = false;
+                        return; // 여기서 resolve()를 호출하지 않음, 호출부에서 관리
+                    }
+                    isSaving = true;
+                    updateSaveStatus('saving');
+                    await saveData();
+                    
+                    clearSortedNotesCache();
+                    state._virtualFolderCache.recent = null;
+
+                    setState({});
+                    updateSaveStatus('saved');
+                    if (state.isDirty) setState({ isDirty: false });
+                    isSaving = false;
+                };
+
+                if (isForced) {
+                    clearTimeout(debounceTimer);
+                    await saveAndUpdate();
+                    resolve(); // 강제 저장 후 Promise를 resolve
+                } else {
+                    debounce(async () => {
+                        await saveAndUpdate();
+                        resolve(); // 디바운스된 저장 후 Promise를 resolve
+                    }, CONSTANTS.DEBOUNCE_DELAY.SAVE);
+                }
+            } else {
+                resolve(); // 변경사항이 없으면 즉시 resolve
+            }
+        } else {
+            resolve(); // 활성 노트가 없으면 즉시 resolve
         }
-    }
+    });
 };

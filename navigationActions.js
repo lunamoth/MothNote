@@ -86,7 +86,9 @@ export const changeActiveFolder = async (newFolderId) => {
         activeFolderId: newFolderId,
         activeNoteId: nextActiveNoteId,
         // [핵심 버그 수정] 다른 폴더를 클릭하면 항상 날짜 필터를 해제합니다.
-        dateFilter: null 
+        dateFilter: null,
+        // [BUGFIX #2-1] 폴더 변경 시, 이전 검색 상태를 완전히 초기화
+        preSearchActiveNoteId: null 
     });
     saveSession();
 };
