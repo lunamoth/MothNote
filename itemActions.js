@@ -7,6 +7,23 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
+// --- [추가] 이름 변경 중복 코드 추상화 헬퍼 함수 ---
+/**
+ * 진행 중인 이름 변경 작업을 강제로 완료(저장 또는 취소)시킵니다.
+ * 다른 액션을 실행하기 전에 호출하여 데이터 불일치를 방지합니다.
+ */
+const finishPendingRename = async () => {
+    if (state.renamingItemId) {
+        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
+        if (renamingElement) {
+            renamingElement.blur(); // blur 이벤트가 이름 변경 완료 로직을 트리거합니다.
+            // blur 이벤트 처리 및 상태 업데이트가 완료될 시간을 기다립니다.
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+    }
+};
+
+
 // 달력 UI 갱신을 위한 함수를 저장할 변수
 let calendarRenderer = () => {};
 
@@ -38,8 +55,10 @@ const finalizeItemChange = async (newState = {}, successMessage = '') => {
 };
 
 
-// --- [최적화] 노트 관련 액션을 위한 고차 함수 ---
+// --- [최적화 & 수정] 노트 관련 액션을 위한 고차 함수 ---
 const withNote = async (noteId, action) => {
+    // [수정] 다른 노트에 대한 액션 실행 전, 진행 중인 이름 변경을 강제로 완료합니다.
+    await finishPendingRename();
     const { item: note } = findNote(noteId);
     if (note) {
         await action(note);
@@ -70,6 +89,7 @@ const moveItemToTrash = (item, type, originalFolderId = null) => {
 // --- 이벤트 핸들러 ---
 
 export const handleRestoreItem = async (id) => {
+    await finishPendingRename(); // 복원 전 이름 변경 완료
     const itemIndex = state.trash.findIndex(item => item.id === id);
     if (itemIndex === -1) return;
 
@@ -148,11 +168,7 @@ const focusAfterDeletion = (listElement, deletedItemId) => {
 };
 
 export const handleAddFolder = async () => {
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) renamingElement.blur();
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await finishPendingRename();
 
     const name = await showPrompt({
         title: CONSTANTS.MODAL_TITLES.NEW_FOLDER,
@@ -183,11 +199,7 @@ export const handleAddFolder = async () => {
 };
 
 export const handleAddNote = async () => {
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) renamingElement.blur();
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await finishPendingRename();
 
     const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
     if (!state.activeFolderId || [ALL.id, RECENT.id, TRASH.id, FAVORITES.id].includes(state.activeFolderId)) {
@@ -335,6 +347,7 @@ const handleDeleteNote = async (id) => {
 };
 
 export const handleDelete = async (id, type, force = false) => {
+    await finishPendingRename();
     const finder = type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder : findNote;
     const { item } = finder(id);
     if (!item) return;
@@ -360,6 +373,7 @@ export const handleDelete = async (id, type, force = false) => {
 };
 
 export const handlePermanentlyDeleteItem = async (id) => {
+    await finishPendingRename();
     const itemIndex = state.trash.findIndex(item => item.id === id);
     if (itemIndex === -1) return;
     const item = state.trash[itemIndex];
@@ -389,11 +403,7 @@ export const handlePermanentlyDeleteItem = async (id) => {
 };
 
 export const handleEmptyTrash = async () => {
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) renamingElement.blur();
-        await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await finishPendingRename();
     if (state.trash.length === 0) return;
 
     const folderCount = state.trash.filter(item => item.type === 'folder').length;

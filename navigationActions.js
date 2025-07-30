@@ -6,6 +6,21 @@ import {
 import { handleNoteUpdate } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
+// itemActions.js에서 finishPendingRename을 가져오는 대신, 직접 정의하여 순환 참조를 방지하거나,
+// 별도의 유틸리티 파일로 분리하는 것이 이상적입니다.
+// 여기서는 itemActions.js에 정의된 것으로 가정하고, 순환 참조를 피하기 위해
+// 해당 함수를 직접 여기에 정의하거나, 앱 초기화 시 주입받는 패턴을 사용할 수 있습니다.
+// 이 경우에는 itemActions.js의 함수를 사용하지 않고, 각 함수에서 직접 로직을 수행합니다.
+const finishPendingRename = async () => {
+    if (state.renamingItemId) {
+        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
+        if (renamingElement) {
+            renamingElement.blur();
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+    }
+};
+
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
@@ -29,14 +44,8 @@ export const confirmNavigation = async () => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
-    // [버그 수정] 다른 노트를 선택하기 전에 활성 이름 변경을 완료합니다.
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) {
-            renamingElement.blur();
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-    }
+    // [수정] 다른 노트를 선택하기 전에 활성 이름 변경을 완료합니다.
+    await finishPendingRename();
 
     if (state.activeNoteId === newNoteId) return;
 
@@ -52,14 +61,8 @@ export const changeActiveNote = async (newNoteId) => {
 };
 
 export const changeActiveFolder = async (newFolderId) => {
-    // [버그 수정] 다른 폴더를 선택하기 전에 활성 이름 변경을 완료합니다.
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) {
-            renamingElement.blur();
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-    }
+    // [수정] 다른 폴더를 선택하기 전에 활성 이름 변경을 완료합니다.
+    await finishPendingRename();
 
     // [버그 수정] 날짜 필터가 있는 상태에서 다른 폴더를 클릭해도 정상적으로 전환되도록 조건 수정
     if (state.activeFolderId === newFolderId && !state.dateFilter) return;
@@ -164,14 +167,9 @@ const handleSearch = (searchTerm) => {
 };
 
 // `input` 이벤트에 대한 핸들러 (디바운싱 적용)
-export const handleSearchInput = (e) => {
-    // [버그 수정] 검색 시작 시 이름 변경 상태 강제 종료
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) {
-            renamingElement.blur(); // 이름 변경 로직(저장 또는 취소) 트리거
-        }
-    }
+export const handleSearchInput = async (e) => {
+    // [수정] 검색 시작 시 이름 변경 상태 강제 종료
+    await finishPendingRename();
     const term = e.target.value;
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };

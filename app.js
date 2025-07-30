@@ -127,16 +127,34 @@ const handleSettingsSave = () => {
 const handleSettingsReset = async () => {
     const ok = await showConfirmModal({
         title: '⚙️ 설정 초기화',
-        message: '모든 설정을 기본값으로 되돌리시겠습니까?',
-        confirmText: '초기화',
+        message: '모든 설정을 기본값으로 되돌리시겠습니까? 이 작업은 즉시 저장됩니다.',
+        confirmText: '초기화 및 저장',
         confirmButtonType: 'danger'
     });
     if (ok) {
+        // 1. 실제 앱 설정 업데이트
         appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS)); // Deep copy
+        
+        // 2. localStorage에 즉시 저장
         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
+
+        // 3. 전체 UI에 즉시 적용
         applySettings(appSettings);
-        openSettingsModal(); 
+
+        // 4. 열려있는 모달의 UI 컨트롤 값도 업데이트
+        settingsCol1Width.value = appSettings.layout.col1;
+        settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
+        settingsCol2Width.value = appSettings.layout.col2;
+        settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
+        settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
+        settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
+        settingsEditorFontFamily.value = appSettings.editor.fontFamily;
+        settingsEditorFontSize.value = appSettings.editor.fontSize;
+        settingsWeatherLat.value = appSettings.weather.lat;
+        settingsWeatherLon.value = appSettings.weather.lon;
+
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
+        // 모달을 닫지 않음
     }
 };
 
@@ -443,13 +461,8 @@ const handleTextareaKeyDown = (e) => {
 };
 
 const handleItemActionClick = async (button, id, type) => {
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) {
-            renamingElement.blur();
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-    }
+    // 모든 item action은 내부적으로 finishPendingRename을 호출하므로 여기서는 제거
+    // 예: handleDelete, handlePinNote 등
     if (button.classList.contains('pin-btn')) handlePinNote(id);
     else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id);
     else if (button.classList.contains('delete-item-btn')) handleDelete(id, type);
