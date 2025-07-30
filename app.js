@@ -25,12 +25,19 @@ import {
 // --- 설정 관련 로직 ---
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 
+// [추가] 젠 모드 설정 관련 DOM 요소 캐싱
+const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
+const settingsZenMaxValue = document.getElementById('settings-zen-max-value');
+
 const applySettings = (settings) => {
     const root = document.documentElement;
 
     // [수정] grid-template-columns 전체를 설정하는 대신 CSS 변수만 업데이트
     root.style.setProperty('--column-folders-width', `${settings.layout.col1}%`);
     root.style.setProperty('--column-notes-width', `${settings.layout.col2}%`);
+    
+    // [추가] 젠 모드 너비 설정 적용
+    root.style.setProperty('--zen-max-width', `${settings.zenMode.maxWidth}px`);
 
     root.style.setProperty('--editor-font-family', settings.editor.fontFamily);
     root.style.setProperty('--editor-font-size', `${settings.editor.fontSize}px`);
@@ -48,6 +55,8 @@ const loadAndApplySettings = () => {
             appSettings.layout = { ...CONSTANTS.DEFAULT_SETTINGS.layout, ...parsed.layout };
             appSettings.editor = { ...CONSTANTS.DEFAULT_SETTINGS.editor, ...parsed.editor };
             appSettings.weather = { ...CONSTANTS.DEFAULT_SETTINGS.weather, ...parsed.weather };
+            // [추가] 젠 모드 설정 로드
+            appSettings.zenMode = { ...CONSTANTS.DEFAULT_SETTINGS.zenMode, ...parsed.zenMode };
         }
     } catch (e) {
         console.warn("Could not load settings, using defaults.", e);
@@ -61,6 +70,9 @@ const openSettingsModal = () => {
     settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
     settingsCol2Width.value = appSettings.layout.col2;
     settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
+    // [추가] 젠 모드 설정 모달에 값 채우기
+    settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
+    settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
     settingsEditorFontFamily.value = appSettings.editor.fontFamily;
     settingsEditorFontSize.value = appSettings.editor.fontSize;
     settingsWeatherLat.value = appSettings.weather.lat;
@@ -91,6 +103,10 @@ const handleSettingsSave = () => {
         layout: {
             col1: parseInt(settingsCol1Width.value, 10),
             col2: parseInt(settingsCol2Width.value, 10),
+        },
+        // [추가] 젠 모드 설정 저장
+        zenMode: {
+            maxWidth: parseInt(settingsZenMaxWidth.value, 10)
         },
         editor: {
             fontFamily: finalFontFamily, // 검증된 값 사용
@@ -149,19 +165,24 @@ const setupSettingsModal = () => {
         document.getElementById(`settings-tab-${target.dataset.tab}`).classList.add('active');
     });
     
-    const updateSliderValue = (slider, valueEl, isCol1) => {
+    const updateSliderValue = (slider, valueEl, unit, isCol1) => {
         const value = slider.value;
-        valueEl.textContent = `${value}%`;
-        const root = document.documentElement;
-        if (isCol1) {
-            root.style.setProperty('--column-folders-width', `${value}%`);
-        } else {
-            root.style.setProperty('--column-notes-width', `${value}%`);
+        valueEl.textContent = `${value}${unit}`;
+        // 컬럼 너비는 실시간으로 CSS 변수 업데이트
+        if (isCol1 !== undefined) {
+             const root = document.documentElement;
+            if (isCol1) {
+                root.style.setProperty('--column-folders-width', `${value}%`);
+            } else {
+                root.style.setProperty('--column-notes-width', `${value}%`);
+            }
         }
     };
 
-    settingsCol1Width.addEventListener('input', () => updateSliderValue(settingsCol1Width, settingsCol1Value, true));
-    settingsCol2Width.addEventListener('input', () => updateSliderValue(settingsCol2Width, settingsCol2Value, false));
+    settingsCol1Width.addEventListener('input', () => updateSliderValue(settingsCol1Width, settingsCol1Value, '%', true));
+    settingsCol2Width.addEventListener('input', () => updateSliderValue(settingsCol2Width, settingsCol2Value, '%', false));
+    // [추가] 젠 모드 슬라이더 이벤트 리스너 추가
+    settingsZenMaxWidth.addEventListener('input', () => updateSliderValue(settingsZenMaxWidth, settingsZenMaxValue, 'px'));
     
     settingsEditorFontFamily.addEventListener('input', (e) => {
         document.documentElement.style.setProperty('--editor-font-family', e.target.value);
@@ -740,9 +761,8 @@ const init = async () => {
     // --- [젠 모드 수정] 젠 모드 및 테마 버튼 로직 ---
     const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn');
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
-    const mainPanel = document.querySelector('.main-content');
     
-    if (zenModeToggleBtn && mainPanel) {
+    if (zenModeToggleBtn) {
         const ZEN_MODE_KEY = 'mothnote-zen-mode';
         const zenModeActive = localStorage.getItem(ZEN_MODE_KEY) === 'true';
 
@@ -753,13 +773,7 @@ const init = async () => {
         }
 
         zenModeToggleBtn.addEventListener('click', () => {
-            // 젠 모드 진입 직전에 현재 편집기 패널의 너비를 측정
-            const isEnteringZenMode = !document.body.classList.contains('zen-mode');
-            if (isEnteringZenMode) {
-                const editorWidth = mainPanel.offsetWidth;
-                document.documentElement.style.setProperty('--editor-zen-width', `${editorWidth}px`);
-            }
-            
+            // 너비 측정 로직 제거. 이제 CSS가 설정값을 직접 사용.
             const isActive = document.body.classList.toggle('zen-mode');
             if (isActive) {
                 zenModeToggleBtn.textContent = '↔️';

@@ -11,7 +11,9 @@ export const CONSTANTS = {
         // [수정] 컬럼 너비 기본값을 10%로 변경
         layout: { col1: 10, col2: 10 }, // percentages
         editor: { fontFamily: `-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", sans-serif`, fontSize: 17 },
-        weather: { lat: 37.5665, lon: 126.9780 } // Default: Seoul
+        weather: { lat: 37.5665, lon: 126.9780 }, // Default: Seoul
+        // [추가] 젠 모드 최대 너비 설정 추가
+        zenMode: { maxWidth: 850 } // pixels
     },
     // --- 끝 ---
     VIRTUAL_FOLDERS: {
