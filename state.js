@@ -5,14 +5,12 @@ export const CONSTANTS = {
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
-    // --- [추가] 설정 관련 상수 ---
+    // --- 설정 관련 상수 ---
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',
     DEFAULT_SETTINGS: {
-        // [수정] 컬럼 너비 기본값을 10%로 변경
         layout: { col1: 10, col2: 10 }, // percentages
         editor: { fontFamily: `-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", sans-serif`, fontSize: 17 },
         weather: { lat: 37.5665, lon: 126.9780 }, // Default: Seoul
-        // [추가] 젠 모드 최대 너비 설정 추가
         zenMode: { maxWidth: 850 } // pixels
     },
     // --- 끝 ---
@@ -45,7 +43,8 @@ export const CONSTANTS = {
     DEBOUNCE_DELAY: {
         KEY_NAV: 200,
         SEARCH: 300,
-        SAVE: 700
+        // [핵심 수정] 자동 저장 지연 시간을 400ms에서 300ms로 줄여 반응성을 높임
+        SAVE: 300
     },
     DASHBOARD: {
         WEATHER_CACHE_KEY: 'weather_cache_v1',
@@ -66,12 +65,10 @@ export const CONSTANTS = {
     AUTO_TITLE_LENGTH: 100,
     RECENT_NOTES_COUNT: 10,
     TOAST_DURATION: 4000,
-    // [추가] 플레이스홀더에 사용할 이모지 배열
     PLACEHOLDER_EMOJIS: [
         '💡', '✨', '✍️', '🌱', '🦋', '🎨', '🧠', '🌟', '☕', '📖', '📝', '🧭', '🔭', '🗺️', '🤔',
         '🌿', '🌻', '🍃', '🌈', '🦉', '🪐', '🌌', '🧘', '🍵', '🪁', '🎈', '🚀', '💎', '🎯', '🔑'
     ],
-    // [개선] 메시지를 용도에 따라 그룹화
     MESSAGES: {
         SUCCESS: {
             NOTE_PINNED: '📍 노트를 고정했습니다.',
@@ -137,7 +134,6 @@ export const subscribe = (callback) => {
 };
 const notify = () => subscribers.forEach(callback => callback());
 
-// [롤백] 원래의 안전한 방식으로 복귀
 export const updateNoteCreationDates = () => {
     state.noteCreationDates.clear();
     for (const folder of state.folders) {
@@ -163,7 +159,6 @@ export const buildNoteMap = () => {
             state.noteMap.set(note.id, { note, folderId: folder.id });
         }
     }
-    // [롤백] 맵 빌드 후, 날짜 Set도 업데이트
     updateNoteCreationDates();
 };
 

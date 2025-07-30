@@ -55,20 +55,25 @@ export const loadData = async () => {
 
             initialState.totalNoteCount = initialState.folders.reduce((sum, f) => sum + f.notes.length, 0);
 
+            // --- [BUG FIX] ---
             // 1. 먼저 기본 상태(폴더, 휴지통, 활성 ID)를 설정합니다.
             setState(initialState);
-            // 2. [핵심 수정] 설정된 상태를 기반으로 noteMap과 noteCreationDates를 빌드합니다.
+            // 2. [핵심 수정] 유효성 검사 전에, 설정된 상태를 기반으로 noteMap을 먼저 빌드합니다.
             buildNoteMap();
 
-            // 3. 빌드된 state.noteMap을 기준으로 활성 ID의 유효성을 검사합니다.
-            const folderExists = state.folders.some(f => f.id === state.activeFolderId);
+            // 3. 이제 빌드된 state.noteMap을 기준으로 활성 ID의 유효성을 검사할 수 있습니다.
+            const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
             const noteExists = state.noteMap.has(state.activeNoteId);
 
-            if (!folderExists && !Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId)) {
+            let needsStateUpdate = false;
+
+            if (!folderExists) {
                 initialState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 initialState.activeNoteId = null;
+                needsStateUpdate = true;
             }
 
+            // 휴지통에 있는 노트는 noteMap에 없으므로, 휴지통 뷰가 아닐 때만 noteExists를 검사합니다.
             if (state.activeFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && !noteExists) {
                 initialState.activeNoteId = null;
                 const activeFolder = state.folders.find(f => f.id === state.activeFolderId);
@@ -76,12 +81,17 @@ export const loadData = async () => {
                     const sortedNotes = sortNotes(activeFolder.notes, state.noteSortOrder);
                     initialState.activeNoteId = sortedNotes[0]?.id ?? null;
                 }
+                needsStateUpdate = true;
             }
+            
             // 4. 유효성 검사 후 변경된 ID가 있다면 다시 상태를 업데이트합니다.
-            setState({
-                activeFolderId: initialState.activeFolderId,
-                activeNoteId: initialState.activeNoteId
-            });
+            if (needsStateUpdate) {
+                setState({
+                    activeFolderId: initialState.activeFolderId,
+                    activeNoteId: initialState.activeNoteId
+                });
+            }
+            // --- [BUG FIX END] ---
 
         } else {
             // 처음 사용하는 경우 기본 데이터 생성
@@ -236,9 +246,8 @@ export const handleExport = async (settings) => {
         }
     }
 
-    if (state.isDirty) {
-        await handleNoteUpdate(true);
-    }
+    // [핵심 수정] isDirty 플래그 확인 없이, 항상 강제 저장을 시도하여 최신 데이터를 보장
+    await handleNoteUpdate(true);
 
     try {
         const dataToExport = {
@@ -252,7 +261,6 @@ export const handleExport = async (settings) => {
         const blob = new Blob([bom, dataStr], { type: 'application/json;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         
-        // [파일명 규칙 변경] YYMMDD 형식의 날짜 프리픽스를 생성합니다.
         const now = new Date();
         const year = now.getFullYear().toString().slice(-2);
         const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -261,7 +269,7 @@ export const handleExport = async (settings) => {
 
         chrome.downloads.download({
             url: url,
-            filename: filename // 새로 생성된 파일명을 사용합니다.
+            filename: filename
         }, () => {
             URL.revokeObjectURL(url);
             showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
@@ -280,9 +288,9 @@ export const handleImport = async () => {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
     }
-    if (state.isDirty) {
-        await handleNoteUpdate(true);
-    }
+    
+    // [핵심 수정] isDirty 플래그 확인 없이, 항상 강제 저장을 시도
+    await handleNoteUpdate(true);
     
     importFileInput.click();
 };
@@ -335,9 +343,7 @@ export const setupImportHandler = () => {
                         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                     }
                     
-                    setState(newState);
-                    buildNoteMap();
-                    await saveData();
+                    await chrome.storage.local.set({ appState: { folders: newState.folders, trash: newState.trash, favorites: Array.from(newState.favorites) } });
                     saveSession();
 
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD);

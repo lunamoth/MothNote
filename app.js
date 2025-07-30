@@ -760,11 +760,11 @@ const handleGlobalKeyDown = (e) => {
     }
     if (e.key.toLowerCase() === 'f2') {
         e.preventDefault();
-        const activeEl = document.activeElement, activeListItem = activeEl.closest('.item-list-entry');
+        const activeEl = document.activeElement;
+        const activeListItem = activeEl.closest('.item-list-entry');
         if (activeListItem && activeListItem.dataset.id && activeListItem.dataset.type) {
-            const id = activeListItem.dataset.id, type = activeListItem.dataset.type;
-            const isVirtual = Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id);
-            if (!isVirtual) triggerRename(activeListItem, type);
+            // [BUGFIX] 이름 변경 로직을 startRename으로 직접 호출하도록 수정
+            startRename(activeListItem, activeListItem.dataset.type);
         }
         return;
     }
@@ -779,33 +779,11 @@ const handleGlobalKeyDown = (e) => {
     }
 };
 
-const triggerRename = (listItem, type) => {
-    if (state.renamingItemId === listItem.dataset.id) return;
-    const id = listItem.dataset.id;
-    if (!id) return;
-    startRename(listItem, type);
-    setTimeout(() => {
-        const listContainer = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
-        if (state.renamingItemId !== id) return; 
-        const newListItem = listContainer.querySelector(`[data-id="${id}"]`);
-        if (newListItem) {
-            const nameSpan = newListItem.querySelector('.item-name');
-            if (nameSpan) {
-                nameSpan.contentEditable = true; nameSpan.focus();
-                const selection = window.getSelection(), range = document.createRange();
-                range.selectNodeContents(nameSpan); selection.removeAllRanges();
-                if (nameSpan.isConnected) selection.addRange(range);
-            }
-        }
-    }, 0);
-};
-
 const handleRename = (e, type) => {
     const li = e.target.closest('.item-list-entry');
     if (li) {
-        const id = li.dataset.id;
-        const isVirtual = Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id);
-        if (!isVirtual) triggerRename(li, type);
+        // [BUGFIX] 이름 변경 로직을 startRename으로 직접 호출하도록 수정
+        startRename(li, type);
     }
 };
 

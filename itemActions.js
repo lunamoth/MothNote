@@ -7,7 +7,7 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
-// --- [수정] Promise 기반 이름 변경 동기화 ---
+// --- Promise 기반 이름 변경 동기화 ---
 let pendingRenamePromise = null;
 
 /**
@@ -33,10 +33,9 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
-// --- [최적화] 상태 변경 및 저장을 위한 헬퍼 함수 ---
+// --- 상태 변경 및 저장을 위한 헬퍼 함수 ---
 const commitChanges = async (newState = {}) => {
     clearSortedNotesCache();
-    // [버그 수정] 가상 폴더 캐시를 초기화하여 변경사항이 즉시 반영되도록 함
     state._virtualFolderCache.recent = null;
     state._virtualFolderCache.favorites = null;
     state._virtualFolderCache.all = null;
@@ -45,7 +44,7 @@ const commitChanges = async (newState = {}) => {
     await saveData();
 };
 
-// --- [최적화] 공통 후처리 로직 추상화 ---
+// --- 공통 후처리 로직 추상화 ---
 const finalizeItemChange = async (newState = {}, successMessage = '') => {
     updateNoteCreationDates();
     calendarRenderer(true);
@@ -56,9 +55,8 @@ const finalizeItemChange = async (newState = {}, successMessage = '') => {
 };
 
 
-// --- [최적화 & 수정] 노트 관련 액션을 위한 고차 함수 ---
+// --- 노트 관련 액션을 위한 고차 함수 ---
 const withNote = async (noteId, action) => {
-    // [수정] 다른 노트에 대한 액션 실행 전, 진행 중인 이름 변경을 강제로 완료합니다.
     await finishPendingRename();
     const { item: note } = findNote(noteId);
     if (note) {
@@ -90,14 +88,13 @@ const moveItemToTrash = (item, type, originalFolderId = null) => {
 // --- 이벤트 핸들러 ---
 
 export const handleRestoreItem = async (id) => {
-    await finishPendingRename(); // 복원 전 이름 변경 완료
+    await finishPendingRename();
     const itemIndex = state.trash.findIndex(item => item.id === id);
     if (itemIndex === -1) return;
 
     const itemToRestore = { ...state.trash[itemIndex] };
 
     if (itemToRestore.type === 'folder') {
-        // [수정] 폴더 복원 시 이름 중복 확인 로직 추가
         if (state.folders.some(f => f.name === itemToRestore.name)) {
             const newName = await showPrompt({
                 title: '📁 폴더 이름 중복',
@@ -114,7 +111,7 @@ export const handleRestoreItem = async (id) => {
             if (newName) {
                 itemToRestore.name = newName.trim();
             } else {
-                return; // 사용자가 프롬프트를 취소하면 복원 중단
+                return;
             }
         }
 
@@ -167,7 +164,7 @@ export const handleRestoreItem = async (id) => {
 
         await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestore.title));
     }
-    saveSession(); // [수정] 복원 후 세션 상태 저장
+    saveSession();
 };
 
 const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
@@ -211,13 +208,12 @@ export const handleAddFolder = async () => {
         await changeActiveFolder(newFolder.id);
         await saveData();
         
-        // [개선] 새로 생성된 폴더로 스크롤
         setTimeout(() => {
             const newFolderEl = folderList.querySelector(`[data-id="${newFolder.id}"]`);
             if (newFolderEl) {
                 newFolderEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
             }
-        }, 100); // DOM 렌더링 시간을 고려
+        }, 100);
     }
 };
 
@@ -244,7 +240,6 @@ export const handleAddNote = async () => {
         state.lastActiveNotePerFolder[state.activeFolderId] = newNote.id;
         state.noteMap.set(newNote.id, { note: newNote, folderId: state.activeFolderId });
 
-        // [버그 수정] toISOString()은 UTC를 반환하므로, 사용자 로컬 시간대 기준으로 날짜 문자열 생성
         const noteDate = new Date(newNote.createdAt);
         const y = noteDate.getFullYear();
         const m = String(noteDate.getMonth() + 1).padStart(2, '0');
@@ -257,7 +252,6 @@ export const handleAddNote = async () => {
         await commitChanges({ activeNoteId: newNote.id, searchTerm: '' });
         saveSession();
         
-        // [개선] 새로 생성된 노트로 스크롤하고 제목 입력 필드에 포커스
         setTimeout(() => {
             const newNoteEl = noteList.querySelector(`[data-id="${newNote.id}"]`);
             if (newNoteEl) {
@@ -265,7 +259,7 @@ export const handleAddNote = async () => {
             }
             noteTitleInput.focus();
             noteTitleInput.select();
-        }, 100); // DOM 렌더링 시간을 고려
+        }, 100);
     }
 };
 
@@ -355,11 +349,10 @@ const handleDeleteNote = async (id) => {
     const newState = {};
     if (wasActiveNoteDeleted) newState.activeNoteId = nextActiveNoteIdToSet;
     if (wasInDateFilteredView) {
-        // [버그 수정] toISOString()으로 인한 시간대 문제를 피하기 위해 날짜 구성 요소 직접 비교
         const filterDate = new Date(state.dateFilter);
         
         const hasOtherNotesOnSameDate = Array.from(state.noteMap.values()).some(({note}) => {
-            if (note.id === item.id) return false; // 자기 자신은 제외
+            if (note.id === item.id) return false;
             const noteDate = new Date(note.createdAt);
             return noteDate.getFullYear() === filterDate.getFullYear() &&
                    noteDate.getMonth() === filterDate.getMonth() &&
@@ -367,7 +360,6 @@ const handleDeleteNote = async (id) => {
         });
 
         if (!hasOtherNotesOnSameDate) {
-            // noteCreationDates Set에서 제거할 'YYYY-MM-DD' 형식의 로컬 날짜 문자열 생성
             const year = filterDate.getFullYear();
             const month = String(filterDate.getMonth() + 1).padStart(2, '0');
             const day = String(filterDate.getDate()).padStart(2, '0');
@@ -462,41 +454,47 @@ export const handleEmptyTrash = async () => {
     );
 };
 
-// [리팩토링] 이름 변경 완료 로직을 별도 함수로 분리
+// 이름 변경 완료 로직
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     nameSpan.contentEditable = false;
-    setState({ renamingItemId: null }); // 즉시 상태 변경하여 중복 호출 방지
 
-    if (!nameSpan.isConnected) return;
+    if (!nameSpan.isConnected) {
+        setState({ renamingItemId: null });
+        return;
+    }
 
     const finder = type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder : findNote;
     const { item: currentItem, folder } = finder(id);
 
-    if (!currentItem) return;
+    if (!currentItem) {
+        setState({ renamingItemId: null });
+        return;
+    }
 
     const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
     const newName = nameSpan.textContent.trim();
 
-    // 저장하지 않거나(Escape) 이름이 변경되지 않은 경우, 원래 텍스트로 복원하고 종료
     if (!shouldSave || newName === originalName) {
         nameSpan.textContent = originalName;
+        setState({ renamingItemId: null });
         return;
     }
 
     if (!newName) {
         showToast(CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR, CONSTANTS.TOAST_TYPE.ERROR);
         nameSpan.textContent = originalName;
+        setState({ renamingItemId: null });
         return;
     }
 
     let isDuplicate = false;
     const newNameLower = newName.toLowerCase();
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-        // [수정] 가상 폴더 이름으로 변경하는 것을 방지
         const virtualFolderNames = Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(vf => vf.name.toLowerCase());
         if (virtualFolderNames.includes(newNameLower)) {
             showToast('시스템에서 사용하는 이름으로는 변경할 수 없습니다.', CONSTANTS.TOAST_TYPE.ERROR);
             nameSpan.textContent = originalName;
+            setState({ renamingItemId: null });
             return;
         }
         isDuplicate = state.folders.some(f => f.id !== id && f.name.toLowerCase() === newNameLower);
@@ -507,6 +505,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     if (isDuplicate) {
         showToast(CONSTANTS.MESSAGES.ERROR.DUPLICATE_NAME_ERROR(newName), CONSTANTS.TOAST_TYPE.ERROR);
         nameSpan.textContent = originalName;
+        setState({ renamingItemId: null });
         return;
     }
 
@@ -516,24 +515,31 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         currentItem.title = newName;
         currentItem.updatedAt = Date.now();
     }
-    await commitChanges(); // 변경사항 저장 및 UI 업데이트
+    
+    await commitChanges({ renamingItemId: null });
 };
 
-
+// 이름 변경 시작 로직
 export const startRename = (liElement, type) => {
     const id = liElement?.dataset.id;
     if (!id || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
-    
+    if (state.renamingItemId) return;
+
     const nameSpan = liElement.querySelector('.item-name');
     if (!nameSpan) return;
 
-    setState({ renamingItemId: id });
-    
-    // --- [수정] Promise 기반 동기화 로직 ---
+    nameSpan.contentEditable = true;
+    nameSpan.focus();
+
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(nameSpan);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
     let resolvePromise;
     pendingRenamePromise = new Promise(resolve => { resolvePromise = resolve; });
 
-    // 이벤트 핸들러를 한 번만 연결하기 위해 클로저 사용
     const onBlur = async () => {
         cleanup();
         await _handleRenameEnd(id, type, nameSpan, true);
@@ -544,11 +550,10 @@ export const startRename = (liElement, type) => {
     const onKeydown = async (ev) => {
         if (ev.key === 'Enter') {
             ev.preventDefault();
-            nameSpan.blur(); // blur 이벤트가 _handleRenameEnd 호출
+            nameSpan.blur();
         } else if (ev.key === 'Escape') {
             ev.preventDefault();
             cleanup();
-            // _handleRenameEnd를 await하고 promise를 resolve
             await _handleRenameEnd(id, type, nameSpan, false);
             resolvePromise();
             pendingRenamePromise = null;
@@ -562,70 +567,70 @@ export const startRename = (liElement, type) => {
 
     nameSpan.addEventListener('blur', onBlur);
     nameSpan.addEventListener('keydown', onKeydown);
+
+    setState({ renamingItemId: id });
 };
 
+// --- [최종 수정] 저장 로직 재구성 ---
 
 let debounceTimer;
-const debounce = (fn, delay) => { clearTimeout(debounceTimer); debounceTimer = setTimeout(fn, delay); };
 let isSaving = false;
 
-// [BUGFIX] handleNoteUpdate가 Promise를 반환하도록 구조 변경
-export const handleNoteUpdate = (isForced = false) => {
-    return new Promise(async (resolve) => {
-        if (state.renamingItemId && isForced) return resolve();
-        if (isSaving && !isForced) return resolve();
+// 실제 저장 작업을 수행하는 함수
+const debouncedSave = async () => {
+    if (isSaving) return; // 이미 다른 저장 작업이 진행 중이면 실행하지 않음
 
-        const noteIdToUpdate = state.activeNoteId;
-        if (!noteIdToUpdate) return resolve();
+    const noteId = state.activeNoteId;
+    if (!noteId) return;
 
-        const { item: activeNote } = findNote(noteIdToUpdate);
-        if (activeNote) {
-            let newTitle = noteTitleInput.value;
-            const newContent = noteContentTextarea.value;
-            if (!state.isDirty && !newTitle.trim() && newContent.trim()) {
-                newTitle = newContent.split('\n')[0].trim().slice(0, CONSTANTS.AUTO_TITLE_LENGTH);
-                if (document.activeElement !== noteTitleInput) noteTitleInput.value = newTitle;
-            }
+    isSaving = true;
+    updateSaveStatus('saving');
 
-            if (activeNote.title !== newTitle || activeNote.content !== newContent) {
-                if (!state.isDirty) { setState({ isDirty: true }); updateSaveStatus('dirty'); }
-                activeNote.title = newTitle; activeNote.content = newContent; activeNote.updatedAt = Date.now();
+    const { item: noteToSave } = findNote(noteId);
+    if (noteToSave) {
+        // 저장 시점의 최신 값으로 state 객체를 업데이트
+        noteToSave.title = noteTitleInput.value;
+        noteToSave.content = noteContentTextarea.value;
+        noteToSave.updatedAt = Date.now();
 
-                const saveAndUpdate = async () => {
-                    if (state.activeNoteId !== noteIdToUpdate) {
-                        if (state.isDirty) setState({ isDirty: false });
-                        updateSaveStatus('saved'); 
-                        isSaving = false;
-                        return; // 여기서 resolve()를 호출하지 않음, 호출부에서 관리
-                    }
-                    isSaving = true;
-                    updateSaveStatus('saving');
-                    await saveData();
-                    
-                    clearSortedNotesCache();
-                    state._virtualFolderCache.recent = null;
+        await saveData();
+        clearSortedNotesCache();
+        state._virtualFolderCache.recent = null;
 
-                    setState({});
-                    updateSaveStatus('saved');
-                    if (state.isDirty) setState({ isDirty: false });
-                    isSaving = false;
-                };
-
-                if (isForced) {
-                    clearTimeout(debounceTimer);
-                    await saveAndUpdate();
-                    resolve(); // 강제 저장 후 Promise를 resolve
-                } else {
-                    debounce(async () => {
-                        await saveAndUpdate();
-                        resolve(); // 디바운스된 저장 후 Promise를 resolve
-                    }, CONSTANTS.DEBOUNCE_DELAY.SAVE);
-                }
-            } else {
-                resolve(); // 변경사항이 없으면 즉시 resolve
-            }
-        } else {
-            resolve(); // 활성 노트가 없으면 즉시 resolve
+        // 저장이 완료된 후, 현재 활성 노트가 그대로일 때만 UI 업데이트
+        if (state.activeNoteId === noteId) {
+            setState({ isDirty: false });
+            updateSaveStatus('saved');
         }
-    });
+    }
+    isSaving = false;
+};
+
+// 저장 핸들러 (조율자)
+export const handleNoteUpdate = async (isForced = false) => {
+    const noteId = state.activeNoteId;
+    if (!noteId || (state.renamingItemId && isForced)) return;
+
+    const { item: activeNote } = findNote(noteId);
+    if (!activeNote) return;
+
+    const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
+
+    if (isForced) {
+        clearTimeout(debounceTimer); // 예약된 자동 저장 취소
+        // 강제 저장은 변경 유무와 상관없이 '저장' 행위를 보장
+        await debouncedSave();
+    } else {
+        // 입력 중 자동 저장
+        if (hasChanged) {
+            if (!state.isDirty) {
+                // 처음 변경이 감지되면 즉시 '저장 안됨' 상태로 변경
+                setState({ isDirty: true });
+                updateSaveStatus('dirty');
+            }
+            // 이어서 자동 저장 예약
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(debouncedSave, CONSTANTS.DEBOUNCE_DELAY.SAVE);
+        }
+    }
 };
