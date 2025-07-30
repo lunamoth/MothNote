@@ -299,13 +299,18 @@ class Dashboard {
         };
         const drawClock = () => {
             const style = getComputedStyle(document.documentElement);
+            const accentColor = style.getPropertyValue('--accent-color').trim(); 
+
             ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
             ctx.beginPath(); ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); ctx.lineWidth = 2; ctx.stroke();
             drawNumbers(ctx, radius);
-            ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = style.getPropertyValue('--accent-color').trim(); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = accentColor; ctx.fill();
+            
             const now = new Date(), h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
-            drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07);
-            drawHand((m + s / 60) * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05);
+
+            // [최종 수정] 시침과 분침 색상을 강조색으로 통일
+            drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
+            drawHand((m + s / 60) * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
         };
         let lastTimestamp = 0;
         const animate = (timestamp) => {
@@ -341,7 +346,7 @@ class Dashboard {
                 return; // API 호출 중단
             }
 
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t_weather=true&timezone=Asia/Seoul`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             const data = await response.json();
@@ -864,6 +869,11 @@ const setupFeatureToggles = () => {
             let theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
             themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
             localStorage.setItem('theme', theme);
+            
+            // 테마 변경 시 아날로그 시계를 다시 그리도록 명시적으로 호출
+            if (dashboard && typeof dashboard._initAnalogClock === 'function') {
+                dashboard._initAnalogClock(); 
+            }
         });
     }
 };
