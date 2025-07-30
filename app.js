@@ -58,6 +58,8 @@ const loadAndApplySettings = () => {
         appSettings = sanitizeSettings(parsedSettings);
     } catch (e) {
         console.warn("Could not load settings, using defaults.", e);
+        // [수정] 잘못된 설정 데이터가 있을 경우 localStorage에서 제거
+        localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
         // 에러 발생 시 안전하게 기본값으로 복귀 (깊은 복사)
         appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
     }
