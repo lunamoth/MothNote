@@ -312,12 +312,25 @@ class Dashboard {
             drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
             drawHand((m + s / 60) * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
         };
-        let lastTimestamp = 0;
-        const animate = (timestamp) => {
-            if (timestamp - lastTimestamp >= 1000) { drawClock(); lastTimestamp = timestamp; }
+
+        // --- [성능 개선] ---
+        // 1분에 한 번만 시계를 다시 그리도록 로직 수정
+        let lastMinute = -1; // 마지막으로 그린 '분'을 추적하여 중복 렌더링 방지
+        const animate = () => {
+            const now = new Date();
+            const currentMinute = now.getMinutes();
+
+            // '분'이 변경되었을 때만 시계를 다시 그림
+            if (currentMinute !== lastMinute) {
+                drawClock();
+                lastMinute = currentMinute;
+            }
             this.internalState.analogClockAnimationId = requestAnimationFrame(animate);
         };
-        drawClock(); animate(performance.now());
+        
+        // 애니메이션 루프 시작, 첫 프레임에서 즉시 시계를 그림
+        requestAnimationFrame(animate);
+        // --- [성능 개선 끝] ---
     }
 
     async fetchWeather() {
