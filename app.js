@@ -338,7 +338,6 @@ class Dashboard {
         } catch (error) {
             if (error.name === 'AbortError') return;
             this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
-            // console.error("Failed to fetch weather:", error); // 날씨 로딩 실패 로그는 확장 프로그램 관리 페이지에 오류를 남기므로 주석 처리
         }
     }
     
