@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MothNote ✨</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="toast-container"></div>
+    <!-- [수정] 인라인 스타일 제거. 레이아웃은 이제 CSS 파일에서 제어. -->
+    <div class="container">
+        <aside class="panel" id="folders-panel">
+            <header class="panel-header">
+                <h2>📁 폴더</h2>
+                <div class="button-group">
+                    <button id="add-folder-btn" class="icon-button" title="✨ 새 폴더 추가 (Alt+Shift+N)">✨</button>
+                </div>
+            </header>
+            <div id="dashboard-container">
+                <div id="digital-clock"></div>
+                <div id="widget-row">
+                    <div id="analog-clock-container">
+                        <canvas id="analog-clock" width="126" height="126"></canvas>
+                    </div>
+                    <div id="weather-container">
+                        <!-- 날씨 정보가 여기에 표시됩니다 -->
+                    </div>
+                </div>
+                <div id="calendar-container">
+                    <div id="calendar-header">
+                        <button id="prev-month-btn">⬅️</button>
+                        <h3 id="calendar-month-year"></h3>
+                        <button id="next-month-btn">➡️</button>
+                    </div>
+                    <div id="date-picker-popover" class="date-picker-popover" style="display: none;">
+                        <div class="date-picker-inputs">
+                            <input type="number" id="year-input" min="1900" max="2200">
+                            <span>년</span>
+                            <input type="number" id="month-input" min="1" max="12">
+                            <span>월</span>
+                        </div>
+                        <div class="date-picker-buttons">
+                            <button id="date-picker-cancel-btn">취소</button>
+                            <button id="date-picker-confirm-btn">이동</button>
+                        </div>
+                    </div>
+                    <div id="calendar-grid"></div>
+                </div>
+            </div>
+            <ul id="folder-list" class="item-list"></ul>
+            <footer class="panel-footer">
+                <button id="shortcut-guide-btn" class="text-button" title="⌨️ 전체 단축키 보기">⌨️ 키보드 단축키</button>
+                <button id="settings-btn" class="text-button" title="⚙️ 설정 열기">⚙️ 설정</button>
+            </footer>
+            <input type="file" id="import-file-input" accept=".json" style="display: none;">
+        </aside>
+        <nav class="panel">
+            <header class="panel-header">
+                <h2 id="notes-panel-title">📝 노트</h2>
+                <div id="notes-panel-header-actions" class="button-group">
+                    <button id="empty-trash-btn" class="icon-button" title="🗑️ 휴지통 비우기">🗑️</button>
+                    <button id="add-note-btn" class="icon-button" title="➕ 새 노트 추가 (Alt+N)">➕</button>
+                </div>
+            </header>
+            <div class="notes-header-extra">
+                <div class="search-container">
+                    <input type="search" id="search-input" placeholder="🔍 검색...">
+                    <button id="clear-search" title="❌ 검색 지우기">×</button>
+                </div>
+                <select id="note-sort-select" title="🔃 노트 정렬">
+                    <option value="updatedAt_desc">🕒 수정일 순 (최신)</option>
+                    <option value="updatedAt_asc">🕒 수정일 순 (오래된)</option>
+                    <option value="createdAt_desc">📅 생성일 순 (최신)</option>
+                    <option value="createdAt_asc">📅 생성일 순 (오래된)</option>
+                    <option value="title_asc">🔤 제목 순 (ㄱ-ㅎ)</option>
+                    <option value="title_desc">🔤 제목 순 (ㅎ-ㄱ)</option>
+                </select>
+            </div>
+            <ul id="note-list" class="item-list"></ul>
+        </nav>
+        <main class="panel main-content">
+            <div id="editor-container" class="editor-area" style="display: none;">
+                <input type="text" id="note-title-input" placeholder="🏷️ 제목을 입력하세요" style="font-family: var(--editor-font-family); font-size: calc(var(--editor-font-size, 17px) + 11px);">
+                <textarea id="note-content-textarea" placeholder="✍️ 자유롭게 메모를 남겨보세요..." style="font-family: var(--editor-font-family); font-size: var(--editor-font-size, 17px);"></textarea>
+                <div id="editor-footer">
+                    <span id="char-count"></span>
+                    <span id="word-count"></span>
+                    <span id="created-date"></span>
+                    <span id="updated-date"></span>
+                    <span id="save-status-indicator"></span>
+                </div>
+            </div>
+            <div id="placeholder-container" class="placeholder">
+                <p class="placeholder-icon">🚀</p>
+                <p>왼쪽에서 노트를 선택하거나<br>새로운 생각을 펼쳐보세요!</p>
+            </div>
+        </main>
+    </div>
+    
+    <dialog id="modal" class="modal">
+        <h3 id="modal-title"></h3>
+        <button id="modal-close-btn" class="modal-close-button" title="닫기" style="display: none;">❌</button>
+        <div id="modal-message"></div>
+        <div id="modal-error-message" class="modal-error"></div>
+        <form id="modal-form" method="dialog">
+            <input type="text" id="modal-input" class="modal-input" style="display: none;">
+            <div id="modal-buttons" class="modal-buttons">
+                <button id="modal-cancel-btn" class="modal-button cancel" value="cancel"></button>
+                <button id="modal-confirm-btn" class="modal-button confirm" value="confirm"></button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="settings-modal" class="modal settings-modal">
+        <header class="settings-header">
+            <h3 id="settings-modal-title">⚙️ 설정</h3>
+            <button id="settings-modal-close-btn" class="modal-close-button" title="닫기">❌</button>
+        </header>
+        <div class="settings-content">
+            <div class="settings-tabs">
+                <button class="settings-tab-btn active" data-tab="layout">레이아웃</button>
+                <button class="settings-tab-btn" data-tab="editor">편집기</button>
+                <button class="settings-tab-btn" data-tab="weather">날씨</button>
+                <button class="settings-tab-btn" data-tab="data">데이터</button>
+            </div>
+            <div class="settings-tab-panel active" id="settings-tab-layout">
+                <h4>🎨 컬럼 너비 (%)</h4>
+                <div class="settings-group">
+                    <label for="settings-col1-width">폴더 패널</label>
+                    <input type="range" id="settings-col1-width" min="10" max="50" step="1">
+                    <span id="settings-col1-value"></span>
+                </div>
+                <div class="settings-group">
+                    <label for="settings-col2-width">노트 목록</label>
+                    <input type="range" id="settings-col2-width" min="10" max="50" step="1">
+                    <span id="settings-col2-value"></span>
+                </div>
+            </div>
+            <div class="settings-tab-panel" id="settings-tab-editor">
+                <h4>✏️ 편집기 글꼴</h4>
+                <div class="settings-group">
+                    <label for="settings-editor-font-family">글꼴 이름</label>
+                    <input type="text" id="settings-editor-font-family" class="modal-input" placeholder="예: 'Noto Sans KR', sans-serif">
+                </div>
+                 <div class="settings-group">
+                    <label for="settings-editor-font-size">글꼴 크기 (px)</label>
+                    <input type="number" id="settings-editor-font-size" class="modal-input" min="10" max="30" step="1">
+                </div>
+            </div>
+            <div class="settings-tab-panel" id="settings-tab-weather">
+                <h4>🌦️ 날씨 지역</h4>
+                 <p class="settings-description">
+                    날씨를 표시할 지역의 위도와 경도를 입력하세요.<br>
+                    <a href="https://www.latlong.net/" target="_blank" rel="noopener noreferrer">latlong.net</a>에서 찾을 수 있습니다.
+                </p>
+                <div class="settings-group">
+                    <label for="settings-weather-lat">위도</label>
+                    <input type="number" id="settings-weather-lat" class="modal-input" step="any" placeholder="예: 37.5665">
+                </div>
+                <div class="settings-group">
+                    <label for="settings-weather-lon">경도</label>
+                    <input type="number" id="settings-weather-lon" class="modal-input" step="any" placeholder="예: 126.9780">
+                </div>
+            </div>
+            <div class="settings-tab-panel" id="settings-tab-data">
+                <h4>💾 데이터 관리</h4>
+                <div class="settings-group-row">
+                    <button id="settings-export-btn" class="modal-button neutral">데이터 내보내기</button>
+                    <button id="settings-import-btn" class="modal-button neutral">데이터 가져오기</button>
+                </div>
+                <!-- [수정] 설명 문구 변경 -->
+                <p class="settings-description">
+                    현재 모든 <strong>폴더, 노트, 설정</strong>을 JSON 파일로 백업하거나, 백업 파일로부터 복원합니다.
+                    <br><strong>주의:</strong> 가져오기를 실행하면 현재 데이터와 설정이 <strong>모두 덮어씌워집니다.</strong>
+                </p>
+            </div>
+        </div>
+        <footer class="settings-footer">
+            <button id="settings-reset-btn" class="modal-button danger">기본값으로 복원</button>
+            <button id="settings-save-btn" class="modal-button confirm">저장</button>
+        </footer>
+    </dialog>
+
+    <template id="item-template">
+        <li class="item-list-entry" draggable="true">
+            <div class="item-details">
+                <span class="item-name"></span>
+                <span class="item-count"></span>
+                <div class="item-snippet" style="display: none;"></div>
+            </div>
+            <div class="item-actions">
+            </div>
+        </li>
+    </template>
+    
+    <!-- [수정] 젠 모드 버튼 추가 -->
+    <button id="zen-mode-toggle-btn" title="🧘 젠 모드">🧘</button>
+    <button id="theme-toggle-btn" title="🎨 테마 전환">🌙</button>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
