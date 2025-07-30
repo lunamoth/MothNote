@@ -1,5 +1,5 @@
 import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession } from './storage.js';
+import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {
     folderList, noteList, addFolderBtn, addNoteBtn, emptyTrashBtn, searchInput, clearSearchBtn, noteSortSelect,
     noteTitleInput, noteContentTextarea, shortcutGuideBtn, settingsBtn,
@@ -24,6 +24,7 @@ import {
 
 // --- 설정 관련 로직 ---
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
+let isSavingSettings = false; // [추가] 설정 저장 여부 플래그
 
 // [추가] 젠 모드 설정 관련 DOM 요소 캐싱
 const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
@@ -47,20 +48,18 @@ const applySettings = (settings) => {
     }
 };
 
+// [개선] localStorage에서 설정 로드 시 유효성 검사 강화
 const loadAndApplySettings = () => {
     try {
         const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-        if (storedSettings) {
-            const parsed = JSON.parse(storedSettings);
-            appSettings.layout = { ...CONSTANTS.DEFAULT_SETTINGS.layout, ...parsed.layout };
-            appSettings.editor = { ...CONSTANTS.DEFAULT_SETTINGS.editor, ...parsed.editor };
-            appSettings.weather = { ...CONSTANTS.DEFAULT_SETTINGS.weather, ...parsed.weather };
-            // [추가] 젠 모드 설정 로드
-            appSettings.zenMode = { ...CONSTANTS.DEFAULT_SETTINGS.zenMode, ...parsed.zenMode };
-        }
+        // 저장된 설정이 있으면 파싱, 없으면 빈 객체로 시작
+        const parsedSettings = storedSettings ? JSON.parse(storedSettings) : {};
+        // 유효성 검사를 거친 설정 값을 최종 사용
+        appSettings = sanitizeSettings(parsedSettings);
     } catch (e) {
         console.warn("Could not load settings, using defaults.", e);
-        appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
+        // 에러 발생 시 안전하게 기본값으로 복귀 (깊은 복사)
+        appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
     }
     applySettings(appSettings);
 };
@@ -70,7 +69,6 @@ const openSettingsModal = () => {
     settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
     settingsCol2Width.value = appSettings.layout.col2;
     settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
-    // [추가] 젠 모드 설정 모달에 값 채우기
     settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
     settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
     settingsEditorFontFamily.value = appSettings.editor.fontFamily;
@@ -82,19 +80,17 @@ const openSettingsModal = () => {
 };
 
 const handleSettingsSave = () => {
-    // [개선] font-family 유효성 검사
+    isSavingSettings = true; // 저장 시작 플래그 설정
+    
     const newFontFamily = settingsEditorFontFamily.value.trim();
-    let finalFontFamily = appSettings.editor.fontFamily; // 현재 값으로 시작
+    let finalFontFamily = appSettings.editor.fontFamily; 
 
     if (newFontFamily && typeof CSS.supports === 'function' && CSS.supports('font-family', newFontFamily)) {
         finalFontFamily = newFontFamily;
     } else if (newFontFamily) {
-        // 유효하지 않은 값이지만 입력은 되었을 때, 사용자에게 알림
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_FONT_NAME, CONSTANTS.TOAST_TYPE.ERROR);
-        // UI를 현재 유효한 값으로 되돌려 사용자 혼란 방지
         settingsEditorFontFamily.value = finalFontFamily;
     } else {
-        // 입력값이 비어있을 경우 기본값으로 복원
         finalFontFamily = CONSTANTS.DEFAULT_SETTINGS.editor.fontFamily;
         settingsEditorFontFamily.value = finalFontFamily;
     }
@@ -104,12 +100,11 @@ const handleSettingsSave = () => {
             col1: parseInt(settingsCol1Width.value, 10),
             col2: parseInt(settingsCol2Width.value, 10),
         },
-        // [추가] 젠 모드 설정 저장
         zenMode: {
             maxWidth: parseInt(settingsZenMaxWidth.value, 10)
         },
         editor: {
-            fontFamily: finalFontFamily, // 검증된 값 사용
+            fontFamily: finalFontFamily,
             fontSize: parseInt(settingsEditorFontSize.value, 10) || CONSTANTS.DEFAULT_SETTINGS.editor.fontSize,
         },
         weather: {
@@ -145,14 +140,22 @@ const handleSettingsReset = async () => {
     }
 };
 
+// [개선] 설정 모달 취소 기능 및 이벤트 리스너 통합
 const setupSettingsModal = () => {
     settingsBtn.addEventListener('click', openSettingsModal);
     settingsModalCloseBtn.addEventListener('click', () => settingsModal.close());
     settingsSaveBtn.addEventListener('click', handleSettingsSave);
     settingsResetBtn.addEventListener('click', handleSettingsReset);
-    // [수정] handleExport 함수에 현재 설정(appSettings)을 인자로 전달
     settingsExportBtn.addEventListener('click', () => handleExport(appSettings));
     settingsImportBtn.addEventListener('click', handleImport);
+
+    // [추가] 모달이 닫힐 때 저장하지 않았다면 변경사항(미리보기)을 원래대로 되돌림
+    settingsModal.addEventListener('close', () => {
+        if (!isSavingSettings) {
+            applySettings(appSettings); // 저장된 설정으로 UI 복원
+        }
+        isSavingSettings = false; // 다음을 위해 플래그 리셋
+    });
 
     settingsTabs.addEventListener('click', (e) => {
         const target = e.target.closest('.settings-tab-btn');
@@ -168,20 +171,17 @@ const setupSettingsModal = () => {
     const updateSliderValue = (slider, valueEl, unit, isCol1) => {
         const value = slider.value;
         valueEl.textContent = `${value}${unit}`;
-        // 컬럼 너비는 실시간으로 CSS 변수 업데이트
+        const root = document.documentElement;
         if (isCol1 !== undefined) {
-             const root = document.documentElement;
-            if (isCol1) {
-                root.style.setProperty('--column-folders-width', `${value}%`);
-            } else {
-                root.style.setProperty('--column-notes-width', `${value}%`);
-            }
+            if (isCol1) root.style.setProperty('--column-folders-width', `${value}%`);
+            else root.style.setProperty('--column-notes-width', `${value}%`);
+        } else if (unit === 'px') { // 젠 모드 너비 실시간 미리보기
+             root.style.setProperty('--zen-max-width', `${value}px`);
         }
     };
 
     settingsCol1Width.addEventListener('input', () => updateSliderValue(settingsCol1Width, settingsCol1Value, '%', true));
     settingsCol2Width.addEventListener('input', () => updateSliderValue(settingsCol2Width, settingsCol2Value, '%', false));
-    // [추가] 젠 모드 슬라이더 이벤트 리스너 추가
     settingsZenMaxWidth.addEventListener('input', () => updateSliderValue(settingsZenMaxWidth, settingsZenMaxValue, 'px'));
     
     settingsEditorFontFamily.addEventListener('input', (e) => {
@@ -194,6 +194,7 @@ const setupSettingsModal = () => {
 
 // --- 대시보드 클래스 ---
 class Dashboard {
+    // ... (Dashboard 클래스 코드는 변경 없음)
     constructor() {
         this.dom = {
             digitalClock: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.digitalClock),
@@ -724,11 +725,9 @@ const handleRename = (e, type) => {
     }
 };
 
-// --- 애플리케이션 초기화 ---
-const init = async () => {
-    loadAndApplySettings();
+// --- [리팩토링] init 함수 책임 분리 ---
 
-    // 이벤트 리스너 설정
+const setupEventListeners = () => {
     if(folderList) {
         folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER));
         folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER));
@@ -757,8 +756,9 @@ const init = async () => {
     if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal);
     
     setupSettingsModal();
+};
 
-    // --- [젠 모드 수정] 젠 모드 및 테마 버튼 로직 ---
+const setupFeatureToggles = () => {
     const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn');
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
     
@@ -768,22 +768,15 @@ const init = async () => {
 
         if (zenModeActive) {
             document.body.classList.add('zen-mode');
-            zenModeToggleBtn.textContent = '↔️';
-            zenModeToggleBtn.title = '↔️ 젠 모드 종료';
         }
+        zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘';
+        zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
 
         zenModeToggleBtn.addEventListener('click', () => {
-            // 너비 측정 로직 제거. 이제 CSS가 설정값을 직접 사용.
             const isActive = document.body.classList.toggle('zen-mode');
-            if (isActive) {
-                zenModeToggleBtn.textContent = '↔️';
-                zenModeToggleBtn.title = '↔️ 젠 모드 종료';
-                localStorage.setItem(ZEN_MODE_KEY, 'true');
-            } else {
-                zenModeToggleBtn.textContent = '🧘';
-                zenModeToggleBtn.title = '🧘 젠 모드';
-                localStorage.setItem(ZEN_MODE_KEY, 'false');
-            }
+            localStorage.setItem(ZEN_MODE_KEY, isActive);
+            zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘';
+            zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
         });
     }
 
@@ -802,17 +795,30 @@ const init = async () => {
             localStorage.setItem('theme', theme);
         });
     }
+};
 
-    // 드래그 앤 드롭 설정
+const initializeDragAndDrop = () => {
     setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER);
     setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE);
     setupNoteToFolderDrop();
-    setupImportHandler();
+};
 
-    // 전역 이벤트 리스너
+const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
     window.addEventListener('beforeunload', (e) => { if (state.isDirty) { e.preventDefault(); e.returnValue = ''; } });
     window.addEventListener('keydown', handleGlobalKeyDown);
+};
+
+// --- 애플리케이션 초기화 ---
+const init = async () => {
+    loadAndApplySettings();
+
+    // 기능별 설정 함수 호출
+    setupEventListeners();
+    setupFeatureToggles();
+    initializeDragAndDrop();
+    setupImportHandler();
+    setupGlobalEventListeners();
 
     // 데이터 로드 및 UI 렌더링
     subscribe(renderAll);

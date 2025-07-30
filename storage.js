@@ -183,8 +183,8 @@ const sanitizeContentData = data => {
     };
 };
 
-// [추가] 설정 데이터 유효성 검사 및 정제 함수
-const sanitizeSettings = (settingsData) => {
+// [수정] 설정 데이터 유효성 검사 및 정제 함수 export
+export const sanitizeSettings = (settingsData) => {
     const defaults = CONSTANTS.DEFAULT_SETTINGS;
     const sanitized = JSON.parse(JSON.stringify(defaults)); // Deep copy
 
@@ -195,6 +195,10 @@ const sanitizeSettings = (settingsData) => {
     if (settingsData.layout) {
         sanitized.layout.col1 = parseInt(settingsData.layout.col1, 10) || defaults.layout.col1;
         sanitized.layout.col2 = parseInt(settingsData.layout.col2, 10) || defaults.layout.col2;
+    }
+    // [추가] 젠 모드 설정 정제
+    if (settingsData.zenMode) {
+        sanitized.zenMode.maxWidth = parseInt(settingsData.zenMode.maxWidth, 10) || defaults.zenMode.maxWidth;
     }
     if (settingsData.editor) {
         // [개선] 가져오기 시에도 font-family 유효성 검사
