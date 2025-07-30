@@ -279,9 +279,11 @@ export const setupImportHandler = () => {
         reader.onload = async event => {
             try {
                 const importedData = JSON.parse(event.target.result);
-                // [수정] 노트/폴더 데이터와 설정 데이터를 각각 정제
                 const sanitizedContent = sanitizeContentData(importedData);
-                const sanitizedSettings = sanitizeSettings(importedData.settings);
+                
+                // [BUG FIX] settings 객체가 파일에 존재하는지 확인
+                const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
+                const sanitizedSettings = hasSettingsInFile ? sanitizeSettings(importedData.settings) : null;
 
                 const ok = await showConfirm({ title: CONSTANTS.MODAL_TITLES.IMPORT_DATA, message: CONSTANTS.MESSAGES.CONFIRM.IMPORT_DATA, confirmText: '가져오기' });
                 if (ok) {
@@ -307,15 +309,16 @@ export const setupImportHandler = () => {
                         lastActiveNotePerFolder: {}
                     };
 
-                    // [수정] 설정(settings)을 localStorage에 저장
-                    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                    // [BUG FIX] settings가 파일에 있었을 경우에만 localStorage를 업데이트
+                    if (sanitizedSettings) {
+                        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                    }
                     
                     setState(newState);
                     buildNoteMap();
                     await saveData();
                     saveSession();
 
-                    // [수정] 성공 메시지를 변경하고, 1.5초 후 앱을 새로고침하여 설정을 적용
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD);
                     setTimeout(() => location.reload(), 1500);
                 }

@@ -14,7 +14,7 @@ let pendingRenamePromise = null;
  * 진행 중인 이름 변경 작업을 강제로 완료(저장 또는 취소)시킵니다.
  * 다른 액션을 실행하기 전에 호출하여 데이터 불일치를 방지합니다.
  */
-const finishPendingRename = async () => {
+export const finishPendingRename = async () => {
     if (state.renamingItemId && pendingRenamePromise) {
         const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
         if (renamingElement) {

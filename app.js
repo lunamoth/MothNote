@@ -14,7 +14,8 @@ import { renderAll, clearSortedNotesCache } from './renderer.js';
 import { 
     handleAddFolder, handleAddNote, handleEmptyTrash, handlePinNote,
     handleDelete, handleRestoreItem, handlePermanentlyDeleteItem,
-    startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer
+    startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
+    finishPendingRename
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -143,10 +144,28 @@ const handleSettingsReset = async () => {
         // 3. 전체 UI에 즉시 적용
         applySettings(appSettings);
 
+        // --- [BUG FIX #3] ---
+        // 4. 모달 내부 UI 컨트롤 값 업데이트
+        settingsCol1Width.value = appSettings.layout.col1;
+        settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
+        settingsCol2Width.value = appSettings.layout.col2;
+        settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
+        settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
+        settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
+        settingsEditorFontFamily.value = appSettings.editor.fontFamily;
+        settingsEditorFontSize.value = appSettings.editor.fontSize;
+        settingsWeatherLat.value = appSettings.weather.lat;
+        settingsWeatherLon.value = appSettings.weather.lon;
+        // --- [BUG FIX #3 END] ---
+
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
 
         // [수정] 자동으로 설정 모달을 닫습니다.
         settingsModal.close();
+    } else {
+        // [BUG FIX] 사용자가 초기화를 취소했을 때,
+        // 실시간 미리보기로 변경되었던 UI를 원래 저장된 설정으로 되돌립니다.
+        applySettings(appSettings);
     }
 };
 
@@ -322,7 +341,7 @@ class Dashboard {
                 return; // API 호출 중단
             }
 
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             const data = await response.json();
@@ -404,7 +423,11 @@ class Dashboard {
                 if (!(await confirmNavigation())) return;
                 const newFilterDate = new Date(target.dataset.date);
                 const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime();
-                searchInput.value = '';
+                
+                // --- [BUG FIX #2] ---
+                searchInput.value = ''; // 검색창 UI를 비웁니다.
+                // --- [BUG FIX #2 END] ---
+                
                 if (isSameDate) {
                     setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
                 } else {
@@ -420,7 +443,11 @@ class Dashboard {
 
                     const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
                     const nextActiveNoteId = sortedNotes[0]?.id ?? null;
+                    
+                    // --- [BUG FIX #2] ---
                     setState({ dateFilter: newFilterDate, activeNoteId: nextActiveNoteId, activeFolderId: null, searchTerm: '' });
+                    // --- [BUG FIX #2 END] ---
+                    
                     this.renderCalendar();
                 }
             }
@@ -619,6 +646,13 @@ const setupNoteToFolderDrop = () => {
             if (sourceFolder && targetFolder && sourceFolder.id !== targetFolder.id) {
                 const noteIndex = sourceFolder.notes.findIndex(n => n.id === noteId);
                 const [noteToMove] = sourceFolder.notes.splice(noteIndex, 1);
+                
+                // --- [BUG FIX #1] ---
+                if (state.lastActiveNotePerFolder[sourceFolder.id] === noteId) {
+                    delete state.lastActiveNotePerFolder[sourceFolder.id];
+                }
+                // --- [BUG FIX #1 END] ---
+
                 targetFolder.notes.unshift(noteToMove);
                 noteToMove.updatedAt = Date.now();
                 clearSortedNotesCache();
@@ -643,6 +677,10 @@ const _focusAndScrollToListItem = (listElement, itemId) => {
 };
 
 const _navigateList = async (type, direction) => {
+    // --- [BUG FIX #4] ---
+    await finishPendingRename();
+    // --- [BUG FIX #4 END] ---
+
     const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
     if (!list) return;
 
@@ -800,7 +838,12 @@ const setupFeatureToggles = () => {
         zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘';
         zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
 
-        zenModeToggleBtn.addEventListener('click', () => {
+        zenModeToggleBtn.addEventListener('click', async () => { // async로 변경
+            // [BUG FIX] 다른 탐색 액션과 마찬가지로 저장 여부 확인
+            if (!(await confirmNavigation())) {
+                return; // 사용자가 취소하면 아무 작업도 하지 않음
+            }
+
             const isActive = document.body.classList.toggle('zen-mode');
             localStorage.setItem(ZEN_MODE_KEY, isActive);
             zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘';
