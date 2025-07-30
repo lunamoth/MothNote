@@ -56,39 +56,45 @@ export const loadData = async () => {
             initialState.totalNoteCount = initialState.folders.reduce((sum, f) => sum + f.notes.length, 0);
 
             // --- [BUG FIX] ---
-            // 1. 먼저 기본 상태(폴더, 휴지통, 활성 ID)를 설정합니다.
+            // 1. 먼저 기본 상태(폴더, 휴지통, 활성 ID 등)를 설정합니다.
             setState(initialState);
             // 2. [핵심 수정] 유효성 검사 전에, 설정된 상태를 기반으로 noteMap을 먼저 빌드합니다.
+            // 이렇게 해야 다음 단계의 유효성 검사가 정확한 noteMap을 참조할 수 있습니다.
             buildNoteMap();
 
-            // 3. 이제 빌드된 state.noteMap을 기준으로 활성 ID의 유효성을 검사할 수 있습니다.
+            // 3. 이제 빌드된 state.noteMap을 기준으로 활성 ID의 유효성을 검사합니다.
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
             const noteExists = state.noteMap.has(state.activeNoteId);
 
             let needsStateUpdate = false;
+            let finalActiveFolderId = state.activeFolderId;
+            let finalActiveNoteId = state.activeNoteId;
 
             if (!folderExists) {
-                initialState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-                initialState.activeNoteId = null;
+                finalActiveFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+                finalActiveNoteId = null;
                 needsStateUpdate = true;
             }
 
             // 휴지통에 있는 노트는 noteMap에 없으므로, 휴지통 뷰가 아닐 때만 noteExists를 검사합니다.
-            if (state.activeFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && !noteExists) {
-                initialState.activeNoteId = null;
-                const activeFolder = state.folders.find(f => f.id === state.activeFolderId);
+            if (finalActiveFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && !noteExists) {
+                finalActiveNoteId = null; // ID가 유효하지 않으면 일단 null로 설정
+                
+                // 해당 폴더의 마지막 활성 노드를 찾거나, 첫 번째 노드를 활성화합니다.
+                const activeFolder = state.folders.find(f => f.id === finalActiveFolderId);
                 if (activeFolder && activeFolder.notes.length > 0) {
                     const sortedNotes = sortNotes(activeFolder.notes, state.noteSortOrder);
-                    initialState.activeNoteId = sortedNotes[0]?.id ?? null;
+                    finalActiveNoteId = sortedNotes[0]?.id ?? null;
                 }
                 needsStateUpdate = true;
             }
             
-            // 4. 유효성 검사 후 변경된 ID가 있다면 다시 상태를 업데이트합니다.
+            // 4. 유효성 검사 후 변경된 ID가 있다면 다시 상태를 업데이트하여 렌더링을 트리거합니다.
+            // 이 시점에는 noteMap이 완전히 준비되었으므로 렌더러가 올바르게 동작합니다.
             if (needsStateUpdate) {
                 setState({
-                    activeFolderId: initialState.activeFolderId,
-                    activeNoteId: initialState.activeNoteId
+                    activeFolderId: finalActiveFolderId,
+                    activeNoteId: finalActiveNoteId
                 });
             }
             // --- [BUG FIX END] ---

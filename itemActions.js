@@ -2,7 +2,8 @@ import { state, setState, findFolder, findNote, updateNoteCreationDates, CONSTAN
 import { saveData, saveSession } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
-    showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt
+    showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
+    editorContainer // [추가] 에디터 컨테이너 import
 } from './components.js';
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
@@ -10,25 +11,19 @@ import { changeActiveFolder } from './navigationActions.js';
 // --- Promise 기반 이름 변경 동기화 ---
 let pendingRenamePromise = null;
 
-/**
- * 진행 중인 이름 변경 작업을 강제로 완료(저장 또는 취소)시킵니다.
- * 다른 액션을 실행하기 전에 호출하여 데이터 불일치를 방지합니다.
- */
 export const finishPendingRename = async () => {
     if (state.renamingItemId && pendingRenamePromise) {
         const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
         if (renamingElement) {
-            renamingElement.blur(); // blur 이벤트가 이름 변경 완료 로직을 트리거합니다.
-            await pendingRenamePromise; // blur 이벤트 처리 및 상태 업데이트가 완료될 때까지 기다립니다.
+            renamingElement.blur();
+            await pendingRenamePromise;
         }
     }
 };
 
-
 // 달력 UI 갱신을 위한 함수를 저장할 변수
 let calendarRenderer = () => {};
 
-// app.js에서 달력 렌더러 함수를 주입받기 위한 함수
 export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
@@ -54,7 +49,6 @@ const finalizeItemChange = async (newState = {}, successMessage = '') => {
     await commitChanges(newState);
 };
 
-
 // --- 노트 관련 액션을 위한 고차 함수 ---
 const withNote = async (noteId, action) => {
     await finishPendingRename();
@@ -64,7 +58,6 @@ const withNote = async (noteId, action) => {
         await commitChanges();
     }
 };
-
 
 // 확인 절차와 실행 로직을 결합한 고차 함수
 async function withConfirmation(options, action) {
@@ -84,8 +77,7 @@ const moveItemToTrash = (item, type, originalFolderId = null) => {
     state.trash.unshift(item);
 };
 
-
-// --- 이벤트 핸들러 ---
+// --- 이벤트 핸들러 (저장 로직 제외) ---
 
 export const handleRestoreItem = async (id) => {
     await finishPendingRename();
@@ -571,66 +563,100 @@ export const startRename = (liElement, type) => {
     setState({ renamingItemId: id });
 };
 
-// --- [최종 수정] 저장 로직 재구성 ---
+// --- '열쇠' 방식 저장 관리 로직 ---
 
-let debounceTimer;
-let isSaving = false;
+let debounceTimer = null;
+let saveLock = Promise.resolve(); // '열쇠' 역할을 하는 Promise. 초기는 즉시 완료된 상태.
 
-// 실제 저장 작업을 수행하는 함수
-const debouncedSave = async () => {
-    if (isSaving) return; // 이미 다른 저장 작업이 진행 중이면 실행하지 않음
-
-    const noteId = state.activeNoteId;
-    if (!noteId) return;
-
-    isSaving = true;
+/**
+ * 실제 저장 작업을 수행하는 핵심 함수. 전달받은 데이터('스냅샷')만 사용.
+ */
+async function _performSave(noteId, titleToSave, contentToSave) {
     updateSaveStatus('saving');
 
     const { item: noteToSave } = findNote(noteId);
     if (noteToSave) {
-        // 저장 시점의 최신 값으로 state 객체를 업데이트
-        noteToSave.title = noteTitleInput.value;
-        noteToSave.content = noteContentTextarea.value;
+        noteToSave.title = titleToSave;
+        noteToSave.content = contentToSave;
         noteToSave.updatedAt = Date.now();
 
         await saveData();
+
         clearSortedNotesCache();
         state._virtualFolderCache.recent = null;
 
-        // 저장이 완료된 후, 현재 활성 노트가 그대로일 때만 UI 업데이트
         if (state.activeNoteId === noteId) {
             setState({ isDirty: false });
             updateSaveStatus('saved');
         }
     }
-    isSaving = false;
-};
+}
 
-// 저장 핸들러 (조율자)
-export const handleNoteUpdate = async (isForced = false) => {
-    const noteId = state.activeNoteId;
-    if (!noteId || (state.renamingItemId && isForced)) return;
+/**
+ * 모든 저장 요청을 조율하는 유일한 핸들러.
+ */
+export async function handleNoteUpdate(isForced = false) {
+    // =======================================================================
+    // [최종 데이터 유실 방지] 에디터가 화면에 표시되지 않은 상태에서는
+    // 절대로 저장 로직을 실행하지 않습니다.
+    // 이것이 F5 연타 시 빈 내용으로 덮어쓰여지는 문제를 근본적으로 해결합니다.
+    if (editorContainer.style.display === 'none') {
+        // 에디터가 보이지 않으면, 사용자가 입력한 내용이 아니므로 저장을 중단합니다.
+        clearTimeout(debounceTimer); // 예약된 자동 저장도 취소
+        return;
+    }
+    // =======================================================================
+    
+    if (state.renamingItemId && isForced) return;
+    
+    // 자동 저장(입력 중)인 경우, 저장을 예약하고 즉시 종료.
+    if (!isForced) {
+        const noteId = state.activeNoteId;
+        if (!noteId) return;
 
-    const { item: activeNote } = findNote(noteId);
-    if (!activeNote) return;
-
-    const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
-
-    if (isForced) {
-        clearTimeout(debounceTimer); // 예약된 자동 저장 취소
-        // 강제 저장은 변경 유무와 상관없이 '저장' 행위를 보장
-        await debouncedSave();
-    } else {
-        // 입력 중 자동 저장
+        const { item: activeNote } = findNote(noteId);
+        if (!activeNote) return;
+        
+        const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
         if (hasChanged) {
             if (!state.isDirty) {
-                // 처음 변경이 감지되면 즉시 '저장 안됨' 상태로 변경
                 setState({ isDirty: true });
                 updateSaveStatus('dirty');
             }
-            // 이어서 자동 저장 예약
             clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(debouncedSave, CONSTANTS.DEBOUNCE_DELAY.SAVE);
+            debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
         }
+        return;
     }
-};
+    
+    // --- 여기서부터는 강제 저장(isForced = true) 또는 예약된 자동 저장이 실행되는 로직 ---
+    
+    clearTimeout(debounceTimer);
+
+    const noteIdToSave = state.activeNoteId;
+    if (!noteIdToSave) return;
+    const titleToSave = noteTitleInput.value;
+    const contentToSave = noteContentTextarea.value;
+    const { item: currentNote } = findNote(noteIdToSave);
+    if (!currentNote) return;
+
+    const hasChanged = currentNote.title !== titleToSave || currentNote.content !== contentToSave;
+    if (!hasChanged && !state.isDirty) {
+        return;
+    }
+
+    await saveLock;
+
+    let releaseLock;
+    saveLock = new Promise(resolve => {
+        releaseLock = resolve;
+    });
+
+    try {
+        await _performSave(noteIdToSave, titleToSave, contentToSave);
+    } catch (e) {
+        console.error("Save failed:", e);
+    } finally {
+        releaseLock();
+    }
+}

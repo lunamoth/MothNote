@@ -34,11 +34,9 @@ const settingsZenMaxValue = document.getElementById('settings-zen-max-value');
 const applySettings = (settings) => {
     const root = document.documentElement;
 
-    // [수정] grid-template-columns 전체를 설정하는 대신 CSS 변수만 업데이트
     root.style.setProperty('--column-folders-width', `${settings.layout.col1}%`);
     root.style.setProperty('--column-notes-width', `${settings.layout.col2}%`);
     
-    // [추가] 젠 모드 너비 설정 적용
     root.style.setProperty('--zen-max-width', `${settings.zenMode.maxWidth}px`);
 
     root.style.setProperty('--editor-font-family', settings.editor.fontFamily);
@@ -49,25 +47,24 @@ const applySettings = (settings) => {
     }
 };
 
-// [개선] localStorage에서 설정 로드 시 유효성 검사 강화
 const loadAndApplySettings = () => {
     try {
         const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-        // 저장된 설정이 있으면 파싱, 없으면 빈 객체로 시작
         const parsedSettings = storedSettings ? JSON.parse(storedSettings) : {};
-        // 유효성 검사를 거친 설정 값을 최종 사용
         appSettings = sanitizeSettings(parsedSettings);
     } catch (e) {
         console.warn("Could not load settings, using defaults.", e);
-        // [수정] 잘못된 설정 데이터가 있을 경우 localStorage에서 제거
         localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
-        // 에러 발생 시 안전하게 기본값으로 복귀 (깊은 복사)
         appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
     }
     applySettings(appSettings);
 };
 
-const openSettingsModal = () => {
+// [최종 버그 수정] 설정창을 열기 전에 반드시 현재 노트를 저장하도록 수정
+const openSettingsModal = async () => {
+    // 이 한 줄이 모든 데이터 유실 문제를 해결합니다.
+    await handleNoteUpdate(true);
+
     settingsCol1Width.value = appSettings.layout.col1;
     settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
     settingsCol2Width.value = appSettings.layout.col2;
@@ -83,7 +80,7 @@ const openSettingsModal = () => {
 };
 
 const handleSettingsSave = () => {
-    isSavingSettings = true; // 저장 시작 플래그 설정
+    isSavingSettings = true;
     
     const newFontFamily = settingsEditorFontFamily.value.trim();
     let finalFontFamily = appSettings.editor.fontFamily; 
@@ -135,17 +132,10 @@ const handleSettingsReset = async () => {
         confirmButtonType: 'danger'
     });
     if (ok) {
-        // 1. 실제 앱 설정 업데이트
-        appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS)); // Deep copy
-        
-        // 2. localStorage에 즉시 저장
+        appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
-
-        // 3. 전체 UI에 즉시 적용
         applySettings(appSettings);
 
-        // --- [BUG FIX #3] ---
-        // 4. 모달 내부 UI 컨트롤 값 업데이트
         settingsCol1Width.value = appSettings.layout.col1;
         settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
         settingsCol2Width.value = appSettings.layout.col2;
@@ -156,20 +146,14 @@ const handleSettingsReset = async () => {
         settingsEditorFontSize.value = appSettings.editor.fontSize;
         settingsWeatherLat.value = appSettings.weather.lat;
         settingsWeatherLon.value = appSettings.weather.lon;
-        // --- [BUG FIX #3 END] ---
 
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
-
-        // [수정] 자동으로 설정 모달을 닫습니다.
         settingsModal.close();
     } else {
-        // [BUG FIX] 사용자가 초기화를 취소했을 때,
-        // 실시간 미리보기로 변경되었던 UI를 원래 저장된 설정으로 되돌립니다.
         applySettings(appSettings);
     }
 };
 
-// [개선] 설정 모달 취소 기능 및 이벤트 리스너 통합
 const setupSettingsModal = () => {
     settingsBtn.addEventListener('click', openSettingsModal);
     settingsModalCloseBtn.addEventListener('click', () => settingsModal.close());
@@ -178,12 +162,11 @@ const setupSettingsModal = () => {
     settingsExportBtn.addEventListener('click', () => handleExport(appSettings));
     settingsImportBtn.addEventListener('click', handleImport);
 
-    // [추가] 모달이 닫힐 때 저장하지 않았다면 변경사항(미리보기)을 원래대로 되돌림
     settingsModal.addEventListener('close', () => {
         if (!isSavingSettings) {
-            applySettings(appSettings); // 저장된 설정으로 UI 복원
+            applySettings(appSettings);
         }
-        isSavingSettings = false; // 다음을 위해 플래그 리셋
+        isSavingSettings = false;
     });
 
     settingsTabs.addEventListener('click', (e) => {
@@ -204,7 +187,7 @@ const setupSettingsModal = () => {
         if (isCol1 !== undefined) {
             if (isCol1) root.style.setProperty('--column-folders-width', `${value}%`);
             else root.style.setProperty('--column-notes-width', `${value}%`);
-        } else if (unit === 'px') { // 젠 모드 너비 실시간 미리보기
+        } else if (unit === 'px') {
              root.style.setProperty('--zen-max-width', `${value}px`);
         }
     };
@@ -223,7 +206,6 @@ const setupSettingsModal = () => {
 
 // --- 대시보드 클래스 ---
 class Dashboard {
-    // ... (Dashboard 클래스 코드는 변경 없음)
     constructor() {
         this.dom = {
             digitalClock: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.digitalClock),
@@ -308,19 +290,15 @@ class Dashboard {
             
             const now = new Date(), h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
 
-            // [최종 수정] 시침과 분침 색상을 강조색으로 통일
             drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
             drawHand((m + s / 60) * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
         };
 
-        // --- [성능 개선] ---
-        // 1분에 한 번만 시계를 다시 그리도록 로직 수정
-        let lastMinute = -1; // 마지막으로 그린 '분'을 추적하여 중복 렌더링 방지
+        let lastMinute = -1;
         const animate = () => {
             const now = new Date();
             const currentMinute = now.getMinutes();
 
-            // '분'이 변경되었을 때만 시계를 다시 그림
             if (currentMinute !== lastMinute) {
                 drawClock();
                 lastMinute = currentMinute;
@@ -328,9 +306,7 @@ class Dashboard {
             this.internalState.analogClockAnimationId = requestAnimationFrame(animate);
         };
         
-        // 애니메이션 루프 시작, 첫 프레임에서 즉시 시계를 그림
         requestAnimationFrame(animate);
-        // --- [성능 개선 끝] ---
     }
 
     async fetchWeather() {
@@ -352,11 +328,10 @@ class Dashboard {
         try {
             const { lat, lon } = appSettings.weather;
             
-            // --- [보안 수정] 위도/경도 유효성 검사 ---
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
                 this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
                 showToast('잘못된 위도/경도 값입니다. 설정을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
-                return; // API 호출 중단
+                return;
             }
 
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
@@ -442,16 +417,13 @@ class Dashboard {
                 const newFilterDate = new Date(target.dataset.date);
                 const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime();
                 
-                // --- [BUG FIX #2] ---
-                searchInput.value = ''; // 검색창 UI를 비웁니다.
-                // --- [BUG FIX #2 END] ---
+                searchInput.value = '';
                 
                 if (isSameDate) {
                     setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
                 } else {
                     this.internalState.currentDate = newFilterDate;
                     
-                    // [버그 수정] toISOString()으로 인한 시간대 문제를 피하기 위해 날짜 구성 요소 직접 비교
                     const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
                         const noteDate = new Date(note.createdAt);
                         return noteDate.getFullYear() === newFilterDate.getFullYear() &&
@@ -462,9 +434,7 @@ class Dashboard {
                     const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
                     const nextActiveNoteId = sortedNotes[0]?.id ?? null;
                     
-                    // --- [BUG FIX #2] ---
                     setState({ dateFilter: newFilterDate, activeNoteId: nextActiveNoteId, activeFolderId: null, searchTerm: '' });
-                    // --- [BUG FIX #2 END] ---
                     
                     this.renderCalendar();
                 }
@@ -509,8 +479,6 @@ const handleTextareaKeyDown = (e) => {
 };
 
 const handleItemActionClick = async (button, id, type) => {
-    // 모든 item action은 내부적으로 finishPendingRename을 호출하므로 여기서는 제거
-    // 예: handleDelete, handlePinNote 등
     if (button.classList.contains('pin-btn')) handlePinNote(id);
     else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id);
     else if (button.classList.contains('delete-item-btn')) handleDelete(id, type);
@@ -531,7 +499,6 @@ const handleListClick = (e, type) => {
     else if (type === CONSTANTS.ITEM_TYPE.NOTE) changeActiveNote(id);
 };
 
-// --- 드래그 앤 드롭 ---
 const setupDragAndDrop = (listElement, type) => {
     if (!listElement) return;
     let dragOverIndicator;
@@ -588,7 +555,6 @@ const setupDragAndDrop = (listElement, type) => {
             list.splice(toIndex + 1, 0, draggedItem);
         }
         
-        // [수정] 폴더 순서 변경 후 noteMap을 재구성하여 데이터 일관성을 보장합니다.
         buildNoteMap();
         
         await saveData();
@@ -647,7 +613,6 @@ const setupNoteToFolderDrop = () => {
         const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id;
         currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
 
-        // [수정] 노트를 받을 수 없는 가상 폴더에 대한 드롭 방지 로직 추가
         const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
         if ([ALL.id, RECENT.id].includes(targetFolderId)) {
             currentDropTarget = null;
@@ -665,11 +630,9 @@ const setupNoteToFolderDrop = () => {
                 const noteIndex = sourceFolder.notes.findIndex(n => n.id === noteId);
                 const [noteToMove] = sourceFolder.notes.splice(noteIndex, 1);
                 
-                // --- [BUG FIX #1] ---
                 if (state.lastActiveNotePerFolder[sourceFolder.id] === noteId) {
                     delete state.lastActiveNotePerFolder[sourceFolder.id];
                 }
-                // --- [BUG FIX #1 END] ---
 
                 targetFolder.notes.unshift(noteToMove);
                 noteToMove.updatedAt = Date.now();
@@ -685,7 +648,6 @@ const setupNoteToFolderDrop = () => {
     });
 };
 
-// [리팩토링] 키보드 탐색 로직을 헬퍼 함수로 분리
 const _focusAndScrollToListItem = (listElement, itemId) => {
     const itemEl = listElement.querySelector(`[data-id="${itemId}"]`);
     if (itemEl) {
@@ -695,9 +657,7 @@ const _focusAndScrollToListItem = (listElement, itemId) => {
 };
 
 const _navigateList = async (type, direction) => {
-    // --- [BUG FIX #4] ---
     await finishPendingRename();
-    // --- [BUG FIX #4 END] ---
 
     const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
     if (!list) return;
@@ -720,7 +680,6 @@ const _navigateList = async (type, direction) => {
             if (state.activeNoteId !== nextId) await changeActiveNote(nextId);
         }
         
-        // 상태 변경 후 DOM이 업데이트될 시간을 기다린 후 포커스
         setTimeout(() => _focusAndScrollToListItem(list, nextId), 50);
 
     } finally {
@@ -763,7 +722,6 @@ const handleGlobalKeyDown = (e) => {
         const activeEl = document.activeElement;
         const activeListItem = activeEl.closest('.item-list-entry');
         if (activeListItem && activeListItem.dataset.id && activeListItem.dataset.type) {
-            // [BUGFIX] 이름 변경 로직을 startRename으로 직접 호출하도록 수정
             startRename(activeListItem, activeListItem.dataset.type);
         }
         return;
@@ -782,12 +740,9 @@ const handleGlobalKeyDown = (e) => {
 const handleRename = (e, type) => {
     const li = e.target.closest('.item-list-entry');
     if (li) {
-        // [BUGFIX] 이름 변경 로직을 startRename으로 직접 호출하도록 수정
         startRename(li, type);
     }
 };
-
-// --- [리팩토링] init 함수 책임 분리 ---
 
 const setupEventListeners = () => {
     if(folderList) {
@@ -834,10 +789,9 @@ const setupFeatureToggles = () => {
         zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘';
         zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
 
-        zenModeToggleBtn.addEventListener('click', async () => { // async로 변경
-            // [BUG FIX] 다른 탐색 액션과 마찬가지로 저장 여부 확인
+        zenModeToggleBtn.addEventListener('click', async () => {
             if (!(await confirmNavigation())) {
-                return; // 사용자가 취소하면 아무 작업도 하지 않음
+                return;
             }
 
             const isActive = document.body.classList.toggle('zen-mode');
@@ -861,7 +815,6 @@ const setupFeatureToggles = () => {
             themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
             localStorage.setItem('theme', theme);
             
-            // 테마 변경 시 아날로그 시계를 다시 그리도록 명시적으로 호출
             if (dashboard && typeof dashboard._initAnalogClock === 'function') {
                 dashboard._initAnalogClock(); 
             }
@@ -881,18 +834,15 @@ const setupGlobalEventListeners = () => {
     window.addEventListener('keydown', handleGlobalKeyDown);
 };
 
-// --- 애플리케이션 초기화 ---
 const init = async () => {
     loadAndApplySettings();
 
-    // 기능별 설정 함수 호출
     setupEventListeners();
     setupFeatureToggles();
     initializeDragAndDrop();
     setupImportHandler();
     setupGlobalEventListeners();
 
-    // 데이터 로드 및 UI 렌더링
     subscribe(renderAll);
     
     let prevState = { ...state };
@@ -912,5 +862,4 @@ const init = async () => {
     setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
 };
 
-// --- 애플리케이션 시작 ---
 document.addEventListener('DOMContentLoaded', init);
