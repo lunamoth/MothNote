@@ -7,18 +7,19 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
-// --- [추가] 이름 변경 중복 코드 추상화 헬퍼 함수 ---
+// --- [수정] Promise 기반 이름 변경 동기화 ---
+let pendingRenamePromise = null;
+
 /**
  * 진행 중인 이름 변경 작업을 강제로 완료(저장 또는 취소)시킵니다.
  * 다른 액션을 실행하기 전에 호출하여 데이터 불일치를 방지합니다.
  */
 const finishPendingRename = async () => {
-    if (state.renamingItemId) {
+    if (state.renamingItemId && pendingRenamePromise) {
         const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
         if (renamingElement) {
             renamingElement.blur(); // blur 이벤트가 이름 변경 완료 로직을 트리거합니다.
-            // blur 이벤트 처리 및 상태 업데이트가 완료될 시간을 기다립니다.
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await pendingRenamePromise; // blur 이벤트 처리 및 상태 업데이트가 완료될 때까지 기다립니다.
         }
     }
 };
@@ -243,7 +244,13 @@ export const handleAddNote = async () => {
         state.lastActiveNotePerFolder[state.activeFolderId] = newNote.id;
         state.noteMap.set(newNote.id, { note: newNote, folderId: state.activeFolderId });
 
-        const newNoteDateStr = new Date(newNote.createdAt).toISOString().split('T')[0];
+        // [버그 수정] toISOString()은 UTC를 반환하므로, 사용자 로컬 시간대 기준으로 날짜 문자열 생성
+        const noteDate = new Date(newNote.createdAt);
+        const y = noteDate.getFullYear();
+        const m = String(noteDate.getMonth() + 1).padStart(2, '0');
+        const d = String(noteDate.getDate()).padStart(2, '0');
+        const newNoteDateStr = `${y}-${m}-${d}`;
+
         state.noteCreationDates.add(newNoteDateStr);
         calendarRenderer(true);
 
@@ -348,14 +355,25 @@ const handleDeleteNote = async (id) => {
     const newState = {};
     if (wasActiveNoteDeleted) newState.activeNoteId = nextActiveNoteIdToSet;
     if (wasInDateFilteredView) {
-        const filterDateStr = new Date(state.dateFilter).toISOString().split('T')[0];
+        // [버그 수정] toISOString()으로 인한 시간대 문제를 피하기 위해 날짜 구성 요소 직접 비교
+        const filterDate = new Date(state.dateFilter);
         
-        const hasOtherNotesOnSameDate = Array.from(state.noteMap.values()).some(({note}) => 
-            note.id !== item.id && new Date(note.createdAt).toISOString().split('T')[0] === filterDateStr
-        );
+        const hasOtherNotesOnSameDate = Array.from(state.noteMap.values()).some(({note}) => {
+            if (note.id === item.id) return false; // 자기 자신은 제외
+            const noteDate = new Date(note.createdAt);
+            return noteDate.getFullYear() === filterDate.getFullYear() &&
+                   noteDate.getMonth() === filterDate.getMonth() &&
+                   noteDate.getDate() === filterDate.getDate();
+        });
 
         if (!hasOtherNotesOnSameDate) {
-            state.noteCreationDates.delete(filterDateStr);
+            // noteCreationDates Set에서 제거할 'YYYY-MM-DD' 형식의 로컬 날짜 문자열 생성
+            const year = filterDate.getFullYear();
+            const month = String(filterDate.getMonth() + 1).padStart(2, '0');
+            const day = String(filterDate.getDate()).padStart(2, '0');
+            const dateStrToRemove = `${year}-${month}-${day}`;
+
+            state.noteCreationDates.delete(dateStrToRemove);
             newState.dateFilter = null;
             newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
             newState.activeNoteId = null;
@@ -510,21 +528,30 @@ export const startRename = (liElement, type) => {
     if (!nameSpan) return;
 
     setState({ renamingItemId: id });
+    
+    // --- [수정] Promise 기반 동기화 로직 ---
+    let resolvePromise;
+    pendingRenamePromise = new Promise(resolve => { resolvePromise = resolve; });
 
     // 이벤트 핸들러를 한 번만 연결하기 위해 클로저 사용
-    const onBlur = () => {
+    const onBlur = async () => {
         cleanup();
-        _handleRenameEnd(id, type, nameSpan, true);
+        await _handleRenameEnd(id, type, nameSpan, true);
+        resolvePromise();
+        pendingRenamePromise = null;
     };
 
-    const onKeydown = (ev) => {
+    const onKeydown = async (ev) => {
         if (ev.key === 'Enter') {
             ev.preventDefault();
             nameSpan.blur(); // blur 이벤트가 _handleRenameEnd 호출
         } else if (ev.key === 'Escape') {
             ev.preventDefault();
             cleanup();
-            _handleRenameEnd(id, type, nameSpan, false);
+            // _handleRenameEnd를 await하고 promise를 resolve
+            await _handleRenameEnd(id, type, nameSpan, false);
+            resolvePromise();
+            pendingRenamePromise = null;
         }
     };
     

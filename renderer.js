@@ -14,11 +14,12 @@ const _getDateFilteredViewData = () => {
     
     const sourceNotes = Array.from(state.noteMap.values())
         .map(entry => entry.note)
+        // [버그 수정] toISOString()으로 인한 시간대 문제를 피하기 위해 날짜 구성 요소 직접 비교
         .filter(note => {
-            const filterDateStr = filterDate.toISOString().split('T')[0];
             const noteDate = new Date(note.createdAt);
-            const noteDateStr = `${noteDate.getFullYear()}-${String(noteDate.getMonth() + 1).padStart(2, '0')}-${String(noteDate.getDate()).padStart(2, '0')}`;
-            return noteDateStr === filterDateStr;
+            return noteDate.getFullYear() === filterDate.getFullYear() &&
+                   noteDate.getMonth() === filterDate.getMonth() &&
+                   noteDate.getDate() === filterDate.getDate();
         });
         
     return {

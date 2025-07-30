@@ -314,6 +314,14 @@ class Dashboard {
         this.dom.weatherContainer.innerHTML = `<span>...</span>`;
         try {
             const { lat, lon } = appSettings.weather;
+            
+            // --- [보안 수정] 위도/경도 유효성 검사 ---
+            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
+                showToast('잘못된 위도/경도 값입니다. 설정을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                return; // API 호출 중단
+            }
+
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
@@ -401,11 +409,15 @@ class Dashboard {
                     setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
                 } else {
                     this.internalState.currentDate = newFilterDate;
-                    const dateStr = newFilterDate.toISOString().split('T')[0];
+                    
+                    // [버그 수정] toISOString()으로 인한 시간대 문제를 피하기 위해 날짜 구성 요소 직접 비교
                     const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
                         const noteDate = new Date(note.createdAt);
-                        return `${noteDate.getFullYear()}-${String(noteDate.getMonth() + 1).padStart(2, '0')}-${String(noteDate.getDate()).padStart(2, '0')}` === dateStr;
+                        return noteDate.getFullYear() === newFilterDate.getFullYear() &&
+                               noteDate.getMonth() === newFilterDate.getMonth() &&
+                               noteDate.getDate() === newFilterDate.getDate();
                     });
+
                     const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
                     const nextActiveNoteId = sortedNotes[0]?.id ?? null;
                     setState({ dateFilter: newFilterDate, activeNoteId: nextActiveNoteId, activeFolderId: null, searchTerm: '' });

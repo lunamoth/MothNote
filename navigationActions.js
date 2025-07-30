@@ -6,17 +6,11 @@ import {
 import { handleNoteUpdate } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
-// itemActions.js에서 finishPendingRename을 가져오는 대신, 직접 정의하여 순환 참조를 방지하거나,
-// 별도의 유틸리티 파일로 분리하는 것이 이상적입니다.
-// 여기서는 itemActions.js에 정의된 것으로 가정하고, 순환 참조를 피하기 위해
-// 해당 함수를 직접 여기에 정의하거나, 앱 초기화 시 주입받는 패턴을 사용할 수 있습니다.
-// 이 경우에는 itemActions.js의 함수를 사용하지 않고, 각 함수에서 직접 로직을 수행합니다.
 const finishPendingRename = async () => {
     if (state.renamingItemId) {
         const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
         if (renamingElement) {
             renamingElement.blur();
-            await new Promise(resolve => setTimeout(resolve, 50));
         }
     }
 };
@@ -44,8 +38,8 @@ export const confirmNavigation = async () => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
-    // [수정] 다른 노트를 선택하기 전에 활성 이름 변경을 완료합니다.
-    await finishPendingRename();
+    // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
+    // await finishPendingRename(); // 이 파일에서는 itemActions의 함수를 직접 호출하지 않습니다.
 
     if (state.activeNoteId === newNoteId) return;
 
@@ -61,8 +55,8 @@ export const changeActiveNote = async (newNoteId) => {
 };
 
 export const changeActiveFolder = async (newFolderId) => {
-    // [수정] 다른 폴더를 선택하기 전에 활성 이름 변경을 완료합니다.
-    await finishPendingRename();
+    // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
+    // await finishPendingRename();
 
     // [버그 수정] 날짜 필터가 있는 상태에서 다른 폴더를 클릭해도 정상적으로 전환되도록 조건 수정
     if (state.activeFolderId === newFolderId && !state.dateFilter) return;
@@ -123,7 +117,6 @@ const handleSearch = (searchTerm) => {
 
     if (searchTerm) {
         // --- 검색 로직 ---
-        // [리팩토링] 헬퍼 함수를 사용하여 현재 뷰의 노트 가져오기
         const sourceNotes = getCurrentViewNotes();
         
         const filteredNotes = sourceNotes.filter(n =>
@@ -140,16 +133,20 @@ const handleSearch = (searchTerm) => {
 
     } else {
         // --- 초기화 로직 ---
-        // [핵심 버그 수정] 캐시를 명시적으로 초기화하여 "검색 결과 없음" 잔상 방지
         clearSortedNotesCache();
-        
-        // [리팩토링] 헬퍼 함수를 사용하여 현재 뷰의 노트 가져오기
         const notesInCurrentView = getCurrentViewNotes();
 
-        if (state.preSearchActiveNoteId && notesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
-            nextActiveNoteId = state.preSearchActiveNoteId;
-        } else {
-            if (!state.dateFilter) {
+        // --- [버그 수정] 날짜 필터가 활성화된 경우, 해당 뷰의 첫 번째 노트를 우선적으로 활성화 ---
+        if (state.dateFilter) {
+            if (notesInCurrentView.length > 0) {
+                nextActiveNoteId = sortNotes(notesInCurrentView, state.noteSortOrder)[0]?.id ?? null;
+            }
+        } 
+        // --- 날짜 필터가 없는 기존 로직 ---
+        else {
+            if (state.preSearchActiveNoteId && notesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
+                nextActiveNoteId = state.preSearchActiveNoteId;
+            } else {
                 const lastActiveNoteId = state.lastActiveNotePerFolder[state.activeFolderId];
                 if (lastActiveNoteId && notesInCurrentView.some(n => n.id === lastActiveNoteId)) {
                     nextActiveNoteId = lastActiveNoteId;
@@ -168,8 +165,8 @@ const handleSearch = (searchTerm) => {
 
 // `input` 이벤트에 대한 핸들러 (디바운싱 적용)
 export const handleSearchInput = async (e) => {
-    // [수정] 검색 시작 시 이름 변경 상태 강제 종료
-    await finishPendingRename();
+    // `itemActions.js`의 액션 함수들이 `finishPendingRename`을 호출하므로,
+    // 여기서 직접 호출하지 않아도 안정성이 보장됩니다.
     const term = e.target.value;
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
