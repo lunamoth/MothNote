@@ -474,6 +474,16 @@ export const renderEditor = () => {
     if (!activeNote) {
         editorContainer.style.display = 'none';
         placeholderContainer.style.display = 'flex';
+        
+        // --- [추가] 시작: 플레이스홀더 이모지 랜덤 변경 ---
+        const placeholderIcon = document.getElementById('placeholder-icon');
+        if (placeholderIcon) {
+            const emojis = CONSTANTS.PLACEHOLDER_EMOJIS;
+            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+            placeholderIcon.textContent = randomEmoji;
+        }
+        // --- [추가] 끝 ---
+
         return;
     }
     

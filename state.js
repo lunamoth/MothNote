@@ -66,6 +66,11 @@ export const CONSTANTS = {
     AUTO_TITLE_LENGTH: 100,
     RECENT_NOTES_COUNT: 10,
     TOAST_DURATION: 4000,
+    // [추가] 플레이스홀더에 사용할 이모지 배열
+    PLACEHOLDER_EMOJIS: [
+        '💡', '✨', '✍️', '🌱', '🦋', '🎨', '🧠', '🌟', '☕', '📖', '📝', '🧭', '🔭', '🗺️', '🤔',
+        '🌿', '🌻', '🍃', '🌈', '🦉', '🪐', '🌌', '🧘', '🍵', '🪁', '🎈', '🚀', '💎', '🎯', '🔑'
+    ],
     // [개선] 메시지를 용도에 따라 그룹화
     MESSAGES: {
         SUCCESS: {

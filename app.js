@@ -143,20 +143,10 @@ const handleSettingsReset = async () => {
         // 3. 전체 UI에 즉시 적용
         applySettings(appSettings);
 
-        // 4. 열려있는 모달의 UI 컨트롤 값도 업데이트
-        settingsCol1Width.value = appSettings.layout.col1;
-        settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
-        settingsCol2Width.value = appSettings.layout.col2;
-        settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
-        settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
-        settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
-        settingsEditorFontFamily.value = appSettings.editor.fontFamily;
-        settingsEditorFontSize.value = appSettings.editor.fontSize;
-        settingsWeatherLat.value = appSettings.weather.lat;
-        settingsWeatherLon.value = appSettings.weather.lon;
-
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
-        // 모달을 닫지 않음
+
+        // [수정] 자동으로 설정 모달을 닫습니다.
+        settingsModal.close();
     }
 };
 
@@ -540,6 +530,10 @@ const setupDragAndDrop = (listElement, type) => {
             const toIndex = list.findIndex(item => item.id === targetEl.dataset.id);
             list.splice(toIndex + 1, 0, draggedItem);
         }
+        
+        // [수정] 폴더 순서 변경 후 noteMap을 재구성하여 데이터 일관성을 보장합니다.
+        buildNoteMap();
+        
         await saveData();
         setState({});
     });
