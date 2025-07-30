@@ -145,6 +145,7 @@ export const handleRestoreItem = async (id) => {
 
         await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestore.title));
     }
+    saveSession(); // [수정] 복원 후 세션 상태 저장
 };
 
 const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {

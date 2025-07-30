@@ -593,8 +593,16 @@ const setupNoteToFolderDrop = () => {
         }
         const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id;
         currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
-        if (targetFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) await handleDelete(noteId, CONSTANTS.ITEM_TYPE.NOTE, true);
-        else if (targetFolderId === CONSTANTS.VIRTUAL_FOLDERS.FAVORITES.id) {
+
+        // [수정] 노트를 받을 수 없는 가상 폴더에 대한 드롭 방지 로직 추가
+        const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
+        if ([ALL.id, RECENT.id].includes(targetFolderId)) {
+            currentDropTarget = null;
+            return;
+        }
+
+        if (targetFolderId === TRASH.id) await handleDelete(noteId, CONSTANTS.ITEM_TYPE.NOTE, true);
+        else if (targetFolderId === FAVORITES.id) {
             const { item: note } = findNote(noteId);
             if (note && !note.isFavorite) await handleToggleFavorite(noteId);
         } else {
