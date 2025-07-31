@@ -95,6 +95,21 @@ const handleSettingsSave = () => {
         settingsEditorFontFamily.value = finalFontFamily;
     }
 
+    // [버그 수정] 위도/경도 값 유효성 검사 및 피드백
+    let lat = parseFloat(settingsWeatherLat.value);
+    let lon = parseFloat(settingsWeatherLon.value);
+
+    if (isNaN(lat) || lat < -90 || lat > 90) {
+        showToast('유효하지 않은 위도 값입니다. (-90 ~ 90)', CONSTANTS.TOAST_TYPE.ERROR);
+        lat = CONSTANTS.DEFAULT_SETTINGS.weather.lat;
+        settingsWeatherLat.value = lat;
+    }
+    if (isNaN(lon) || lon < -180 || lon > 180) {
+        showToast('유효하지 않은 경도 값입니다. (-180 ~ 180)', CONSTANTS.TOAST_TYPE.ERROR);
+        lon = CONSTANTS.DEFAULT_SETTINGS.weather.lon;
+        settingsWeatherLon.value = lon;
+    }
+
     const newSettings = {
         layout: {
             col1: parseInt(settingsCol1Width.value, 10),
@@ -108,8 +123,8 @@ const handleSettingsSave = () => {
             fontSize: parseInt(settingsEditorFontSize.value, 10) || CONSTANTS.DEFAULT_SETTINGS.editor.fontSize,
         },
         weather: {
-            lat: parseFloat(settingsWeatherLat.value) || CONSTANTS.DEFAULT_SETTINGS.weather.lat,
-            lon: parseFloat(settingsWeatherLon.value) || CONSTANTS.DEFAULT_SETTINGS.weather.lon,
+            lat: lat,
+            lon: lon,
         }
     };
 
@@ -525,12 +540,21 @@ const setupDragAndDrop = (listElement, type) => {
     listElement.addEventListener('dragover', e => {
         e.preventDefault();
         if (listElement !== folderList) return;
+        const indicator = getDragOverIndicator();
         const li = e.target.closest('.item-list-entry');
+        
+        // [버그 수정] 드래그 가능한 아이템이 없을 때의 예외 처리
+        const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]');
+        if (!hasDraggableItems) {
+            listElement.append(indicator);
+            return;
+        }
+
         if (!li || li.classList.contains(CONSTANTS.CLASSES.DRAGGING) || !li.draggable) {
             getDragOverIndicator().remove();
             return;
         }
-        const indicator = getDragOverIndicator(), rect = li.getBoundingClientRect(), isAfter = e.clientY > rect.top + rect.height / 2;
+        const rect = li.getBoundingClientRect(), isAfter = e.clientY > rect.top + rect.height / 2;
         if (isAfter) li.after(indicator);
         else li.before(indicator);
     });
@@ -690,6 +714,14 @@ const _navigateList = async (type, direction) => {
 };
 
 const handleListKeyDown = async (e, type) => {
+    // [버그 수정] 이름 변경 중에는 방향키 네비게이션을 무시
+    if (state.renamingItemId) {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            return;
+        }
+    }
+
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
         if (isNavigating) return;

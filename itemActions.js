@@ -291,7 +291,7 @@ const handleDeleteFolder = async (id) => {
 
     moveItemToTrash(folderToMove, 'folder');
     folderToMove.notes.reverse().forEach(note => {
-        state.favorites.delete(note.id);
+        // [개선] 노트의 즐겨찾기 상태가 폴더 삭제와 무관하게 유지되도록 관련 로직 제거
         moveItemToTrash(note, 'note', folderToMove.id);
     });
     noteIdsInDeletedFolder.forEach(noteId => state.noteMap.delete(noteId));
