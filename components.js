@@ -133,9 +133,10 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
             const handleInputKeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
-                    if (runValidation(true)) {
-                        modal.close('confirm');
-                    }
+                    // [버그 수정] Enter키가 눌리면 확인 버튼을 직접 클릭하도록 변경
+                    // 이렇게 하면 브라우저가 이벤트를 더 안정적으로 처리하여
+                    // 팝업이 닫힌 후 다른 버튼이 눌리는 현상을 방지합니다.
+                    modalConfirmBtn.click();
                 } else if (e.key === 'Tab' && !e.shiftKey) {
                     e.preventDefault();
                     modalConfirmBtn.focus();
@@ -148,6 +149,8 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
                 runValidation();
             };
             
+            // [핵심 수정] 확인 버튼의 기본 동작은 form 제출(dialog 닫기)이다.
+            // 유효성 검사가 실패했을 때만 이 기본 동작을 막는다(e.preventDefault()).
             const handleConfirmClick = (e) => {
                 if (validationFn && !runValidation(true)) {
                     e.preventDefault();

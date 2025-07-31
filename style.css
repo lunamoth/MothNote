@@ -525,14 +525,12 @@
         padding: var(--spacing-xl);
         width: 90%;
         max-width: 450px;
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
         margin: auto;
-        position: relative;
+        /* [핵심 버그 수정] display:flex 속성이 네이티브 dialog 동작을 방해하므로 제거합니다. */
+        /* 내부 컨텐츠 정렬은 form 태그 등 내부에서 처리합니다. */
         &::backdrop { background: rgba(0,0,0,0.5); -webkit-backdrop-filter: var(--blur-effect); backdrop-filter: var(--blur-effect); }
-        h3 { font-size: 18px; font-weight: 600; text-align: center; }
-        div#modal-message { font-size: 14px; color: var(--font-color-dim); text-align: center; line-height: 1.5; }
+        h3 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 20px; }
+        div#modal-message { font-size: 14px; color: var(--font-color-dim); text-align: center; line-height: 1.5; margin-bottom: 20px;}
         form { display: flex; flex-direction: column; gap: 20px; }
     }
     .modal-close-button {

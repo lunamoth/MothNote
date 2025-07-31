@@ -54,14 +54,17 @@ export const changeActiveNote = async (newNoteId) => {
     saveSession();
 };
 
-export const changeActiveFolder = async (newFolderId) => {
+// [핵심 수정] 함수가 options 객체를 인자로 받도록 수정
+export const changeActiveFolder = async (newFolderId, options = {}) => {
     // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
     // await finishPendingRename();
 
     // [버그 수정] 날짜 필터가 있는 상태에서 다른 폴더를 클릭해도 정상적으로 전환되도록 조건 수정
     if (state.activeFolderId === newFolderId && !state.dateFilter) return;
 
-    if (!(await confirmNavigation())) return;
+    // [핵심 수정] options.force가 true가 아닐 경우에만 저장 확인 창을 띄웁니다.
+    // 이렇게 하면 handleAddFolder에서 이 확인 과정을 건너뛸 수 있습니다.
+    if (!options.force && !(await confirmNavigation())) return;
     
     const { item: folder } = findFolder(newFolderId);
     const notesInFolder = folder?.notes ?? [];

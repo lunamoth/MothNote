@@ -197,13 +197,16 @@ export const handleAddFolder = async () => {
     if (name) {
         const newFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}`, name: name.trim(), notes: [] };
         state.folders.push(newFolder);
-        await changeActiveFolder(newFolder.id);
+        // [핵심 수정] changeActiveFolder 함수에 { force: true } 옵션을 전달합니다.
+        // 이는 navigationActions에서 불필요한 "저장되지 않은 변경사항" 확인 창을 건너뛰게 합니다.
+        await changeActiveFolder(newFolder.id, { force: true });
         await saveData();
         
         setTimeout(() => {
             const newFolderEl = folderList.querySelector(`[data-id="${newFolder.id}"]`);
             if (newFolderEl) {
                 newFolderEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                newFolderEl.focus();
             }
         }, 100);
     }
