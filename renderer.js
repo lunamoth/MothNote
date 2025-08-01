@@ -477,7 +477,7 @@ export const renderEditor = () => {
         placeholderContainer.style.display = 'flex';
         
         // --- [추가] 시작: 플레이스홀더 이모지 랜덤 변경 ---
-        const placeholderIcon = document.getElementById('placeholder-icon');
+        const placeholderIcon = document.getElementById(CONSTANTS.EDITOR.DOM_IDS.placeholderIcon);
         if (placeholderIcon) {
             const emojis = CONSTANTS.PLACEHOLDER_EMOJIS;
             const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
@@ -499,21 +499,23 @@ export const renderEditor = () => {
     if (document.activeElement !== noteTitleInput) noteTitleInput.value = activeNote.title ?? '';
     if (document.activeElement !== noteContentTextarea) noteContentTextarea.value = activeNote.content ?? '';
     
+    const { DOM_IDS } = CONSTANTS.EDITOR;
+    
     if (isReadOnly) {
-        document.getElementById('updated-date').textContent = activeNote.deletedAt ? `🗑️ 삭제일: ${formatDate(activeNote.deletedAt)}` : '';
-        document.getElementById('created-date').textContent = `📅 생성일: ${formatDate(activeNote.createdAt)}`;
-        document.getElementById('word-count').textContent = '';
-        document.getElementById('char-count').textContent = '';
+        document.getElementById(DOM_IDS.updatedDate).textContent = activeNote.deletedAt ? `🗑️ 삭제일: ${formatDate(activeNote.deletedAt)}` : '';
+        document.getElementById(DOM_IDS.createdDate).textContent = `📅 생성일: ${formatDate(activeNote.createdAt)}`;
+        document.getElementById(DOM_IDS.wordCount).textContent = '';
+        document.getElementById(DOM_IDS.charCount).textContent = '';
         saveStatusIndicator.classList.remove('visible');
     } else {
         const content = activeNote.content ?? '';
         const charCount = content.length;
         const wordCount = content.split(/\s+/).filter(Boolean).length;
 
-        document.getElementById('updated-date').textContent = `🕒 수정일: ${formatDate(activeNote.updatedAt)}`;
-        document.getElementById('created-date').textContent = `📅 생성일: ${formatDate(activeNote.createdAt)}`;
-        document.getElementById('word-count').textContent = `✍️ 단어: ${wordCount}`;
-        document.getElementById('char-count').textContent = `🔠 글자: ${charCount}`;
+        document.getElementById(DOM_IDS.updatedDate).textContent = `🕒 수정일: ${formatDate(activeNote.updatedAt)}`;
+        document.getElementById(DOM_IDS.createdDate).textContent = `📅 생성일: ${formatDate(activeNote.createdAt)}`;
+        document.getElementById(DOM_IDS.wordCount).textContent = `✍️ 단어: ${wordCount}`;
+        document.getElementById(DOM_IDS.charCount).textContent = `🔠 글자: ${charCount}`;
 
         if (!state.isDirty && !saveStatusIndicator.classList.contains('saving') && saveStatusIndicator.textContent !== '✅ 저장됨') {
             saveStatusIndicator.classList.remove('visible');

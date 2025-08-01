@@ -1,4 +1,5 @@
-import { saveSession } from './storage.js';
+// [수정] 순환 참조 문제를 해결하기 위해 storage.js import 구문 제거
+// import { saveSession } from './storage.js';
 
 export const CONSTANTS = {
     ITEM_TYPE: { FOLDER: 'folder', NOTE: 'note' },
@@ -44,7 +45,22 @@ export const CONSTANTS = {
         KEY_NAV: 200,
         SEARCH: 300,
         // [핵심 수정] 자동 저장 지연 시간을 400ms에서 300ms로 줄여 반응성을 높임
-        SAVE: 300
+        SAVE: 300,
+        WEATHER_SEARCH: 500
+    },
+    EDITOR: {
+        DOM_IDS: {
+            container: 'editor-container',
+            titleInput: 'note-title-input',
+            contentTextArea: 'note-content-textarea',
+            footer: 'editor-footer',
+            updatedDate: 'updated-date',
+            createdDate: 'created-date',
+            wordCount: 'word-count',
+            charCount: 'char-count',
+            saveStatus: 'save-status-indicator',
+            placeholderIcon: 'placeholder-icon'
+        }
     },
     DASHBOARD: {
         WEATHER_CACHE_KEY: 'weather_cache_v1',
@@ -87,7 +103,8 @@ export const CONSTANTS = {
             IMPORT_SUCCESS: '↩️✅ 데이터를 성공적으로 가져왔습니다!',
             SETTINGS_SAVED: '⚙️ 설정이 저장되었습니다.',
             SETTINGS_RESET: '⚙️ 설정이 기본값으로 복원되었습니다.',
-            IMPORT_RELOAD: '데이터와 설정을 성공적으로 가져왔습니다! 앱을 다시 시작합니다.'
+            IMPORT_RELOAD: '데이터와 설정을 성공적으로 가져왔습니다! 앱을 다시 시작합니다.',
+            WEATHER_LOCATION_UPDATED: '🌦️ 날씨 지역 정보가 업데이트되었습니다.'
         },
         ERROR: {
             FOLDER_EXISTS: name => `🤔 '${name}' 폴더는 이미 존재해요.`,
@@ -98,7 +115,8 @@ export const CONSTANTS = {
             EXPORT_FAILURE: '💾❌ 데이터 내보내기 실패.',
             IMPORT_FAILURE: err => `↩️❌ 가져오기 실패: ${err.message}`,
             IMPORT_SIZE_EXCEEDED: '↩️❌ 파일 크기가 5MB를 초과할 수 없습니다.',
-            INVALID_FONT_NAME: '유효하지 않은 글꼴 이름입니다. 기본값으로 복원됩니다.'
+            INVALID_FONT_NAME: '유효하지 않은 글꼴 이름입니다. 기본값으로 복원됩니다.',
+            WEATHER_CITY_NOT_FOUND: '🌦️ 도시를 찾을 수 없습니다. 다른 이름으로 검색해보세요.'
         },
         CONFIRM: {
             PERM_DELETE: name => `💥 '${name}' 항목을 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없어요! 😱`,

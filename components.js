@@ -9,9 +9,9 @@ export const notesPanelTitle = getEl('notes-panel-title');
 export const searchInput = getEl('search-input'), clearSearchBtn = getEl('clear-search');
 export const noteSortSelect = getEl('note-sort-select');
 export const importFileInput = getEl('import-file-input');
-export const editorContainer = getEl('editor-container'), placeholderContainer = getEl('placeholder-container');
-export const noteTitleInput = getEl('note-title-input'), noteContentTextarea = getEl('note-content-textarea');
-export const editorFooter = getEl('editor-footer'), toastContainer = getEl('toast-container');
+export const editorContainer = getEl(CONSTANTS.EDITOR.DOM_IDS.container), placeholderContainer = getEl('placeholder-container');
+export const noteTitleInput = getEl(CONSTANTS.EDITOR.DOM_IDS.titleInput), noteContentTextarea = getEl(CONSTANTS.EDITOR.DOM_IDS.contentTextArea);
+export const editorFooter = getEl(CONSTANTS.EDITOR.DOM_IDS.footer), toastContainer = getEl('toast-container');
 const modal = getEl('modal'), modalTitle = getEl('modal-title'), modalMessage = getEl('modal-message');
 const modalErrorMessage = getEl('modal-error-message');
 const modalForm = getEl('modal-form'), modalInput = getEl('modal-input');
@@ -20,7 +20,7 @@ const modalCloseBtn = getEl('modal-close-btn');
 export const itemTemplate = getEl('item-template');
 export const shortcutGuideBtn = getEl('shortcut-guide-btn');
 export const settingsBtn = getEl('settings-btn');
-export const saveStatusIndicator = getEl('save-status-indicator');
+export const saveStatusIndicator = getEl(CONSTANTS.EDITOR.DOM_IDS.saveStatus);
 export const datePickerPopover = getEl('date-picker-popover');
 export const yearInput = getEl('year-input');
 export const monthInput = getEl('month-input');
@@ -40,6 +40,9 @@ export const settingsEditorFontFamily = getEl('settings-editor-font-family');
 export const settingsEditorFontSize = getEl('settings-editor-font-size');
 export const settingsWeatherLat = getEl('settings-weather-lat');
 export const settingsWeatherLon = getEl('settings-weather-lon');
+export const settingsWeatherCitySearch = getEl('settings-weather-city-search');
+export const settingsWeatherCitySearchBtn = getEl('settings-weather-city-search-btn');
+export const settingsWeatherCityResults = getEl('settings-weather-city-results');
 export const settingsExportBtn = getEl('settings-export-btn');
 export const settingsImportBtn = getEl('settings-import-btn');
 export const settingsResetBtn = getEl('settings-reset-btn');
@@ -218,7 +221,11 @@ export const showFolderSelectPrompt = async ({ title, message }) => {
     const select = document.createElement('select');
     select.className = 'modal-input';
 
-    state.folders.forEach(folder => {
+    const realFolders = state.folders.filter(folder => 
+        !Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === folder.id)
+    );
+
+    realFolders.forEach(folder => {
         const option = document.createElement('option');
         option.value = folder.id;
         option.textContent = `📁 ${folder.name}`;
@@ -228,7 +235,7 @@ export const showFolderSelectPrompt = async ({ title, message }) => {
     formContent.appendChild(messageP);
     formContent.appendChild(select);
     
-    if (state.folders.length === 0) {
+    if (realFolders.length === 0) {
         messageP.textContent = '노트를 복원할 폴더가 없습니다. 먼저 새 폴더를 만들어주세요.';
         select.style.display = 'none';
         await showAlert({

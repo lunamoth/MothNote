@@ -185,11 +185,12 @@ export const handleAddFolder = async () => {
     const name = await showPrompt({
         title: CONSTANTS.MODAL_TITLES.NEW_FOLDER,
         placeholder: '📁 폴더 이름을 입력하세요',
-        hideCancelButton: true,
         validationFn: (value) => {
             const trimmedValue = value.trim();
             if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
-            if (state.folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+            if (state.folders.some(f => f.name.toLowerCase() === trimmedValue.toLowerCase())) {
+                return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+            }
             return { isValid: true };
         }
     });

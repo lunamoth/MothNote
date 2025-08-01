@@ -8,7 +8,8 @@ import {
     settingsCol1Width, settingsCol1Value, settingsCol2Width, settingsCol2Value,
     settingsEditorFontFamily, settingsEditorFontSize,
     settingsWeatherLat, settingsWeatherLon,
-    settingsExportBtn, settingsImportBtn, settingsResetBtn, settingsSaveBtn
+    settingsExportBtn, settingsImportBtn, settingsResetBtn, settingsSaveBtn,
+    settingsWeatherCitySearch, settingsWeatherCitySearchBtn, settingsWeatherCityResults
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
 import { 
@@ -75,6 +76,9 @@ const openSettingsModal = async () => {
     settingsEditorFontSize.value = appSettings.editor.fontSize;
     settingsWeatherLat.value = appSettings.weather.lat;
     settingsWeatherLon.value = appSettings.weather.lon;
+    settingsWeatherCitySearch.value = '';
+    settingsWeatherCityResults.innerHTML = '';
+    settingsWeatherCityResults.style.display = 'none';
 
     settingsModal.showModal();
 };
@@ -169,6 +173,49 @@ const handleSettingsReset = async () => {
     }
 };
 
+const handleWeatherCitySearch = async () => {
+    const query = settingsWeatherCitySearch.value.trim();
+    if (query.length < 2) {
+        settingsWeatherCityResults.style.display = 'none';
+        return;
+    }
+
+    try {
+        const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`);
+        if (!response.ok) throw new Error('Network response was not ok.');
+        const data = await response.json();
+        
+        settingsWeatherCityResults.innerHTML = '';
+        if (data.results && data.results.length > 0) {
+            data.results.forEach(city => {
+                const li = document.createElement('li');
+                let displayName = city.name;
+                if (city.admin1) displayName += `, ${city.admin1}`;
+                if (city.country) displayName += `, ${city.country}`;
+                
+                li.textContent = displayName;
+                li.dataset.lat = city.latitude;
+                li.dataset.lon = city.longitude;
+                li.addEventListener('click', () => {
+                    settingsWeatherLat.value = parseFloat(city.latitude).toFixed(4);
+                    settingsWeatherLon.value = parseFloat(city.longitude).toFixed(4);
+                    settingsWeatherCitySearch.value = displayName;
+                    settingsWeatherCityResults.style.display = 'none';
+                    showToast(CONSTANTS.MESSAGES.SUCCESS.WEATHER_LOCATION_UPDATED);
+                });
+                settingsWeatherCityResults.appendChild(li);
+            });
+            settingsWeatherCityResults.style.display = 'block';
+        } else {
+            settingsWeatherCityResults.style.display = 'none';
+            showToast(CONSTANTS.MESSAGES.ERROR.WEATHER_CITY_NOT_FOUND, CONSTANTS.TOAST_TYPE.ERROR);
+        }
+    } catch (error) {
+        console.error('Error fetching city data:', error);
+        settingsWeatherCityResults.style.display = 'none';
+    }
+};
+
 const setupSettingsModal = () => {
     settingsBtn.addEventListener('click', openSettingsModal);
     settingsModalCloseBtn.addEventListener('click', () => settingsModal.close());
@@ -216,6 +263,20 @@ const setupSettingsModal = () => {
     });
     settingsEditorFontSize.addEventListener('input', (e) => {
         document.documentElement.style.setProperty('--editor-font-size', `${e.target.value}px`);
+    });
+
+    settingsWeatherCitySearchBtn.addEventListener('click', handleWeatherCitySearch);
+    settingsWeatherCitySearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleWeatherCitySearch();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!settingsWeatherCitySearch.contains(e.target) && !settingsWeatherCityResults.contains(e.target)) {
+            settingsWeatherCityResults.style.display = 'none';
+        }
     });
 };
 
@@ -303,10 +364,10 @@ class Dashboard {
             drawNumbers(ctx, radius);
             ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = accentColor; ctx.fill();
             
-            const now = new Date(), h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+            const now = new Date(), h = now.getHours(), m = now.getMinutes();
 
             drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
-            drawHand((m + s / 60) * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
+            drawHand(m * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
         };
 
         let lastMinute = -1;

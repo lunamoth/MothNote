@@ -92,7 +92,6 @@
                 </div>
             </div>
             <div id="placeholder-container" class="placeholder">
-                <!-- [수정] 아이콘 p 태그에 id 추가 -->
                 <p id="placeholder-icon" class="placeholder-icon">🚀</p>
                 <p>왼쪽에서 노트를 선택하거나<br>새로운 생각을 펼쳐보세요!</p>
             </div>
@@ -137,7 +136,6 @@
                     <input type="range" id="settings-col2-width" min="10" max="50" step="1">
                     <span id="settings-col2-value"></span>
                 </div>
-                <!-- [추가] 젠 모드 너비 설정 UI -->
                 <h4>🧘 젠 모드</h4>
                  <div class="settings-group">
                     <label for="settings-zen-max-width">최대 너비 (px)</label>
@@ -154,7 +152,6 @@
                     <label for="settings-editor-font-family">글꼴 이름</label>
                     <input type="text" id="settings-editor-font-family" class="modal-input" placeholder="예: 'Noto Sans KR', sans-serif">
                 </div>
-                <!-- [추가] 글꼴 안내 문구 -->
                 <p class="settings-description">글꼴이 시스템에 설치되어 있어야 적용됩니다.</p>
                  <div class="settings-group">
                     <label for="settings-editor-font-size">글꼴 크기 (px)</label>
@@ -163,9 +160,18 @@
             </div>
             <div class="settings-tab-panel" id="settings-tab-weather">
                 <h4>🌦️ 날씨 지역</h4>
-                 <p class="settings-description">
-                    날씨를 표시할 지역의 위도와 경도를 입력하세요.<br>
-                    <a href="https://www.latlong.net/" target="_blank" rel="noopener noreferrer">latlong.net</a>에서 찾을 수 있습니다.
+                <div class="settings-group weather-search-group">
+                    <label for="settings-weather-city-search">도시 이름 검색</label>
+                    <div class="weather-search-wrapper">
+                        <div class="weather-search-input-wrapper">
+                            <input type="text" id="settings-weather-city-search" class="modal-input" placeholder="예: Seoul, London, Tokyo">
+                            <button id="settings-weather-city-search-btn" class="modal-button neutral">검색</button>
+                        </div>
+                        <ul id="settings-weather-city-results" class="city-results-list"></ul>
+                    </div>
+                </div>
+                <p class="settings-description">
+                    도시 이름 (영문) 으로 검색하거나, 아래에 위도/경도를 직접 입력하세요.<br>
                 </p>
                 <div class="settings-group">
                     <label for="settings-weather-lat">위도</label>
@@ -182,7 +188,6 @@
                     <button id="settings-export-btn" class="modal-button neutral">데이터 내보내기</button>
                     <button id="settings-import-btn" class="modal-button neutral">데이터 가져오기</button>
                 </div>
-                <!-- [수정] 설명 문구 변경 -->
                 <p class="settings-description">
                     현재 모든 <strong>폴더, 노트, 설정</strong>을 JSON 파일로 백업하거나, 백업 파일로부터 복원합니다.
                     <br><strong>주의:</strong> 가져오기를 실행하면 현재 데이터와 설정이 <strong>모두 덮어씌워집니다.</strong>
@@ -190,7 +195,6 @@
             </div>
         </div>
         <footer class="settings-footer">
-            <!-- [수정] 버튼 텍스트 변경 -->
             <button id="settings-reset-btn" class="modal-button danger">모두 기본값으로 복원</button>
             <button id="settings-save-btn" class="modal-button confirm">저장</button>
         </footer>
@@ -208,7 +212,6 @@
         </li>
     </template>
     
-    <!-- [수정] 젠 모드 버튼 추가 -->
     <button id="zen-mode-toggle-btn" title="🧘 젠 모드">🧘</button>
     <button id="theme-toggle-btn" title="🎨 테마 전환">🌙</button>
 
