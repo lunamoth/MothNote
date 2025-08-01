@@ -20,18 +20,18 @@
         --solar-cyan:    #2aa198;
         --solar-green:   #859900;
 
-        /* Light Theme Semantic Colors (Maintained) */
-        --bg-color: rgba(253, 246, 227, 0.85); 
-        --bg-color-opaque: var(--solar-base3);
-        --body-bg-color: var(--solar-base2);
-        --blur-effect: blur(12px) saturate(100%);
+        /* [개선] Apple-like Light Theme Semantic Colors */
+        --bg-color: rgba(253, 246, 227, 0.85); /* 반투명 배경 */
+        --bg-color-opaque: var(--solar-base3); /* 불투명 배경 (모달용) */
+        --body-bg-color: var(--solar-base2); /* 전체 페이지 배경 */
+        --blur-effect: blur(12px) saturate(100%); /* 프로스티드 글래스 효과 */
         --border-color: rgba(0, 43, 54, 0.1); 
-        --divider-color: rgba(0, 43, 54, 0.15);
+        --divider-color: rgba(0, 43, 54, 0.1); /* [수정] 투명도 0.15 -> 0.1 */
         --font-color: var(--solar-base02);
         --font-color-dim: var(--solar-base01);
         --accent-color: var(--solar-blue);
         --hover-bg-color: rgba(0, 43, 54, 0.05);
-        --active-bg-color: color-mix(in srgb, var(--accent-color) 25%, transparent);
+        --active-bg-color: color-mix(in srgb, var(--accent-color) 25%, transparent); /* 강조색 틴트 */
         --danger-color: var(--solar-red);
         --success-color: var(--solar-green);
         --pin-color: var(--solar-orange);
@@ -43,23 +43,23 @@
         --input-bg-color: rgba(0, 43, 54, 0.05);
         --input-focus-bg-color: rgba(0, 43, 54, 0.08);
 
-        /* Apple-like Layout & Spacing */
-        --radius-md: 16px;
+        /* [개선] Apple-like Layout & Spacing */
+        --radius-md: 16px; /* 더 둥글게 */
         --radius-sm: 8px;
         --spacing-xs: 4px;
         --spacing-sm: 8px;
-        --spacing-md: 14px;
+        --spacing-md: 14px; /* 여백 조정 */
         --spacing-lg: 18px;
         --spacing-xl: 28px;
     }
 
     body.dark-mode {
-        /* Dark Theme Semantic Colors (Maintained) */
+        /* [개선] Apple-like Dark Theme Semantic Colors */
         --bg-color: rgba(0, 43, 54, 0.85); 
         --bg-color-opaque: var(--solar-base03);
         --body-bg-color: var(--solar-base02);
         --border-color: rgba(253, 246, 227, 0.1); 
-        --divider-color: rgba(253, 246, 227, 0.15);
+        --divider-color: rgba(253, 246, 227, 0.1); /* [수정] 투명도 0.15 -> 0.1 */
         --font-color: var(--solar-base2);
         --font-color-dim: var(--solar-base0);
         --accent-color: var(--solar-blue);
@@ -75,6 +75,13 @@
         --panel-footer-bg: rgba(255,255,255,0.03);
         --input-bg-color: rgba(253, 246, 227, 0.05);
         --input-focus-bg-color: rgba(253, 246, 227, 0.08);
+
+        /* [추가] 다크모드 버튼 클릭 시 밝기 증가 */
+        .icon-button:active,
+        .text-button:active,
+        .modal-button:active {
+            filter: brightness(1.2);
+        }
     }
     
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -101,7 +108,7 @@
         height: 100vh;
         padding: var(--spacing-lg);
         gap: 0 var(--spacing-lg);
-        transition: grid-template-columns 0.4s ease, gap 0.4s ease;
+        /* transition: grid-template-columns 0.4s ease, gap 0.4s ease; */
     }
     .panel {
         background: var(--bg-color);
@@ -119,16 +126,6 @@
                     0 4px 12px rgba(0,43,54,0.08), 
                     inset 0 1px 0 rgba(253, 246, 227, 0.3);
     }
-    #folders-panel {
-        border-right: none;
-        border-top-right-radius: 0;
-        border-bottom-right-radius: 0;
-    }
-    nav.panel {
-        border-left: none;
-        border-top-left-radius: 0;
-        border-bottom-left-radius: 0;
-    }
 
     body.dark-mode .panel {
         /* [개선] 다크모드용 다중 레이어 그림자 */
@@ -136,6 +133,7 @@
                     0 4px 16px rgba(0,0,0,0.3), 
                     inset 0 1px 0 rgba(253, 246, 227, 0.05);
     }
+
     .panel.drop-target, .item-list-entry.drop-target {
         border-color: var(--accent-color);
         box-shadow: 0 0 10px var(--accent-color);
@@ -152,7 +150,7 @@
     }
     .panel-footer {
         padding: var(--spacing-sm) var(--spacing-lg);
-        border-block-start: 1px solid var(--divider-color);
+        border-block-start: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
         font-size: 13px;
         color: var(--font-color-dim);
         flex-shrink: 0;
@@ -167,7 +165,7 @@
     #editor-footer {
         flex-shrink: 0;
         padding: var(--spacing-sm) var(--spacing-xl);
-        border-block-start: 1px solid var(--divider-color);
+        border-block-start: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
         display: flex;
         gap: var(--spacing-lg);
         font-size: 13px;
@@ -207,7 +205,7 @@
     
     #dashboard-container {
         padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-md);
-        border-bottom: 1px solid var(--divider-color);
+        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
         display: flex;
         flex-direction: column;
         gap: var(--spacing-md);
@@ -300,16 +298,19 @@
     }
     .date-cell {
         cursor: default;
-        color: var(--font-color-dim);
     }
     .date-cell.current-month {
         color: var(--font-color);
     }
+    .date-cell:not(.current-month) {
+        color: var(--font-color-dim);
+    }
     .date-cell.today {
         font-weight: 700;
-        background-color: var(--active-bg-color);
-        color: var(--accent-color);
+        background-color: var(--hover-bg-color);
+        color: var(--font-color);
     }
+    /* [개선] 노트 있는 날짜를 밑줄로 표시 (애플 캘린더 스타일) */
     .date-cell.has-notes {
         cursor: pointer;
         text-decoration: underline;
@@ -321,7 +322,14 @@
         background-color: var(--hover-bg-color);
     }
     .date-cell.active-date {
-        box-shadow: 0 0 0 2px var(--accent-color);
+        background-color: var(--accent-color);
+        color: var(--solar-base3); /* 파란 배경 위에 밝은 텍스트 */
+        font-weight: 700;
+        text-decoration: none; /* 활성 상태에서는 밑줄 제거 */
+    }
+    /* 선택된 날이 오늘일 경우, 선택 스타일이 우선 적용됨 */
+    .date-cell.today.active-date {
+        color: var(--solar-base3);
     }
 
     .date-picker-popover {
@@ -387,8 +395,11 @@
         background: none; border: none; color: var(--font-color-dim); font-size: 20px;
         cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); line-height: 1;
         transition: all 0.2s ease;
-        &:hover { color: var(--font-color); background-color: var(--hover-bg-color); }
-        &:active { transform: scale(0.92); }
+    }
+    .icon-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); }
+    .icon-button:active {
+        transform: scale(0.92);
+        filter: brightness(0.9); /* [수정] 밝기 필터 추가 */
     }
     #empty-trash-btn:hover { color: var(--danger-color); }
 
@@ -411,6 +422,11 @@
         color: var(--font-color);
         background-color: var(--hover-bg-color);
     }
+    /* [추가] text-button 액티브 상태 */
+    .text-button:active {
+        transform: scale(0.97);
+        filter: brightness(0.9);
+    }
 
     .pin-btn.pinned { color: var(--pin-color); }
     .favorite-btn.favorited { color: var(--solar-yellow); }
@@ -422,46 +438,34 @@
         font-size: 14px;
         line-height: 1.4;
         font-weight: 400;
-        /* [개선] 시네마틱 전환을 위한 속성 추가 */
         overflow: hidden;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         max-height: 80px; /* 노트 아이템의 최대 높이 (스니펫 포함) */
-        
-        &:hover { background-color: var(--hover-bg-color); }
-        &.active { background-color: var(--active-bg-color); color: var(--font-color); font-weight: 600; }
-        &.dragging { opacity: 0.4; background: var(--active-bg-color); }
-        &.pinned { background-color: var(--pin-bg-color); }
-        &[draggable="true"] { cursor: grab; }
-        &[draggable="false"] { cursor: pointer; }
+        transition: background-color 0.2s ease, color 0.2s ease;
     }
-    /* [개선] 폴더 아이템은 스니펫이 없으므로 최대 높이 감소 */
+    .item-list-entry:hover { background-color: var(--hover-bg-color); }
+    .item-list-entry.active { background-color: var(--active-bg-color); color: var(--font-color); font-weight: 600; }
+    .item-list-entry.dragging { opacity: 0.4; background: var(--active-bg-color); }
+    .item-list-entry.pinned { background-color: var(--pin-bg-color); }
+    .item-list-entry[draggable="true"] { cursor: grab; }
+    .item-list-entry[draggable="false"] { cursor: pointer; }
     #folder-list .item-list-entry {
         max-height: 44px;
     }
 
-    /* [개선] 시네마틱 전환을 위한 클래스 */
-    .item-newly-added, .item-is-leaving {
-        opacity: 0;
-        max-height: 0 !important;
-        transform: scaleY(0.5);
-        padding-top: 0;
-        padding-bottom: 0;
-        margin-top: 0;
-        margin-bottom: 0;
-    }
-    .item-is-leaving {
-        pointer-events: none;
-    }
-
-
     .drag-over-indicator { height: 2px; background-color: var(--accent-color); margin-block: -1px; margin-inline: var(--spacing-sm); list-style: none; }
-    .pin-divider { height: 1px; background-color: var(--divider-color); margin: 6px var(--spacing-sm); list-style: none; }
+    /* [수정] pin-divider 스타일 재정의 */
+    .pin-divider {
+        height: 0;
+        border-bottom: 0.5px solid var(--divider-color);
+        margin: 6px var(--spacing-sm);
+        list-style: none;
+    }
     
     .item-details { flex-grow: 1; overflow: hidden; display: flex; align-items: baseline; }
     .item-name {
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0;
-        mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
     }
+    .item-name mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
     .item-name[contenteditable="true"] {
         white-space: normal;
         overflow: visible;
@@ -484,8 +488,8 @@
     .item-snippet { 
         font-size: 13px;
         color: var(--font-color-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--spacing-xs);
-        mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
     }
+    .item-snippet mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
     
     #note-list .item-details {
         flex-direction: column;
@@ -500,8 +504,8 @@
 
     .item-actions {
         display: flex; align-items: center; opacity: 0; transition: opacity .2s ease; margin-inline-start: auto;
-        .item-list-entry:hover > &, .item-list-entry.active > & { opacity: 1; }
     }
+    .item-list-entry:hover > .item-actions, .item-list-entry.active > .item-actions { opacity: 1; }
     .delete-item-btn, .pin-btn, .restore-item-btn, .perm-delete-item-btn, .favorite-btn { font-size: 16px; }
     .delete-item-btn:hover { color: var(--danger-color); }
     .restore-item-btn:hover { color: var(--success-color); }
@@ -513,12 +517,12 @@
     }
     .search-container {
         position: relative; flex-grow: 1;
-        #clear-search { display: none; }
-        &:has(#search-input:not(:placeholder-shown)) #clear-search { display: block; }
     }
+    .search-container #clear-search { display: none; }
+    .search-container:has(#search-input:not(:placeholder-shown)) #clear-search { display: block; }
     #search-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 9px var(--spacing-md); border-radius: var(--radius-sm); font-size: 14px; outline: none; transition: all .2s ease;
-        &:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     }
+    #search-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     #search-input::-webkit-search-cancel-button {
         -webkit-appearance: none;
         appearance: none;
@@ -539,11 +543,18 @@
     #note-title-input { 
         background: transparent; border: none; color: var(--font-color);
         font-weight: 700; 
-        font-size: 30px;
+        font-family: var(--editor-font-family);
+        font-size: calc(var(--editor-font-size, 17px) + 11px);
         padding: 32px var(--spacing-xl) var(--spacing-md); 
         width: 100%; outline: none; flex-shrink: 0; 
     }
-    #note-content-textarea { background: transparent; border: none; color: var(--font-color); line-height: 1.7; width: 100%; flex-grow: 1; outline: none; resize: none; padding: 0 var(--spacing-xl) var(--spacing-xl); }
+    #note-content-textarea { 
+        background: transparent; border: none; color: var(--font-color); 
+        line-height: 1.7; width: 100%; flex-grow: 1; outline: none; 
+        resize: none; padding: 0 var(--spacing-xl) var(--spacing-xl); 
+        font-family: var(--editor-font-family);
+        font-size: var(--editor-font-size, 17px);
+    }
     
     #save-status-indicator {
         display: flex;
@@ -566,9 +577,7 @@
 
     .placeholder { display: flex; flex-direction: column; gap: 10px; justify-content: center; align-items: center; height: 100%; font-size: 18px; color: var(--font-color-dim); text-align: center; }
     .placeholder-icon { font-size: 50px; }
-    .placeholder-button { background-color: var(--accent-color); color: var(--solar-base3); border: none; padding: 10px 18px; border-radius: var(--radius-sm); font-size: 15px; font-weight: 500; cursor: pointer; transition: opacity .2s ease; margin-top: 10px; }
-    .placeholder-button:hover { opacity: 0.8; }
-
+    
     .modal {
         background: var(--bg-color-opaque);
         color: var(--font-color);
@@ -579,15 +588,15 @@
         max-width: 450px;
         margin: auto;
         box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-        &::backdrop { 
-            background: rgba(0,0,0,0.3);
-            -webkit-backdrop-filter: blur(5px);
-            backdrop-filter: blur(5px);
-        }
-        h3 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 24px; }
-        div#modal-message { font-size: 14px; color: var(--font-color-dim); text-align: center; line-height: 1.5; margin-bottom: 24px;}
-        form { display: flex; flex-direction: column; gap: 20px; }
     }
+    .modal::backdrop { 
+        background: rgba(0,0,0,0.3);
+        -webkit-backdrop-filter: blur(5px);
+        backdrop-filter: blur(5px);
+    }
+    .modal h3 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 24px; }
+    .modal div#modal-message { font-size: 14px; color: var(--font-color-dim); text-align: center; line-height: 1.5; margin-bottom: 24px;}
+    .modal form { display: flex; flex-direction: column; gap: 20px; }
     .modal-close-button {
         position: absolute;
         top: 12px;
@@ -615,22 +624,25 @@
         min-height: 18px;
     }
 
-    .shortcut-list { list-style: none; padding: 0; margin: var(--spacing-md) 0 0; text-align: left; }
-    .shortcut-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) 0; border-bottom: 1px solid var(--divider-color); }
+    .shortcut-list { list-style: none; padding: 0; margin: 0 0 var(--spacing-md) 0; text-align: left; }
+    .shortcut-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) 0; border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */ }
     .shortcut-list li:last-child { border-bottom: none; }
     .shortcut-list li span { font-weight: 600; color: var(--accent-color); background-color: var(--hover-bg-color); padding: 2px 6px; border-radius: 4px; margin-right: var(--spacing-lg); }
 
     .modal-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 12px var(--spacing-md); border-radius: 10px; font-size: 16px; outline: none; transition: all .2s ease;
-        &:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     }
+    .modal-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     .modal-buttons { display: flex; justify-content: center; gap: var(--spacing-md); }
     .modal-button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s ease;
-        &:hover { opacity: 0.85; }
-        &:active { transform: scale(0.96); }
-        &.confirm { background-color: var(--accent-color); color: var(--solar-base3); }
-        &.cancel { background-color: var(--hover-bg-color); color: var(--font-color); }
-        &.danger { background-color: var(--danger-color); color: var(--solar-base3); }
     }
+    .modal-button:hover { opacity: 0.85; }
+    .modal-button:active {
+        transform: scale(0.96);
+        filter: brightness(0.9); /* [수정] 밝기 필터 추가 */
+    }
+    .modal-button.confirm { background-color: var(--accent-color); color: var(--solar-base3); }
+    .modal-button.cancel { background-color: var(--hover-bg-color); color: var(--font-color); }
+    .modal-button.danger { background-color: var(--danger-color); color: var(--solar-base3); }
     .modal-button.neutral {
         background-color: var(--hover-bg-color);
         color: var(--font-color);
@@ -653,8 +665,8 @@
         justify-content: center;
         align-items: center;
         position: relative;
-        border-bottom: 1px solid var(--divider-color);
-        padding: var(--spacing-lg);
+        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        padding: var(--spacing-lg) 32px;
     }
     .settings-header h3 {
         font-size: 18px;
@@ -662,17 +674,21 @@
     .settings-content {
         display: flex;
         flex-direction: column;
-        padding: var(--spacing-xl) 32px;
+        padding: 0 32px var(--spacing-xl);
         gap: var(--spacing-xl);
     }
     .settings-tabs {
         display: flex;
-        gap: var(--spacing-xs);
-        border-bottom: 1px solid var(--divider-color);
+        gap: var(--spacing-md);
+        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        margin-top: var(--spacing-md);
         padding-bottom: var(--spacing-md);
+        justify-content: center;
+        width: 100%;
     }
     .settings-tab-btn {
         flex: 1;
+        text-align: center;
         padding: var(--spacing-sm) var(--spacing-md);
         border: none;
         background-color: transparent;
@@ -682,6 +698,7 @@
         font-size: 14px;
         font-weight: 500;
         transition: all 0.2s ease;
+        white-space: nowrap; 
     }
     .settings-tab-btn:hover {
         background-color: var(--hover-bg-color);
@@ -694,7 +711,7 @@
     .settings-tab-panel {
         display: none;
         flex-direction: column;
-        gap: 28px;
+        gap: 20px;
         animation: fadeIn 0.3s ease;
     }
     .settings-tab-panel.active {
@@ -706,7 +723,7 @@
         font-size: 16px;
         margin-bottom: var(--spacing-sm);
         padding-bottom: var(--spacing-md);
-        border-bottom: 1px solid var(--divider-color);
+        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
     }
     .settings-group {
         display: grid;
@@ -782,7 +799,7 @@
         padding: 10px var(--spacing-md);
         font-size: 14px;
         cursor: pointer;
-        border-bottom: 1px solid var(--divider-color);
+        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
     }
     .city-results-list li:last-child {
         border-bottom: none;
@@ -808,7 +825,7 @@
         text-decoration: underline;
     }
     .settings-footer {
-        border-top: 1px solid var(--divider-color);
+        border-top: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -817,16 +834,16 @@
 
     .settings-footer .modal-button.danger {
         background-color: var(--hover-bg-color);
-        color: var(--danger-color);
+        color: var(--font-color);
     }
 
     #toast-container { position: fixed; inset-block-start: 20px; inset-inline-end: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
     .toast {
         padding: var(--spacing-md) 20px; border-radius: var(--radius-sm); color: var(--solar-base3); font-size: 14px; font-weight: 500;
         opacity: 0; transform: translateX(100%); animation: slideIn-out 4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-        &.success { background-color: var(--success-color); }
-        &.error { background-color: var(--danger-color); }
     }
+    .toast.success { background-color: var(--success-color); }
+    .toast.error { background-color: var(--danger-color); }
     @keyframes slideIn-out { 0%, 100% { opacity: 0; transform: translateX(100%); } 10%, 90% { opacity: 1; transform: translateX(0); } }
 
     #zen-mode-toggle-btn,

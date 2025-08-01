@@ -84,6 +84,7 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
         }
 
         modalErrorMessage.textContent = '';
+        modalErrorMessage.style.display = 'none'; // [수정] 기본적으로 에러 메시지 숨김
 
         modalConfirmBtn.textContent = confirmText;
         modalCancelBtn.textContent = cancelText;
@@ -127,8 +128,10 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
 
                 if ((force || hasUserInput) && !isValid && message) {
                     modalErrorMessage.textContent = message;
+                    modalErrorMessage.style.display = 'block'; // [수정] 에러 발생 시 보이기
                 } else {
                     modalErrorMessage.textContent = '';
+                    modalErrorMessage.style.display = 'none'; // [수정] 에러 없을 시 숨기기
                 }
                 return isValid;
             };

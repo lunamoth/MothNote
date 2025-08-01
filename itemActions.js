@@ -8,19 +8,10 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
-// [개선] 시네마틱 전환을 위한 애니메이션 헬퍼 함수
+// [수정] 아이템 추가/삭제 애니메이션 제거
 const animateAndRemove = (itemId, onAfterAnimate) => {
-    const listElement = folderList.querySelector(`[data-id="${itemId}"]`) || noteList.querySelector(`[data-id="${itemId}"]`);
-    
-    if (listElement) {
-        listElement.classList.add('item-is-leaving');
-        listElement.addEventListener('transitionend', () => {
-            onAfterAnimate();
-        }, { once: true });
-    } else {
-        // DOM에 요소가 없으면 (예: 검색 결과에서 숨겨진 경우) 즉시 실행
-        onAfterAnimate();
-    }
+    // 애니메이션 없이 콜백을 즉시 실행하여 상태를 업데이트합니다.
+    onAfterAnimate();
 };
 
 

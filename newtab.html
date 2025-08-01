@@ -8,7 +8,6 @@
 </head>
 <body>
     <div id="toast-container"></div>
-    <!-- [수정] 인라인 스타일 제거. 레이아웃은 이제 CSS 파일에서 제어. -->
     <div class="container">
         <aside class="panel" id="folders-panel">
             <header class="panel-header">
@@ -81,8 +80,8 @@
         </nav>
         <main class="panel main-content">
             <div id="editor-container" class="editor-area" style="display: none;">
-                <input type="text" id="note-title-input" placeholder="🏷️ 제목을 입력하세요" style="font-family: var(--editor-font-family); font-size: calc(var(--editor-font-size, 17px) + 11px);">
-                <textarea id="note-content-textarea" placeholder="✍️ 자유롭게 노트를 써보세요..." style="font-family: var(--editor-font-family); font-size: var(--editor-font-size, 17px);"></textarea>
+                <input type="text" id="note-title-input" placeholder="🏷️ 제목을 입력하세요">
+                <textarea id="note-content-textarea" placeholder="✍️ 자유롭게 노트를 써보세요..."></textarea>
                 <div id="editor-footer">
                     <span id="char-count"></span>
                     <span id="word-count"></span>
@@ -102,7 +101,6 @@
         <h3 id="modal-title"></h3>
         <button id="modal-close-btn" class="modal-close-button" title="닫기" style="display: none;">❌</button>
         <div id="modal-message"></div>
-        <!-- [수정] 에러 메시지 div를 form 안으로 이동 -->
         <form id="modal-form" method="dialog">
             <div id="modal-error-message" class="modal-error"></div>
             <input type="text" id="modal-input" class="modal-input" style="display: none;">
