@@ -11,7 +11,7 @@ export const CONSTANTS = {
     DEFAULT_SETTINGS: {
         layout: { col1: 10, col2: 10 }, // percentages
         editor: { fontFamily: `-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", sans-serif`, fontSize: 17 },
-        weather: { lat: 37.5665, lon: 126.9780 }, // Default: Seoul
+        weather: { lat: 37.5660, lon: 126.9784 }, // Default: Seoul
         zenMode: { maxWidth: 850 } // pixels
     },
     // --- 끝 ---

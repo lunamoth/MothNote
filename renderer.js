@@ -229,7 +229,7 @@ const createActionButton = ({ className, textContent, title }) => {
 
 const getActionButtonsConfig = (item, type, isTrashView) => {
     const buttons = [];
-    if (isTrashView) {
+    if (isTrashView && type === CONSTANTS.ITEM_TYPE.NOTE) {
         const itemTypeStr = item.type === 'folder' ? '폴더' : '노트';
         buttons.push({ className: 'restore-item-btn', textContent: '♻️', title: `📁 ${itemTypeStr} 복원` });
         buttons.push({ className: 'perm-delete-item-btn', textContent: '❌', title: '💥 영구 삭제' });
@@ -378,8 +378,9 @@ const getPlaceholderMessage = (viewData) => {
         return '✍️<br>첫 노트를 작성해보세요!';
     }
     
-    // [버그 수정] '휴지통 비었음' 메시지 제거, 다른 가상 폴더와 동일한 메시지 사용
-    return '🤔<br>아직 노트가 없네요.';
+    // [수정] "아직 노트가 없네요." 메시지 제거 요청에 따라 빈 문자열을 반환하여
+    // 빈 가상 폴더(휴지통, 최근 노트 등)에서 플레이스홀더가 보이지 않도록 함
+    return '';
 };
 
 
@@ -439,12 +440,15 @@ export const renderNotes = () => {
     if (state.activeNoteId && !activeNoteIsVisible) {
         setState({ activeNoteId: null });
     }
-
-    // [버그 수정] 렌더링 전에 항상 목록을 비웁니다.
+    
     noteList.innerHTML = '';
 
     if (sortedNotes.length === 0) {
-        noteList.innerHTML = `<div class="placeholder">${getPlaceholderMessage(viewData)}</div>`;
+        const placeholderMessage = getPlaceholderMessage(viewData);
+        // [수정] 플레이스홀더 메시지가 있을 때만 DOM에 추가
+        if (placeholderMessage) {
+            noteList.innerHTML = `<div class="placeholder">${placeholderMessage}</div>`;
+        }
     } else {
         renderList(noteList, sortedNotes, CONSTANTS.ITEM_TYPE.NOTE);
     }
