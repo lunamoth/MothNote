@@ -134,12 +134,18 @@ const handleSettingsSave = () => {
 
     appSettings = newSettings;
     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
-    applySettings(appSettings);
     
     localStorage.removeItem(CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY);
+    applySettings(appSettings);
     
     showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_SAVED);
     settingsModal.close();
+    
+    setTimeout(() => {
+        if (dashboard) {
+            dashboard.fetchWeather();
+        }
+    }, 100);
 };
 
 
@@ -532,7 +538,8 @@ class Dashboard {
 
 
 // --- 전역 변수 ---
-let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isNavigating = false, dashboard;
+// [수정] isListNavigating 플래그 추가하여 방향키 네비게이션 버그 수정
+let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const handleTextareaKeyDown = (e) => {
     if (e.key === 'Tab') {
@@ -742,16 +749,19 @@ const _focusAndScrollToListItem = (listElement, itemId) => {
 };
 
 const _navigateList = async (type, direction) => {
-    await finishPendingRename();
-
-    const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
-    if (!list) return;
-
-    const items = Array.from(list.querySelectorAll('.item-list-entry'));
-    if (items.length === 0) return;
-
-    isNavigating = true;
+    // [수정] 레이스 컨디션 방지를 위한 잠금(lock) 확인
+    if (isListNavigating) return;
+    
+    isListNavigating = true;
     try {
+        await finishPendingRename();
+
+        const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
+        if (!list) return;
+
+        const items = Array.from(list.querySelectorAll('.item-list-entry'));
+        if (items.length === 0) return;
+        
         const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId;
         const currentIndex = items.findIndex(item => item.dataset.id === activeId);
         const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : items.length - 1) : (currentIndex + direction + items.length) % items.length;
@@ -766,16 +776,18 @@ const _navigateList = async (type, direction) => {
         }
         
         setTimeout(() => _focusAndScrollToListItem(list, nextId), 50);
-
     } finally {
-        isNavigating = false;
         clearTimeout(keyboardNavDebounceTimer);
         keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV);
+        
+        // [수정] UI 렌더링이 안정화될 시간을 준 뒤 잠금 해제
+        setTimeout(() => {
+            isListNavigating = false;
+        }, 50);
     }
 };
 
 const handleListKeyDown = async (e, type) => {
-    // [버그 수정] 이름 변경 중에는 방향키 네비게이션을 무시
     if (state.renamingItemId) {
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault();
@@ -785,15 +797,18 @@ const handleListKeyDown = async (e, type) => {
 
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
-        if (isNavigating) return;
         await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1);
     } else if (e.key === 'Enter') {
         e.preventDefault();
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             const firstNoteItem = noteList.querySelector('.item-list-entry');
-            if (firstNoteItem) firstNoteItem.focus();
-            else if (searchInput) searchInput.focus();
+            if (firstNoteItem) {
+                firstNoteItem.focus();
+            } else if (searchInput) {
+                searchInput.focus();
+            }
         }
+        // [수정] 요청에 따라 노트 리스트에서 Enter키 동작 제거
     } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) {
         if (state.activeNoteId && noteContentTextarea) {
             e.preventDefault();
