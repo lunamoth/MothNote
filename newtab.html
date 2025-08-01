@@ -102,8 +102,9 @@
         <h3 id="modal-title"></h3>
         <button id="modal-close-btn" class="modal-close-button" title="닫기" style="display: none;">❌</button>
         <div id="modal-message"></div>
-        <div id="modal-error-message" class="modal-error"></div>
+        <!-- [수정] 에러 메시지 div를 form 안으로 이동 -->
         <form id="modal-form" method="dialog">
+            <div id="modal-error-message" class="modal-error"></div>
             <input type="text" id="modal-input" class="modal-input" style="display: none;">
             <div id="modal-buttons" class="modal-buttons">
                 <button id="modal-cancel-btn" class="modal-button cancel" value="cancel"></button>
@@ -171,7 +172,7 @@
                     </div>
                 </div>
                 <p class="settings-description">
-                    도시 이름 (영문) 으로 검색하거나, 아래에 위도/경도를 직접 입력하세요.<br>
+                    영어 도시 이름으로 검색하거나, 아래에 위도/경도를 직접 입력하세요.<br>
                 </p>
                 <div class="settings-group">
                     <label for="settings-weather-lat">위도</label>

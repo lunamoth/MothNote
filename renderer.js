@@ -14,7 +14,6 @@ const _getDateFilteredViewData = () => {
     
     const sourceNotes = Array.from(state.noteMap.values())
         .map(entry => entry.note)
-        // [버그 수정] toISOString()으로 인한 시간대 문제를 피하기 위해 날짜 구성 요소 직접 비교
         .filter(note => {
             const noteDate = new Date(note.createdAt);
             return noteDate.getFullYear() === filterDate.getFullYear() &&
@@ -34,7 +33,6 @@ const _getDateFilteredViewData = () => {
 };
 
 const _getVirtualFolderViewData = (activeFolderData) => {
-    // [수정] name 속성에 아이콘이 포함된 displayName을 사용하도록 변경
     return {
         name: activeFolderData.displayName,
         notes: activeFolderData.notes,
@@ -47,7 +45,7 @@ const _getVirtualFolderViewData = (activeFolderData) => {
 
 const _getNormalFolderViewData = (activeFolderData) => {
     return {
-        name: `📁 ${activeFolderData.name}`, // [수정] 일반 폴더에도 아이콘을 추가하여 일관성 유지
+        name: `📁 ${activeFolderData.name}`, 
         notes: activeFolderData.notes,
         isSortable: true,
         canAddNote: true,
@@ -56,9 +54,7 @@ const _getNormalFolderViewData = (activeFolderData) => {
     };
 };
 
-// [리팩토링] 각 뷰 타입에 대한 데이터 생성을 헬퍼 함수로 분리
 const getActiveViewData = () => {
-    // 날짜 필터가 우선순위를 가짐
     if (state.dateFilter) {
         return _getDateFilteredViewData();
     }
@@ -81,11 +77,9 @@ const getActiveViewData = () => {
         return _getVirtualFolderViewData(activeFolderData);
     }
     
-    // 일반 폴더의 경우
     return _getNormalFolderViewData(activeFolderData);
 };
 
-// [보안 수정] innerHTML 대신 TextNode와 <mark> element를 사용하여 XSS 공격 방지
 const highlightText = (container, text, term) => {
     container.innerHTML = ''; 
     if (!term || !text) {
@@ -109,12 +103,10 @@ const highlightText = (container, text, term) => {
     container.appendChild(fragment);
 };
 
-// [최적화] 폴더 리스트 아이템 업데이트 로직 분리
 const _updateFolderListItemElement = (li, item, isBeingRenamed) => {
     const nameSpan = li.querySelector('.item-name');
     const countSpan = li.querySelector('.item-count');
 
-    // [수정] 표시할 이름을 결정. 가상 폴더는 displayName, 일반 폴더는 name을 사용.
     const displayName = item.displayName || item.name;
 
     if (!isBeingRenamed) {
@@ -142,7 +134,6 @@ const _updateFolderListItemElement = (li, item, isBeingRenamed) => {
     }
 };
 
-// [최적화] 노트 리스트 아이템 업데이트 로직 분리
 const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
     const nameSpan = li.querySelector('.item-name');
     const countSpan = li.querySelector('.item-count');
@@ -206,7 +197,6 @@ const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
 
 
 const updateListItemElement = (li, item, type) => {
-    // --- 공통 로직 ---
     const isActive = item.id === (type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId);
     const isFolderAndDateFiltering = type === CONSTANTS.ITEM_TYPE.FOLDER && state.dateFilter;
     li.classList.toggle(CONSTANTS.CLASSES.ACTIVE, isActive && !isFolderAndDateFiltering);
@@ -222,10 +212,9 @@ const updateListItemElement = (li, item, type) => {
     
     li.draggable = isDraggable && !isBeingRenamed;
 
-    // --- 타입별 로직 호출 ---
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
         _updateFolderListItemElement(li, item, isBeingRenamed);
-    } else { // Note
+    } else {
         _updateNoteListItemElement(li, item, isBeingRenamed);
     }
 };
@@ -298,7 +287,9 @@ const renderList = (listElement, items, type) => {
     const existingElements = new Map(Array.from(listElement.children).filter(el => el.dataset.id).map(el => [el.dataset.id, el]));
 
     existingElements.forEach((el, id) => {
-        if (!itemMap.has(id)) el.remove();
+        if (!itemMap.has(id) && !el.classList.contains('item-is-leaving')) {
+             el.remove();
+        }
     });
 
     let lastElement = null;
@@ -308,6 +299,10 @@ const renderList = (listElement, items, type) => {
             updateListItemElement(currentEl, item, type);
         } else {
             currentEl = createListItemElement(item, type);
+            currentEl.classList.add('item-newly-added');
+            requestAnimationFrame(() => {
+                currentEl.classList.remove('item-newly-added');
+            });
         }
 
         if (lastElement) {
@@ -328,7 +323,6 @@ const renderList = (listElement, items, type) => {
 };
 
 export const renderFolders = () => {
-    // [수정] .map()을 제거하여 데이터 원본을 수정하지 않도록 함
     const allFolders = [
         CONSTANTS.VIRTUAL_FOLDERS.ALL,
         CONSTANTS.VIRTUAL_FOLDERS.RECENT,
@@ -366,18 +360,28 @@ export const clearSortedNotesCache = () => {
 };
 
 const getPlaceholderMessage = (viewData) => {
-    if (state.searchTerm) return '🤷‍♂️<br>검색 결과가 없어요.';
+    if (state.searchTerm) {
+        return '🤷‍♂️<br>검색 결과가 없어요.';
+    }
+
     if (viewData.isDateFilteredView) {
         const filterDate = new Date(state.dateFilter);
         const dateString = filterDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
         return `🤷‍♂️<br>${dateString}에 작성된 노트가 없습니다.`;
     }
-    if (viewData.isTrashView) return '🗑️<br>휴지통이 비어있어요. 깔끔하네요!';
-    if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.RECENT.id) return '🤔<br>아직 노트가 없네요.';
-    if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.ALL.id && state.folders.length === 0) return '✨<br>첫 폴더를 만들고<br>생각을 기록해보세요!';
     
-    return '';
+    if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.ALL.id && state.folders.length === 0) {
+        return '✨<br>첫 폴더를 만들고<br>생각을 기록해보세요!';
+    }
+    
+    if (viewData.canAddNote) {
+        return '✍️<br>첫 노트를 작성해보세요!';
+    }
+    
+    // [버그 수정] '휴지통 비었음' 메시지 제거, 다른 가상 폴더와 동일한 메시지 사용
+    return '🤔<br>아직 노트가 없네요.';
 };
+
 
 export const renderNotes = () => {
     const viewData = getActiveViewData();
@@ -386,8 +390,6 @@ export const renderNotes = () => {
     emptyTrashBtn.style.display = viewData.isTrashView && state.trash.length > 0 ? 'block' : 'none';
     noteSortSelect.style.display = viewData.isSortable ? 'flex' : 'none';
     
-    noteList.innerHTML = '';
-
     if (viewData.needsFolderSelection) {
         notesPanelTitle.textContent = '📝 노트';
         notesPanelTitle.title = '노트';
@@ -395,7 +397,6 @@ export const renderNotes = () => {
         return;
     }
 
-    // [수정] viewData.name에 이미 아이콘과 이름이 모두 포함되어 있으므로 그대로 사용
     notesPanelTitle.textContent = viewData.name;
     notesPanelTitle.title = viewData.name;
 
@@ -439,9 +440,11 @@ export const renderNotes = () => {
         setState({ activeNoteId: null });
     }
 
+    // [버그 수정] 렌더링 전에 항상 목록을 비웁니다.
+    noteList.innerHTML = '';
+
     if (sortedNotes.length === 0) {
-        const message = getPlaceholderMessage(viewData);
-        noteList.innerHTML = `<div class="placeholder">${message}</div>`;
+        noteList.innerHTML = `<div class="placeholder">${getPlaceholderMessage(viewData)}</div>`;
     } else {
         renderList(noteList, sortedNotes, CONSTANTS.ITEM_TYPE.NOTE);
     }
@@ -476,14 +479,12 @@ export const renderEditor = () => {
         editorContainer.style.display = 'none';
         placeholderContainer.style.display = 'flex';
         
-        // --- [추가] 시작: 플레이스홀더 이모지 랜덤 변경 ---
         const placeholderIcon = document.getElementById(CONSTANTS.EDITOR.DOM_IDS.placeholderIcon);
         if (placeholderIcon) {
             const emojis = CONSTANTS.PLACEHOLDER_EMOJIS;
             const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
             placeholderIcon.textContent = randomEmoji;
         }
-        // --- [추가] 끝 ---
 
         return;
     }

@@ -3,10 +3,26 @@ import { saveData, saveSession } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
-    editorContainer // [추가] 에디터 컨테이너 import
+    editorContainer
 } from './components.js';
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
+
+// [개선] 시네마틱 전환을 위한 애니메이션 헬퍼 함수
+const animateAndRemove = (itemId, onAfterAnimate) => {
+    const listElement = folderList.querySelector(`[data-id="${itemId}"]`) || noteList.querySelector(`[data-id="${itemId}"]`);
+    
+    if (listElement) {
+        listElement.classList.add('item-is-leaving');
+        listElement.addEventListener('transitionend', () => {
+            onAfterAnimate();
+        }, { once: true });
+    } else {
+        // DOM에 요소가 없으면 (예: 검색 결과에서 숨겨진 경우) 즉시 실행
+        onAfterAnimate();
+    }
+};
+
 
 // --- Promise 기반 이름 변경 동기화 ---
 let pendingRenamePromise = null;
@@ -167,18 +183,6 @@ const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
     return nextNote?.id ?? null;
 };
 
-const focusAfterDeletion = (listElement, deletedItemId) => {
-    const children = Array.from(listElement.children);
-    const deletedIndex = children.findIndex(el => el.dataset && el.dataset.id === deletedItemId);
-    if (deletedIndex === -1) {
-        const firstItem = listElement.querySelector('.item-list-entry');
-        if (firstItem) firstItem.focus();
-        return;
-    }
-    const nextFocusElement = children[deletedIndex + 1] || children[deletedIndex - 1] || listElement;
-    if (nextFocusElement && typeof nextFocusElement.focus === 'function') nextFocusElement.focus();
-};
-
 export const handleAddFolder = async () => {
     await finishPendingRename();
 
@@ -198,8 +202,6 @@ export const handleAddFolder = async () => {
     if (name) {
         const newFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}`, name: name.trim(), notes: [] };
         state.folders.push(newFolder);
-        // [핵심 수정] changeActiveFolder 함수에 { force: true } 옵션을 전달합니다.
-        // 이는 navigationActions에서 불필요한 "저장되지 않은 변경사항" 확인 창을 건너뛰게 합니다.
         await changeActiveFolder(newFolder.id, { force: true });
         await saveData();
         
@@ -277,101 +279,105 @@ export const handleToggleFavorite = (id) => withNote(id, (note) => {
     note.updatedAt = Date.now();
 });
 
-const handleDeleteFolder = async (id) => {
-    const { item: folder, index } = findFolder(id);
-    if (!folder) return;
+const handleDeleteFolder = (id) => {
+    const deletionLogic = async () => {
+        const { item: folder, index } = findFolder(id);
+        if (!folder) return;
 
-    state.totalNoteCount -= folder.notes.length;
-    const folderToMove = state.folders.splice(index, 1)[0];
-    const noteIdsInDeletedFolder = new Set(folderToMove.notes.map(n => n.id));
-    for (const folderId in state.lastActiveNotePerFolder) {
-        if (noteIdsInDeletedFolder.has(state.lastActiveNotePerFolder[folderId])) {
-            delete state.lastActiveNotePerFolder[folderId];
+        state.totalNoteCount -= folder.notes.length;
+        const folderToMove = state.folders.splice(index, 1)[0];
+        const noteIdsInDeletedFolder = new Set(folderToMove.notes.map(n => n.id));
+        for (const folderId in state.lastActiveNotePerFolder) {
+            if (noteIdsInDeletedFolder.has(state.lastActiveNotePerFolder[folderId])) {
+                delete state.lastActiveNotePerFolder[folderId];
+            }
         }
-    }
 
-    moveItemToTrash(folderToMove, 'folder');
-    folderToMove.notes.reverse().forEach(note => {
-        // [개선] 노트의 즐겨찾기 상태가 폴더 삭제와 무관하게 유지되도록 관련 로직 제거
-        moveItemToTrash(note, 'note', folderToMove.id);
-    });
-    noteIdsInDeletedFolder.forEach(noteId => state.noteMap.delete(noteId));
-    
-    delete state.lastActiveNotePerFolder[id];
-    
-    const nextActiveFolderId = (state.activeFolderId === id) 
-        ? state.folders[Math.max(0, index - 1)]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id 
-        : state.activeFolderId;
+        moveItemToTrash(folderToMove, 'folder');
+        folderToMove.notes.reverse().forEach(note => {
+            moveItemToTrash(note, 'note', folderToMove.id);
+        });
+        noteIdsInDeletedFolder.forEach(noteId => state.noteMap.delete(noteId));
+        
+        delete state.lastActiveNotePerFolder[id];
+        
+        const nextActiveFolderId = (state.activeFolderId === id) 
+            ? state.folders[Math.max(0, index - 1)]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id 
+            : state.activeFolderId;
 
-    await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name));
+        await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name));
+        
+        if (state.activeFolderId === id) {
+            await changeActiveFolder(nextActiveFolderId);
+        }
+    };
     
-    if (state.activeFolderId === id) {
-        await changeActiveFolder(nextActiveFolderId);
-    }
-    
-    focusAfterDeletion(folderList, id);
+    animateAndRemove(id, deletionLogic);
 };
 
-const handleDeleteNote = async (id) => {
-    const { item, folder } = findNote(id);
-    if (!item) return;
+const handleDeleteNote = (id) => {
+    const deletionLogic = async () => {
+        const { item, folder } = findNote(id);
+        if (!item) return;
 
-    let nextActiveNoteIdToSet = null;
-    const wasActiveNoteDeleted = state.activeNoteId === id;
-    const wasInDateFilteredView = !!state.dateFilter;
-    if (wasActiveNoteDeleted) {
-        const notesInCurrentView = sortedNotesCache.result;
-        if (notesInCurrentView) nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, notesInCurrentView);
-        else if (folder) nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, sortNotes(folder.notes, state.noteSortOrder));
-    }
-
-    state.favorites.delete(id);
-
-    if (folder) {
-        const noteIndexInFolder = folder.notes.findIndex(n => n.id === id);
-        if (noteIndexInFolder > -1) {
-            const noteToMove = folder.notes.splice(noteIndexInFolder, 1)[0];
-            state.totalNoteCount--;
-            moveItemToTrash(noteToMove, 'note', folder.id);
+        let nextActiveNoteIdToSet = null;
+        const wasActiveNoteDeleted = state.activeNoteId === id;
+        const wasInDateFilteredView = !!state.dateFilter;
+        if (wasActiveNoteDeleted) {
+            const notesInCurrentView = sortedNotesCache.result;
+            if (notesInCurrentView) nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, notesInCurrentView);
+            else if (folder) nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, sortNotes(folder.notes, state.noteSortOrder));
         }
-    } else {
-        console.error(`Could not find source folder for note ID: ${id}. Moving to trash without folder context.`);
-        moveItemToTrash(item, 'note', item.originalFolderId || null);
-    }
-    state.noteMap.delete(id);
-    
-    if (folder && state.lastActiveNotePerFolder[folder.id] === id) delete state.lastActiveNotePerFolder[folder.id];
 
-    const newState = {};
-    if (wasActiveNoteDeleted) newState.activeNoteId = nextActiveNoteIdToSet;
-    if (wasInDateFilteredView) {
-        const filterDate = new Date(state.dateFilter);
+        state.favorites.delete(id);
+
+        if (folder) {
+            const noteIndexInFolder = folder.notes.findIndex(n => n.id === id);
+            if (noteIndexInFolder > -1) {
+                const noteToMove = folder.notes.splice(noteIndexInFolder, 1)[0];
+                state.totalNoteCount--;
+                moveItemToTrash(noteToMove, 'note', folder.id);
+            }
+        } else {
+            console.error(`Could not find source folder for note ID: ${id}. Moving to trash without folder context.`);
+            moveItemToTrash(item, 'note', item.originalFolderId || null);
+        }
+        state.noteMap.delete(id);
         
-        const hasOtherNotesOnSameDate = Array.from(state.noteMap.values()).some(({note}) => {
-            if (note.id === item.id) return false;
-            const noteDate = new Date(note.createdAt);
-            return noteDate.getFullYear() === filterDate.getFullYear() &&
-                   noteDate.getMonth() === filterDate.getMonth() &&
-                   noteDate.getDate() === filterDate.getDate();
-        });
+        if (folder && state.lastActiveNotePerFolder[folder.id] === id) delete state.lastActiveNotePerFolder[folder.id];
 
-        if (!hasOtherNotesOnSameDate) {
-            const year = filterDate.getFullYear();
-            const month = String(filterDate.getMonth() + 1).padStart(2, '0');
-            const day = String(filterDate.getDate()).padStart(2, '0');
-            const dateStrToRemove = `${year}-${month}-${day}`;
+        const newState = {};
+        if (wasActiveNoteDeleted) newState.activeNoteId = nextActiveNoteIdToSet;
+        if (wasInDateFilteredView) {
+            const filterDate = new Date(state.dateFilter);
+            
+            const hasOtherNotesOnSameDate = Array.from(state.noteMap.values()).some(({note}) => {
+                if (note.id === item.id) return false;
+                const noteDate = new Date(note.createdAt);
+                return noteDate.getFullYear() === filterDate.getFullYear() &&
+                       noteDate.getMonth() === filterDate.getMonth() &&
+                       noteDate.getDate() === filterDate.getDate();
+            });
 
-            state.noteCreationDates.delete(dateStrToRemove);
-            newState.dateFilter = null;
-            newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-            newState.activeNoteId = null;
+            if (!hasOtherNotesOnSameDate) {
+                const year = filterDate.getFullYear();
+                const month = String(filterDate.getMonth() + 1).padStart(2, '0');
+                const day = String(filterDate.getDate()).padStart(2, '0');
+                const dateStrToRemove = `${year}-${month}-${day}`;
+
+                state.noteCreationDates.delete(dateStrToRemove);
+                newState.dateFilter = null;
+                newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+                newState.activeNoteId = null;
+            }
         }
-    }
 
-    await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_TO_TRASH(item.title || '제목 없음'));
-    
-    if (wasActiveNoteDeleted) saveSession();
-    focusAfterDeletion(noteList, id);
+        await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_TO_TRASH(item.title || '제목 없음'));
+        
+        if (wasActiveNoteDeleted) saveSession();
+    };
+
+    animateAndRemove(id, deletionLogic);
 };
 
 export const handleDelete = async (id, type, force = false) => {
@@ -380,9 +386,13 @@ export const handleDelete = async (id, type, force = false) => {
     const { item } = finder(id);
     if (!item) return;
 
+    const action = () => {
+        if (type === CONSTANTS.ITEM_TYPE.FOLDER) handleDeleteFolder(id);
+        else handleDeleteNote(id);
+    };
+
     if (force) {
-        if (type === CONSTANTS.ITEM_TYPE.FOLDER) await handleDeleteFolder(id);
-        else await handleDeleteNote(id);
+        action();
         return;
     }
 
@@ -393,10 +403,7 @@ export const handleDelete = async (id, type, force = false) => {
 
     await withConfirmation(
         { title: '🗑️ 휴지통으로 이동', message: confirmMessage, confirmText: '이동' },
-        async () => {
-            if (type === CONSTANTS.ITEM_TYPE.FOLDER) await handleDeleteFolder(id);
-            else await handleDeleteNote(id);
-        }
+        action
     );
 };
 
@@ -409,24 +416,25 @@ export const handlePermanentlyDeleteItem = async (id) => {
     const itemName = item.title ?? item.name;
     const message = CONSTANTS.MESSAGES.CONFIRM.PERM_DELETE(itemName);
 
+    const deletionLogic = async () => {
+        const idsToDelete = new Set([id]);
+        let successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_ITEM_SUCCESS;
+
+        if (item.type === 'folder') {
+            state.trash.forEach(i => {
+                if (i.originalFolderId === id && i.type === 'note') idsToDelete.add(i.id);
+            });
+            successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_FOLDER_SUCCESS;
+        }
+        
+        state.trash = state.trash.filter(i => !idsToDelete.has(i.id));
+        
+        await finalizeItemChange({}, successMessage);
+    };
+
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.PERM_DELETE, message: message, confirmText: '삭제', confirmButtonType: 'danger' },
-        async () => {
-            const idsToDelete = new Set([id]);
-            let successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_ITEM_SUCCESS;
-
-            if (item.type === 'folder') {
-                state.trash.forEach(i => {
-                    if (i.originalFolderId === id && i.type === 'note') idsToDelete.add(i.id);
-                });
-                successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_FOLDER_SUCCESS;
-            }
-            
-            state.trash = state.trash.filter(i => !idsToDelete.has(i.id));
-            
-            await finalizeItemChange({}, successMessage);
-            focusAfterDeletion(noteList, id);
-        }
+        () => animateAndRemove(id, deletionLogic)
     );
 };
 
@@ -600,20 +608,13 @@ async function _performSave(noteId, titleToSave, contentToSave) {
  * 모든 저장 요청을 조율하는 유일한 핸들러.
  */
 export async function handleNoteUpdate(isForced = false) {
-    // =======================================================================
-    // [최종 데이터 유실 방지] 에디터가 화면에 표시되지 않은 상태에서는
-    // 절대로 저장 로직을 실행하지 않습니다.
-    // 이것이 F5 연타 시 빈 내용으로 덮어쓰여지는 문제를 근본적으로 해결합니다.
     if (editorContainer.style.display === 'none') {
-        // 에디터가 보이지 않으면, 사용자가 입력한 내용이 아니므로 저장을 중단합니다.
-        clearTimeout(debounceTimer); // 예약된 자동 저장도 취소
+        clearTimeout(debounceTimer);
         return;
     }
-    // =======================================================================
     
     if (state.renamingItemId && isForced) return;
     
-    // 자동 저장(입력 중)인 경우, 저장을 예약하고 즉시 종료.
     if (!isForced) {
         const noteId = state.activeNoteId;
         if (!noteId) return;
@@ -632,8 +633,6 @@ export async function handleNoteUpdate(isForced = false) {
         }
         return;
     }
-    
-    // --- 여기서부터는 강제 저장(isForced = true) 또는 예약된 자동 저장이 실행되는 로직 ---
     
     clearTimeout(debounceTimer);
 
