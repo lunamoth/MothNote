@@ -3,7 +3,8 @@ import { saveData, saveSession } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
-    editorContainer
+    editorContainer,
+    addNoteBtn
 } from './components.js';
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
@@ -206,51 +207,84 @@ export const handleAddFolder = async () => {
     }
 };
 
-export const handleAddNote = async () => {
-    await finishPendingRename();
+// 프로미스 체인 잠금을 위한 변수. 초기는 즉시 완료된 프로미스.
+let addNoteLock = Promise.resolve();
 
-    const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
-    if (!state.activeFolderId || [ALL.id, RECENT.id, TRASH.id, FAVORITES.id].includes(state.activeFolderId)) {
-        showToast(CONSTANTS.MESSAGES.ERROR.ADD_NOTE_PROMPT, CONSTANTS.TOAST_TYPE.ERROR);
-        return;
-    }
-    const { item: activeFolder } = findFolder(state.activeFolderId);
-    if (activeFolder) {
-        const baseTitle = "📝 새 노트";
-        let newTitle = baseTitle;
-        let counter = 2;
-        const existingTitles = new Set(activeFolder.notes.map(n => n.title));
-        while (existingTitles.has(newTitle)) newTitle = `${baseTitle} (${counter++})`;
+export const handleAddNote = () => {
+    // 1. UI 즉시 비활성화
+    addNoteBtn.disabled = true;
 
-        const now = Date.now();
-        const newNote = { id: `${CONSTANTS.ID_PREFIX.NOTE}${now}`, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
-        activeFolder.notes.unshift(newNote);
-        state.totalNoteCount++;
-        state.lastActiveNotePerFolder[state.activeFolderId] = newNote.id;
-        state.noteMap.set(newNote.id, { note: newNote, folderId: state.activeFolderId });
+    // 2. 현재 잠금 프로미스에 다음 작업을 순차적으로 연결(chaining)
+    addNoteLock = addNoteLock.then(async () => {
+        // 이 블록은 이전의 모든 노트 추가 작업이 끝나야만 실행됨이 보장됩니다.
+        await finishPendingRename();
 
-        const noteDate = new Date(newNote.createdAt);
-        const y = noteDate.getFullYear();
-        const m = String(noteDate.getMonth() + 1).padStart(2, '0');
-        const d = String(noteDate.getDate()).padStart(2, '0');
-        const newNoteDateStr = `${y}-${m}-${d}`;
-
-        state.noteCreationDates.add(newNoteDateStr);
-        calendarRenderer(true);
-
-        await commitChanges({ activeNoteId: newNote.id, searchTerm: '' });
-        saveSession();
+        const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
+        if (!state.activeFolderId || [ALL.id, RECENT.id, TRASH.id, FAVORITES.id].includes(state.activeFolderId)) {
+            showToast(CONSTANTS.MESSAGES.ERROR.ADD_NOTE_PROMPT, CONSTANTS.TOAST_TYPE.ERROR);
+            return; // finally 블록에서 버튼은 다시 활성화됩니다.
+        }
         
-        setTimeout(() => {
-            const newNoteEl = noteList.querySelector(`[data-id="${newNote.id}"]`);
-            if (newNoteEl) {
-                newNoteEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const { item: activeFolder } = findFolder(state.activeFolderId);
+        if (activeFolder) {
+            const now = Date.now();
+            const date = new Date(now);
+
+            const datePart = date.toLocaleDateString('ko-KR', {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric'
+            }).slice(0, -1);
+            const timePart = date.toLocaleTimeString('ko-KR', {
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true
+            });
+            const baseTitle = `${datePart} ${timePart}의 노트`;
+
+            let newTitle = baseTitle;
+            let counter = 2;
+            // 이 시점의 state는 이전 작업이 모두 반영된 최신 상태임이 보장됩니다.
+            const existingTitles = new Set(activeFolder.notes.map(n => n.title));
+            while (existingTitles.has(newTitle)) {
+                newTitle = `${baseTitle} (${counter++})`;
             }
-            noteTitleInput.focus();
-            noteTitleInput.select();
-        }, 100);
-    }
+            
+            const uniqueId = crypto.randomUUID();
+
+            const newNote = { id: uniqueId, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
+            activeFolder.notes.unshift(newNote);
+            state.totalNoteCount++;
+            state.lastActiveNotePerFolder[state.activeFolderId] = newNote.id;
+            state.noteMap.set(newNote.id, { note: newNote, folderId: state.activeFolderId });
+
+            const noteDate = new Date(newNote.createdAt);
+            const y = noteDate.getFullYear();
+            const m = String(noteDate.getMonth() + 1).padStart(2, '0');
+            const d = String(noteDate.getDate()).padStart(2, '0');
+            const newNoteDateStr = `${y}-${m}-${d}`;
+
+            state.noteCreationDates.add(newNoteDateStr);
+            calendarRenderer(true);
+
+            await commitChanges({ activeNoteId: newNote.id, searchTerm: '' });
+            saveSession();
+            
+            setTimeout(() => {
+                const newNoteEl = noteList.querySelector(`[data-id="${newNote.id}"]`);
+                if (newNoteEl) {
+                    newNoteEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
+                noteTitleInput.focus();
+                noteTitleInput.select();
+            }, 100);
+        }
+    }).finally(() => {
+        // 3. 이 작업이 성공하든 실패하든, 끝나면 버튼을 다시 활성화합니다.
+        addNoteBtn.disabled = false;
+    });
 };
+
 
 export const handlePinNote = (id) => withNote(id, (note) => {
     note.isPinned = !note.isPinned;
@@ -411,15 +445,41 @@ export const handlePermanentlyDeleteItem = async (id) => {
         const idsToDelete = new Set([id]);
         let successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_ITEM_SUCCESS;
 
+        const datesToRecheck = new Set();
+        const getNoteDateString = (timestamp) => {
+            if (!timestamp) return null;
+            const noteDate = new Date(timestamp);
+            const y = noteDate.getFullYear();
+            const m = String(noteDate.getMonth() + 1).padStart(2, '0');
+            const d = String(noteDate.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        };
+
         if (item.type === 'folder') {
             state.trash.forEach(i => {
-                if (i.originalFolderId === id && i.type === 'note') idsToDelete.add(i.id);
+                if (i.originalFolderId === id && i.type === 'note') {
+                    idsToDelete.add(i.id);
+                    const dateStr = getNoteDateString(i.createdAt);
+                    if (dateStr) datesToRecheck.add(dateStr);
+                }
             });
             successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_FOLDER_SUCCESS;
+        } else if (item.type === 'note') {
+            const dateStr = getNoteDateString(item.createdAt);
+            if (dateStr) datesToRecheck.add(dateStr);
         }
         
         state.trash = state.trash.filter(i => !idsToDelete.has(i.id));
         
+        datesToRecheck.forEach(dateStr => {
+            const hasNotesOnDate = Array.from(state.noteMap.values()).some(({ note }) => getNoteDateString(note.createdAt) === dateStr) ||
+                                  state.trash.some(trashNote => trashNote.type === 'note' && getNoteDateString(trashNote.createdAt) === dateStr);
+
+            if (!hasNotesOnDate) {
+                state.noteCreationDates.delete(dateStr);
+            }
+        });
+
         await finalizeItemChange({}, successMessage);
     };
 
@@ -443,8 +503,27 @@ export const handleEmptyTrash = async () => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '모두 삭제', confirmButtonType: 'danger' },
         async () => {
+            // [수정된 부분]
+            // 1. 휴지통 상태를 비웁니다.
             state.trash = [];
-            await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.EMPTY_TRASH_SUCCESS);
+
+            // 2. 만약 현재 휴지통을 보고 있었다면, 세션의 활성 ID들을 초기화합니다.
+            if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+                localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
+                    ...JSON.parse(localStorage.getItem(CONSTANTS.LS_KEY) || '{}'),
+                    f: CONSTANTS.VIRTUAL_FOLDERS.ALL.id, // 기본 폴더로 전환
+                    n: null, // 활성 노트 없음
+                }));
+            }
+            
+            // 3. 변경된 데이터를 저장합니다.
+            await saveData();
+
+            // 4. 사용자에게 알리고 페이지를 새로고침합니다.
+            showToast('휴지통을 비웠습니다. 페이지를 새로고침합니다.');
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
         }
     );
 };

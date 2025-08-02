@@ -440,7 +440,13 @@
         font-weight: 400;
         overflow: hidden;
         max-height: 80px; /* 노트 아이템의 최대 높이 (스니펫 포함) */
-        transition: background-color 0.2s ease, color 0.2s ease;
+        transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; /* [수정] box-shadow 트랜지션 추가 */
+    }
+    /* [수정] 키보드 네비게이션 포커스 시각화 */
+    .item-list-entry:focus-visible {
+        outline: 2px solid var(--accent-color);
+        outline-offset: -2px;
+        box-shadow: 0 0 0 2px var(--bg-color-opaque), 0 0 0 4px var(--accent-color);
     }
     .item-list-entry:hover { background-color: var(--hover-bg-color); }
     .item-list-entry.active { background-color: var(--active-bg-color); color: var(--font-color); font-weight: 600; }
