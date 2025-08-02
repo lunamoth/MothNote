@@ -842,25 +842,21 @@ const handleRename = (e, type) => {
 };
 
 // [개선] 패널 크기 조절을 위한 범용 로직
-const setupSplitter = (splitterId, panelId, cssVarName, settingsKey, sliderElement, valueElement) => {
+const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, sliderElement, valueElement) => {
     const splitter = document.getElementById(splitterId);
     if (!splitter) return;
 
-    const panel = document.getElementById(panelId);
-    const container = document.querySelector('.container');
-
     const onMouseMove = (e) => {
         e.preventDefault();
+        const container = document.querySelector('.container');
         const containerRect = container.getBoundingClientRect();
         
-        // 스플리터의 위치에 따라 너비 계산
         let newPanelWidth;
         if (splitterId === 'splitter-1') {
             newPanelWidth = e.clientX - containerRect.left;
         } else { // splitter-2
-            const folderPanelWidth = document.getElementById('folders-panel').offsetWidth;
-            const splitter1Width = document.getElementById('splitter-1').offsetWidth;
-            newPanelWidth = e.clientX - containerRect.left - folderPanelWidth - splitter1Width;
+            const panel1 = document.getElementById(panel1Id);
+            newPanelWidth = e.clientX - panel1.getBoundingClientRect().right;
         }
 
         let newPanelPercentage = (newPanelWidth / containerRect.width) * 100;
@@ -898,6 +894,54 @@ const setupSplitter = (splitterId, panelId, cssVarName, settingsKey, sliderEleme
     });
 };
 
+// [개선] 젠 모드 너비 조절 로직
+const setupZenModeResize = () => {
+    const leftHandle = document.getElementById('zen-resize-handle-left');
+    const rightHandle = document.getElementById('zen-resize-handle-right');
+    const mainContent = document.querySelector('.main-content');
+    if (!leftHandle || !rightHandle || !mainContent) return;
+
+    const initResize = (handle) => {
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startWidth = mainContent.offsetWidth;
+
+            const onMouseMove = (moveEvent) => {
+                const deltaX = moveEvent.clientX - startX;
+                let newWidth;
+
+                if (handle.id === 'zen-resize-handle-right') {
+                    newWidth = startWidth + deltaX * 2;
+                } else {
+                    newWidth = startWidth - deltaX * 2;
+                }
+
+                const min = parseInt(settingsZenMaxWidth.min, 10);
+                const max = parseInt(settingsZenMaxWidth.max, 10);
+                newWidth = Math.max(min, Math.min(newWidth, max));
+
+                document.documentElement.style.setProperty('--zen-max-width', `${newWidth}px`);
+                settingsZenMaxWidth.value = newWidth;
+                settingsZenMaxValue.textContent = `${newWidth}px`;
+            };
+
+            const onMouseUp = () => {
+                window.removeEventListener('mousemove', onMouseMove);
+                
+                const finalWidth = parseInt(settingsZenMaxWidth.value, 10);
+                appSettings.zenMode.maxWidth = finalWidth;
+                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp, { once: true });
+        });
+    };
+
+    initResize(leftHandle);
+    initResize(rightHandle);
+};
 
 const setupEventListeners = () => {
     if(folderList) {
@@ -930,8 +974,9 @@ const setupEventListeners = () => {
     setupSettingsModal();
 
     // [개선] 스플리터 이벤트 리스너 설정
-    setupSplitter('splitter-1', 'folders-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Value);
-    setupSplitter('splitter-2', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Value);
+    setupSplitter('splitter-1', 'folders-panel', 'notes-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Value);
+    setupSplitter('splitter-2', 'folders-panel', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Value);
+    setupZenModeResize();
 };
 
 const setupFeatureToggles = () => {

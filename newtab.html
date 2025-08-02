@@ -92,6 +92,10 @@
         <div class="splitter" id="splitter-2"></div>
 
         <main class="panel main-content">
+            <!-- [개선] 젠 모드 너비 조절을 위한 핸들 추가 -->
+            <div class="zen-resize-handle" id="zen-resize-handle-left"></div>
+            <div class="zen-resize-handle" id="zen-resize-handle-right"></div>
+            
             <div id="editor-container" class="editor-area" style="display: none;">
                 <input type="text" id="note-title-input" placeholder="🏷️ 제목을 입력하세요">
                 <textarea id="note-content-textarea" placeholder="✍️ 자유롭게 노트를 써보세요..."></textarea>
@@ -148,18 +152,18 @@
                     <input type="range" id="settings-col2-width" min="10" max="50" step="1">
                     <span id="settings-col2-value"></span>
                 </div>
-                <!-- [개선] 스플리터 사용 안내 문구 추가 -->
                 <p class="settings-description">
                     💡 팁: 각 패널 사이의 경계선을 마우스로 직접 드래그하여 너비를 조절할 수도 있습니다.
                 </p>
                 <h4>🧘 젠 모드</h4>
                  <div class="settings-group">
                     <label for="settings-zen-max-width">최대 너비 (px)</label>
-                    <input type="range" id="settings-zen-max-width" min="600" max="1400" step="10">
+                    <input type="range" id="settings-zen-max-width" min="500" max="2000" step="10">
                     <span id="settings-zen-max-value"></span>
                 </div>
                 <p class="settings-description">
-                    젠 모드에서 편집기의 최대 너비를 설정합니다. 가독성을 위해 적절한 너비를 선택하세요.
+                    젠 모드에서 편집기의 최대 너비를 설정합니다. 가독성을 위해 적절한 너비를 선택하세요.<br><br>
+                    <strong>💡 팁:</strong> 젠 모드가 활성화된 상태에서 편집기의 좌우 가장자리를 마우스로 드래그하여 너비를 직접 조절할 수도 있습니다.
                 </p>
             </div>
             <div class="settings-tab-panel" id="settings-tab-editor">

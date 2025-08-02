@@ -103,8 +103,8 @@
 @layer layout {
     .container {
         display: grid;
-        /* [개선] 스플리터를 포함하는 5열 그리드로 변경하고, gap을 제거하여 정확한 위치 제어 */
-        grid-template-columns: var(--column-folders-width, 20%) 8px var(--column-notes-width, 25%) 8px 1fr;
+        /* [버그 수정] minmax() 안전장치를 다시 추가하여 레이아웃 깨짐 방지 */
+        grid-template-columns: minmax(280px, var(--column-folders-width, 10%)) 8px minmax(350px, var(--column-notes-width, 10%)) 8px 1fr;
         height: 100vh;
         padding: var(--spacing-lg);
         gap: 0;
@@ -133,6 +133,7 @@
         align-self: center; /* 수직 중앙 정렬 */
         height: 100%; /* 부모 높이만큼 확장 */
         margin: 0 -4px; /* 패널과 겹치는 영역을 만들기 위해 음수 마진 */
+        z-index: 10;
     }
 
     .splitter:hover, .splitter.dragging {
@@ -205,10 +206,38 @@
         max-width: var(--zen-max-width, 850px);
         height: 98%;
         flex-shrink: 0;
+        position: relative; /* 자식 요소인 핸들의 position: absolute 기준점 */
     }
     
     body.zen-mode #editor-footer {
         display: none;
+    }
+    
+    /* [개선] 젠 모드 리사이즈 핸들 스타일 */
+    .zen-resize-handle {
+        display: none; /* 평상시에는 숨김 */
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        cursor: col-resize;
+        z-index: 20;
+    }
+
+    body.zen-mode .zen-resize-handle {
+        display: block; /* 젠 모드에서만 보임 */
+    }
+    
+    body.zen-mode .zen-resize-handle:hover {
+        background-color: var(--accent-color);
+        opacity: 0.5;
+    }
+
+    #zen-resize-handle-left {
+        left: 0;
+    }
+    #zen-resize-handle-right {
+        right: 0;
     }
 }
 
