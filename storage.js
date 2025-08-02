@@ -27,6 +27,9 @@ export const saveSession = () => {
 
 export const loadData = async () => {
     try {
+        // [버그 수정] 앱 로딩 시 이름 변경 상태를 항상 초기화
+        setState({ renamingItemId: null });
+
         const result = await chrome.storage.local.get('appState');
         let initialState = { ...state };
 
@@ -120,6 +123,13 @@ export const loadData = async () => {
     } catch (e) { console.error("Error loading data:", e); }
 };
 
+// [코드 명확성] 함수의 역할을 명확히 하는 이름으로 변경 (sanitizeHtml -> escapeHtml)
+const escapeHtml = str => {
+    const tempDiv = document.createElement('div');
+    tempDiv.textContent = str;
+    return tempDiv.innerHTML;
+};
+
 const sanitizeContentData = data => {
     if (!data || !Array.isArray(data.folders)) throw new Error("유효하지 않은 파일 구조입니다.");
     const usedIds = new Set();
@@ -139,18 +149,12 @@ const sanitizeContentData = data => {
         return finalId;
     };
 
-    const sanitizeHtml = str => {
-        const tempDiv = document.createElement('div');
-        tempDiv.textContent = str;
-        return tempDiv.innerHTML;
-    };
-
     const sanitizeNote = (n, isTrash = false) => {
         const noteId = getUniqueId('note', n.id);
         const note = {
             id: noteId,
-            title: sanitizeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
-            content: sanitizeHtml(String(n.content ?? '')),
+            title: escapeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
+            content: escapeHtml(String(n.content ?? '')),
             createdAt: Number(n.createdAt) || Date.now(),
             updatedAt: Number(n.updatedAt) || Date.now(),
             isPinned: !!n.isPinned,
@@ -169,7 +173,7 @@ const sanitizeContentData = data => {
         const notes = Array.isArray(f.notes) ? f.notes.map(n => sanitizeNote(n)) : [];
         return {
             id: folderId,
-            name: sanitizeHtml(String(f.name ?? '제목 없는 폴더')).slice(0, 100),
+            name: escapeHtml(String(f.name ?? '제목 없는 폴더')).slice(0, 100),
             notes: notes
         };
     });
@@ -179,7 +183,7 @@ const sanitizeContentData = data => {
             const folderId = getUniqueId('folder', item.id);
             const folder = {
                 id: folderId,
-                name: sanitizeHtml(String(item.name ?? '제목 없는 폴더')).slice(0, 100),
+                name: escapeHtml(String(item.name ?? '제목 없는 폴더')).slice(0, 100),
                 notes: [],
                 type: 'folder',
                 deletedAt: item.deletedAt || Date.now()

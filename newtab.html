@@ -59,7 +59,11 @@
             </footer>
             <input type="file" id="import-file-input" accept=".json" style="display: none;">
         </aside>
-        <nav class="panel">
+
+        <!-- [개선] 폴더-노트 패널 사이 스플리터 -->
+        <div class="splitter" id="splitter-1"></div>
+
+        <nav class="panel" id="notes-panel">
             <header class="panel-header">
                 <h2 id="notes-panel-title">📝 노트</h2>
                 <div id="notes-panel-header-actions" class="button-group">
@@ -83,6 +87,10 @@
             </div>
             <ul id="note-list" class="item-list"></ul>
         </nav>
+
+        <!-- [개선] 노트-메인 패널 사이 스플리터 -->
+        <div class="splitter" id="splitter-2"></div>
+
         <main class="panel main-content">
             <div id="editor-container" class="editor-area" style="display: none;">
                 <input type="text" id="note-title-input" placeholder="🏷️ 제목을 입력하세요">
@@ -140,6 +148,10 @@
                     <input type="range" id="settings-col2-width" min="10" max="50" step="1">
                     <span id="settings-col2-value"></span>
                 </div>
+                <!-- [개선] 스플리터 사용 안내 문구 추가 -->
+                <p class="settings-description">
+                    💡 팁: 각 패널 사이의 경계선을 마우스로 직접 드래그하여 너비를 조절할 수도 있습니다.
+                </p>
                 <h4>🧘 젠 모드</h4>
                  <div class="settings-group">
                     <label for="settings-zen-max-width">최대 너비 (px)</label>

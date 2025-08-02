@@ -101,15 +101,16 @@ const handleSettingsSave = () => {
     let lat = parseFloat(settingsWeatherLat.value);
     let lon = parseFloat(settingsWeatherLon.value);
 
+    // [수정된 부분] 유효성 검사 실패 시, 저장 프로세스를 중단하고 사용자 입력을 유도합니다.
     if (isNaN(lat) || lat < -90 || lat > 90) {
         showToast('유효하지 않은 위도 값입니다. (-90 ~ 90)', CONSTANTS.TOAST_TYPE.ERROR);
-        lat = CONSTANTS.DEFAULT_SETTINGS.weather.lat;
-        settingsWeatherLat.value = lat;
+        settingsWeatherLat.focus();
+        return; // 저장 중단
     }
     if (isNaN(lon) || lon < -180 || lon > 180) {
         showToast('유효하지 않은 경도 값입니다. (-180 ~ 180)', CONSTANTS.TOAST_TYPE.ERROR);
-        lon = CONSTANTS.DEFAULT_SETTINGS.weather.lon;
-        settingsWeatherLon.value = lon;
+        settingsWeatherLon.focus();
+        return; // 저장 중단
     }
 
     const newSettings = {
@@ -840,6 +841,64 @@ const handleRename = (e, type) => {
     }
 };
 
+// [개선] 패널 크기 조절을 위한 범용 로직
+const setupSplitter = (splitterId, panelId, cssVarName, settingsKey, sliderElement, valueElement) => {
+    const splitter = document.getElementById(splitterId);
+    if (!splitter) return;
+
+    const panel = document.getElementById(panelId);
+    const container = document.querySelector('.container');
+
+    const onMouseMove = (e) => {
+        e.preventDefault();
+        const containerRect = container.getBoundingClientRect();
+        
+        // 스플리터의 위치에 따라 너비 계산
+        let newPanelWidth;
+        if (splitterId === 'splitter-1') {
+            newPanelWidth = e.clientX - containerRect.left;
+        } else { // splitter-2
+            const folderPanelWidth = document.getElementById('folders-panel').offsetWidth;
+            const splitter1Width = document.getElementById('splitter-1').offsetWidth;
+            newPanelWidth = e.clientX - containerRect.left - folderPanelWidth - splitter1Width;
+        }
+
+        let newPanelPercentage = (newPanelWidth / containerRect.width) * 100;
+
+        const minWidth = 10;
+        const maxWidth = 50;
+        newPanelPercentage = Math.max(minWidth, Math.min(newPanelPercentage, maxWidth));
+        
+        document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`);
+        
+        if (sliderElement && valueElement) {
+            sliderElement.value = newPanelPercentage;
+            valueElement.textContent = `${Math.round(newPanelPercentage)}%`;
+        }
+    };
+
+    const onMouseUp = () => {
+        splitter.classList.remove('dragging');
+        document.body.style.cursor = 'default';
+        document.body.style.userSelect = 'auto';
+        window.removeEventListener('mousemove', onMouseMove);
+        
+        const finalPercentage = parseInt(sliderElement.value, 10);
+        appSettings.layout[settingsKey] = finalPercentage;
+        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
+    };
+
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        splitter.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp, { once: true });
+    });
+};
+
+
 const setupEventListeners = () => {
     if(folderList) {
         folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER));
@@ -869,6 +928,10 @@ const setupEventListeners = () => {
     if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal);
     
     setupSettingsModal();
+
+    // [개선] 스플리터 이벤트 리스너 설정
+    setupSplitter('splitter-1', 'folders-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Value);
+    setupSplitter('splitter-2', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Value);
 };
 
 const setupFeatureToggles = () => {

@@ -103,10 +103,11 @@
 @layer layout {
     .container {
         display: grid;
-        grid-template-columns: minmax(280px, var(--column-folders-width, 10%)) minmax(350px, var(--column-notes-width, 10%)) 1fr;
+        /* [개선] 스플리터를 포함하는 5열 그리드로 변경하고, gap을 제거하여 정확한 위치 제어 */
+        grid-template-columns: var(--column-folders-width, 20%) 8px var(--column-notes-width, 25%) 8px 1fr;
         height: 100vh;
         padding: var(--spacing-lg);
-        gap: 0 var(--spacing-lg);
+        gap: 0;
     }
     .panel {
         background: var(--bg-color);
@@ -123,6 +124,22 @@
                     0 4px 12px rgba(0,43,54,0.08), 
                     inset 0 1px 0 rgba(253, 246, 227, 0.3);
     }
+
+    /* [개선] 스플리터 스타일. 투명하지만 호버 시 피드백 제공 */
+    .splitter {
+        cursor: col-resize;
+        background-color: transparent; /* 평상시에는 보이지 않음 */
+        transition: background-color 0.2s ease;
+        align-self: center; /* 수직 중앙 정렬 */
+        height: 100%; /* 부모 높이만큼 확장 */
+        margin: 0 -4px; /* 패널과 겹치는 영역을 만들기 위해 음수 마진 */
+    }
+
+    .splitter:hover, .splitter.dragging {
+        background-color: var(--accent-color); /* 호버 또는 드래그 시 색상 표시 */
+        opacity: 0.5;
+    }
+
 
     body.dark-mode .panel {
         box-shadow: 0 1px 2px rgba(0,0,0,0.2), 
@@ -179,7 +196,7 @@
         grid-template-columns: none;
     }
     
-    body.zen-mode .panel:not(.main-content) {
+    body.zen-mode .panel:not(.main-content), body.zen-mode .splitter {
         display: none;
     }
 
