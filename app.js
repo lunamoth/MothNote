@@ -92,7 +92,6 @@ const handleSettingsSave = () => {
     } else if (newFontFamily) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_FONT_NAME, CONSTANTS.TOAST_TYPE.ERROR);
         settingsEditorFontFamily.value = finalFontFamily;
-        // [수정] 유효성 검사 실패 시 즉시 return하여 저장 로직 실행 방지
         return;
     } else {
         finalFontFamily = CONSTANTS.DEFAULT_SETTINGS.editor.fontFamily;

@@ -13,7 +13,7 @@
             <header class="panel-header">
                 <h2>📁 폴더</h2>
                 <div class="button-group">
-                    <button id="add-folder-btn" class="icon-button" title="✨ 새 폴더 추가 (Alt+Shift+N)">✨</button>
+                    <button id="add-folder-btn" class="icon-button ripple-effect" title="✨ 새 폴더 추가 (Alt+Shift+N)">✨</button>
                 </div>
             </header>
             <div id="dashboard-container">
@@ -28,14 +28,14 @@
                 </div>
                 <div id="calendar-container">
                     <div id="calendar-header">
-                        <button id="prev-month-btn">⬅️</button>
+                        <button id="prev-month-btn" class="ripple-effect">⬅️</button>
                         <h3 id="calendar-month-year"></h3>
-                        <button id="next-month-btn">➡️</button>
+                        <button id="next-month-btn" class="ripple-effect">➡️</button>
                     </div>
                     <div id="date-picker-popover" class="date-picker-popover" style="display: none;">
                         <div class="date-picker-header">
                             <h4>날짜 선택</h4>
-                            <button id="date-picker-close-btn" class="modal-close-button" title="닫기">🗙</button>
+                            <button id="date-picker-close-btn" class="modal-close-button ripple-effect" title="닫기">🗙</button>
                         </div>
                         <div class="date-picker-inputs">
                             <input type="number" id="year-input" min="1900" max="2200">
@@ -44,8 +44,8 @@
                             <span>월</span>
                         </div>
                         <div class="date-picker-actions">
-                            <button id="date-picker-today-btn" class="modal-button neutral">오늘</button>
-                            <button id="date-picker-confirm-btn" class="modal-button confirm">이동</button>
+                            <button id="date-picker-today-btn" class="modal-button neutral ripple-effect">오늘</button>
+                            <button id="date-picker-confirm-btn" class="modal-button confirm ripple-effect">이동</button>
                         </div>
                     </div>
                     <div id="calendar-grid"></div>
@@ -53,8 +53,8 @@
             </div>
             <ul id="folder-list" class="item-list"></ul>
             <footer class="panel-footer">
-                <button id="shortcut-guide-btn" class="text-button" title="⌨️ 전체 단축키 보기">⌨️ 키보드 단축키</button>
-                <button id="settings-btn" class="text-button" title="⚙️ 설정 열기">⚙️ 설정</button>
+                <button id="shortcut-guide-btn" class="text-button ripple-effect" title="⌨️ 전체 단축키 보기">⌨️ 키보드 단축키</button>
+                <button id="settings-btn" class="text-button ripple-effect" title="⚙️ 설정 열기">⚙️ 설정</button>
             </footer>
             <input type="file" id="import-file-input" accept=".json" style="display: none;">
         </aside>
@@ -66,14 +66,14 @@
                 <h2 id="notes-panel-title">📝 노트</h2>
                 <!-- [개선] 버튼을 그룹으로 묶어 시각적 일관성 부여 -->
                 <div id="notes-panel-header-actions" class="button-group">
-                    <button id="empty-trash-btn" class="icon-button" title="🗑️ 휴지통 비우기">🗑️</button>
-                    <button id="add-note-btn" class="icon-button" title="➕ 새 노트 추가 (Alt+N)">➕</button>
+                    <button id="empty-trash-btn" class="icon-button ripple-effect" title="🗑️ 휴지통 비우기">🗑️</button>
+                    <button id="add-note-btn" class="icon-button ripple-effect" title="➕ 새 노트 추가 (Alt+N)">➕</button>
                 </div>
             </header>
             <div class="notes-header-extra">
                 <div class="search-container">
                     <input type="search" id="search-input" placeholder="🔍 검색...">
-                    <button id="clear-search" title="❌ 검색 지우기">×</button>
+                    <button id="clear-search" class="ripple-effect" title="❌ 검색 지우기">×</button>
                 </div>
                 <select id="note-sort-select" title="🔃 노트 정렬">
                     <option value="updatedAt_desc">🕒 수정일 순 (최신)</option>
@@ -113,14 +113,14 @@
     
     <dialog id="modal" class="modal">
         <h3 id="modal-title"></h3>
-        <button id="modal-close-btn" class="modal-close-button" title="닫기" style="display: none;">🗙</button>
+        <button id="modal-close-btn" class="modal-close-button ripple-effect" title="닫기" style="display: none;">🗙</button>
         <div id="modal-message"></div>
         <form id="modal-form" method="dialog">
             <div id="modal-error-message" class="modal-error"></div>
             <input type="text" id="modal-input" class="modal-input" style="display: none;">
             <div id="modal-buttons" class="modal-buttons">
-                <button id="modal-cancel-btn" class="modal-button cancel" value="cancel"></button>
-                <button id="modal-confirm-btn" class="modal-button confirm" value="confirm"></button>
+                <button id="modal-cancel-btn" class="modal-button cancel ripple-effect" value="cancel"></button>
+                <button id="modal-confirm-btn" class="modal-button confirm ripple-effect" value="confirm"></button>
             </div>
         </form>
     </dialog>
@@ -128,14 +128,14 @@
     <dialog id="settings-modal" class="modal settings-modal">
         <header class="settings-header">
             <h3 id="settings-modal-title">⚙️ 설정</h3>
-            <button id="settings-modal-close-btn" class="modal-close-button" title="닫기">🗙</button>
+            <button id="settings-modal-close-btn" class="modal-close-button ripple-effect" title="닫기">🗙</button>
         </header>
         <div class="settings-content">
             <div class="settings-tabs">
-                <button class="settings-tab-btn active" data-tab="layout">레이아웃</button>
-                <button class="settings-tab-btn" data-tab="editor">편집기</button>
-                <button class="settings-tab-btn" data-tab="weather">날씨</button>
-                <button class="settings-tab-btn" data-tab="data">데이터</button>
+                <button class="settings-tab-btn active ripple-effect" data-tab="layout">레이아웃</button>
+                <button class="settings-tab-btn ripple-effect" data-tab="editor">편집기</button>
+                <button class="settings-tab-btn ripple-effect" data-tab="weather">날씨</button>
+                <button class="settings-tab-btn ripple-effect" data-tab="data">데이터</button>
             </div>
             <div class="settings-tab-panel active" id="settings-tab-layout">
                 <h4>🎨 컬럼 너비 (%)</h4>
@@ -182,7 +182,7 @@
                     <div class="weather-search-wrapper">
                         <div class="weather-search-input-wrapper">
                             <input type="text" id="settings-weather-city-search" class="modal-input" placeholder="예: Seoul, London, Tokyo">
-                            <button id="settings-weather-city-search-btn" class="modal-button neutral">검색</button>
+                            <button id="settings-weather-city-search-btn" class="modal-button neutral ripple-effect">검색</button>
                         </div>
                         <ul id="settings-weather-city-results" class="city-results-list"></ul>
                     </div>
@@ -202,8 +202,8 @@
             <div class="settings-tab-panel" id="settings-tab-data">
                 <h4>💾 데이터 관리</h4>
                 <div class="settings-group-row">
-                    <button id="settings-export-btn" class="modal-button neutral">데이터 내보내기</button>
-                    <button id="settings-import-btn" class="modal-button neutral">데이터 가져오기</button>
+                    <button id="settings-export-btn" class="modal-button neutral ripple-effect">데이터 내보내기</button>
+                    <button id="settings-import-btn" class="modal-button neutral ripple-effect">데이터 가져오기</button>
                 </div>
                 <p class="settings-description">
                     현재 모든 <strong>폴더, 노트, 설정</strong>을 JSON 파일로 백업하거나, 백업 파일로부터 복원합니다.
@@ -212,8 +212,8 @@
             </div>
         </div>
         <footer class="settings-footer">
-            <button id="settings-reset-btn" class="modal-button danger">모두 기본값으로 복원</button>
-            <button id="settings-save-btn" class="modal-button confirm">저장</button>
+            <button id="settings-reset-btn" class="modal-button danger ripple-effect">모두 기본값으로 복원</button>
+            <button id="settings-save-btn" class="modal-button confirm ripple-effect">저장</button>
         </footer>
     </dialog>
 
@@ -236,8 +236,8 @@
         </li>
     </template>
     
-    <button id="zen-mode-toggle-btn" title="🧘 젠 모드">🧘</button>
-    <button id="theme-toggle-btn" title="🎨 테마 전환">🌙</button>
+    <button id="zen-mode-toggle-btn" class="ripple-effect" title="🧘 젠 모드">🧘</button>
+    <button id="theme-toggle-btn" class="ripple-effect" title="🎨 테마 전환">🌙</button>
 
     <script type="module" src="app.js"></script>
 </body>
