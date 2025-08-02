@@ -1,6 +1,7 @@
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes } from './components.js';
-import { handleNoteUpdate } from './itemActions.js';
+// [수정] itemActions.js에서 updateNoteCreationDates 함수를 추가로 가져옵니다.
+import { handleNoteUpdate, updateNoteCreationDates } from './itemActions.js';
 
 
 export const saveData = async () => {
@@ -117,6 +118,9 @@ export const loadData = async () => {
             buildNoteMap(); // 기본 데이터 생성 후에도 맵 빌드
             await saveData();
         }
+
+        // [버그 수정] 데이터 로드 완료 후, 캘린더 하이라이트를 위해 노트 생성일 데이터를 빌드합니다.
+        updateNoteCreationDates();
 
         saveSession();
 

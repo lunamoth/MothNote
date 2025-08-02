@@ -491,25 +491,28 @@ export const handleEmptyTrash = async () => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '모두 삭제', confirmButtonType: 'danger' },
         async () => {
-            // [버그 수정] 상태 기반 업데이트 대신, 페이지를 새로고침하여 안정적으로 상태를 초기화합니다.
-            // 1. 현재 state에서 휴지통을 비웁니다.
-            state.trash = [];
+            // [버그 수정 및 로직 개선] 상태를 먼저 업데이트하고 저장한 후 새로고침합니다.
+            const wasInTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
+            const newState = { trash: [] };
 
-            // 2. 만약 현재 휴지통을 보고 있었다면, 새로고침 후 '모든 노트'를 보도록 세션 정보를 수정합니다.
-            if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
-                const sessionData = JSON.parse(localStorage.getItem(CONSTANTS.LS_KEY) || '{}');
-                sessionData.f = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-                sessionData.n = null;
-                localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify(sessionData));
+            if (wasInTrashView) {
+                newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+                newState.activeNoteId = null;
             }
             
-            // 3. 비워진 휴지통 상태를 영구 저장소에 즉시 저장합니다.
+            // 1. 메모리 내 상태를 업데이트합니다.
+            setState(newState);
+            
+            // 2. 변경된 상태(빈 휴지통)를 영구 저장소에 저장합니다.
             await saveData();
             
+            // 3. 변경된 세션 정보(활성 폴더 등)를 저장합니다.
+            saveSession();
+
             // 4. 사용자에게 성공 메시지를 보여줍니다.
             showToast(CONSTANTS.MESSAGES.SUCCESS.EMPTY_TRASH_SUCCESS);
             
-            // 5. 토스트 메시지를 볼 시간을 준 뒤, 페이지를 완전히 새로고침합니다.
+            // 5. 토스트 메시지를 볼 시간을 준 뒤, 페이지를 완전히 새로고침하여 UI를 정리합니다.
             setTimeout(() => location.reload(), 1500);
         }
     );

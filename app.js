@@ -957,9 +957,11 @@ const setupZenModeResize = () => {
                 let newWidth;
 
                 if (handle.id === 'zen-resize-handle-right') {
-                    newWidth = startWidth + deltaX * 2;
+                    // [수정] 너비가 마우스 이동 거리의 2배로 변하던 것을 1배로 변경하여 보다 직관적인 조작감을 제공합니다.
+                    newWidth = startWidth + deltaX;
                 } else {
-                    newWidth = startWidth - deltaX * 2;
+                    // [수정] 너비가 마우스 이동 거리의 2배로 변하던 것을 1배로 변경하여 보다 직관적인 조작감을 제공합니다.
+                    newWidth = startWidth - deltaX;
                 }
 
                 const min = parseInt(settingsZenMaxWidth.min, 10);
