@@ -343,8 +343,12 @@ const handleDeleteFolder = (id) => {
         
         delete state.lastActiveNotePerFolder[id];
         
-        const nextActiveFolderId = (state.activeFolderId === id) 
-            ? state.folders[Math.max(0, index - 1)]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id 
+        // [핵심 개선] 폴더 삭제 후, 다음 활성 폴더를 명시적으로 선택합니다.
+        // 1. 삭제된 폴더의 '다음' 폴더를 우선적으로 선택합니다 (splice 후 같은 index).
+        // 2. '다음' 폴더가 없다면 (즉, 마지막 폴더를 삭제했다면), '이전' 폴더를 선택합니다.
+        // 3. 남은 폴더가 없다면 '모든 노트'를 선택합니다.
+        const nextActiveFolderId = (state.activeFolderId === id)
+            ? (state.folders[index]?.id ?? state.folders[index - 1]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id)
             : state.activeFolderId;
 
         await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name));

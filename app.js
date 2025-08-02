@@ -489,13 +489,20 @@ class Dashboard {
                 this.renderCalendar();
             }
         };
+        // [핵심 개선] 날짜 필터링 경험 향상
         this.dom.calendarGrid.onclick = async e => {
             const target = e.target.closest('.date-cell.has-notes');
             if (target) {
-                if (!(await confirmNavigation())) return;
                 const newFilterDate = new Date(target.dataset.date);
                 const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime();
                 
+                // 이미 다른 날짜 필터가 활성화된 상태에서, 다른 날짜를 클릭한 경우에는 확인창을 건너뜁니다.
+                if (state.dateFilter && !isSameDate) {
+                    // 아무것도 하지 않음 (confirmNavigation을 호출하지 않음)
+                } else {
+                    if (!(await confirmNavigation())) return;
+                }
+
                 searchInput.value = '';
                 
                 if (isSameDate) {
@@ -956,12 +963,12 @@ const setupZenModeResize = () => {
                 const deltaX = moveEvent.clientX - startX;
                 let newWidth;
 
+                // [핵심 개선] 너비 변경 로직을 마우스 이동 거리의 2배로 설정하여,
+                // 중앙을 기준으로 양쪽이 대칭적으로 조절되는 직관적인 경험을 제공합니다.
                 if (handle.id === 'zen-resize-handle-right') {
-                    // [수정] 너비가 마우스 이동 거리의 2배로 변하던 것을 1배로 변경하여 보다 직관적인 조작감을 제공합니다.
-                    newWidth = startWidth + deltaX;
+                    newWidth = startWidth + deltaX * 2;
                 } else {
-                    // [수정] 너비가 마우스 이동 거리의 2배로 변하던 것을 1배로 변경하여 보다 직관적인 조작감을 제공합니다.
-                    newWidth = startWidth - deltaX;
+                    newWidth = startWidth - deltaX * 2;
                 }
 
                 const min = parseInt(settingsZenMaxWidth.min, 10);
