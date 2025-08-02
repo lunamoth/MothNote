@@ -36,13 +36,13 @@
         --material-thick-bg: rgba(253, 246, 227, 0.95); /* 모달용, 더 불투명 */
         --material-thin-bg: rgba(253, 246, 227, 0.75);  /* 팝오버용, 더 투명 */
         --material-opaque-bg: var(--solar-base3);
-        --blur-effect: blur(16px) saturate(120%);
+        --blur-effect: blur(24px) saturate(120%); /* [수정] 블러 효과 강화 */
         
         /* [개선] 고도화된 그림자 */
         --shadow-subtle: 0 1px 2px rgba(0,43,54,0.05);
         --shadow-card: 0 2px 4px rgba(0,43,54,0.07), 0 0 1px rgba(0,43,54,0.05);
-        --shadow-panel: 0 3px 8px rgba(0,43,54,0.09), 0 1px 1px rgba(0,43,54,0.07);
-        --shadow-modal: 0 10px 30px rgba(0,43,54,0.15), 0 4px 10px rgba(0,43,54,0.1);
+        --shadow-panel: 0 4px 12px rgba(0,43,54,0.09), 0 1px 2px rgba(0,43,54,0.07);
+        --shadow-modal: 0 15px 40px rgba(0,43,54,0.15), 0 5px 15px rgba(0,43,54,0.1);
 
         /* [개선] 활성 상태 색상 */
         --active-bg-color: color-mix(in srgb, var(--accent-color) 12%, transparent);
@@ -54,12 +54,12 @@
         --input-bg-color: rgba(0, 43, 54, 0.05);
         --input-focus-bg-color: rgba(0, 43, 54, 0.08);
 
-        --radius-md: 16px;
-        --radius-sm: 8px;
+        --radius-md: 24px; /* [수정] 기본 반경 증가 */
+        --radius-sm: 12px;
         --spacing-xs: 4px;
         --spacing-sm: 8px;
-        --spacing-md: 14px;
-        --spacing-lg: 18px;
+        --spacing-md: 16px; /* [수정] 간격 조정 */
+        --spacing-lg: 20px;
         --spacing-xl: 28px;
     }
 
@@ -76,8 +76,8 @@
         
         --shadow-subtle: 0 1px 2px rgba(0,0,0,0.1);
         --shadow-card: 0 2px 4px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
-        --shadow-panel: 0 4px 12px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-        --shadow-modal: 0 15px 40px rgba(0,0,0,0.4), 0 5px 15px rgba(0,0,0,0.3);
+        --shadow-panel: 0 5px 15px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
+        --shadow-modal: 0 20px 50px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.3);
 
         --active-bg-color: color-mix(in srgb, var(--accent-color) 20%, transparent);
         --hover-bg-color: rgba(253, 246, 227, 0.05);
@@ -90,12 +90,6 @@
 
         --pin-bg-color: rgba(181, 137, 0, 0.15);
         --highlight-font-color: var(--solar-base03);
-
-        .icon-button:active,
-        .text-button:active,
-        .modal-button:active {
-            filter: brightness(1.2);
-        }
     }
     
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -107,7 +101,6 @@
         overflow: hidden;
         height: 100vh;
         transition: background-color 0.3s ease, color 0.3s ease;
-        font-weight: 400; /* [개선] 기본 폰트 두께 Regular */
     }
 
     ::-webkit-scrollbar { width: 5px; }
@@ -135,7 +128,7 @@
         overflow: hidden;
         transition: all 0.3s ease;
         min-width: 0;
-        box-shadow: var(--shadow-panel);
+        box-shadow: var(--shadow-panel); /* [수정] 고도화된 그림자 적용 */
     }
 
     .splitter {
@@ -151,10 +144,11 @@
         background-color: var(--accent-color);
         opacity: 0.5;
     }
-
+    
     body.dark-mode .panel {
          box-shadow: var(--shadow-panel), inset 0 1px 0 rgba(253, 246, 227, 0.05);
     }
+
     .panel.drop-target, .item-list-entry.drop-target {
         border-color: var(--accent-color);
         box-shadow: 0 0 10px var(--accent-color), var(--shadow-panel);
@@ -212,11 +206,10 @@
 }
 
 @layer components {
-    /* [개선] 폰트 두께 Semibold 적용 */
     .panel-header > h2 { font-size: 18px; font-weight: 600; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* [개선] 헤더 버튼 그룹 스타일 */
     .panel-header > .button-group { display: flex; gap: var(--spacing-xs); }
     
-    /* [수정] 대시보드 위젯 카드 디자인 제거 및 원복 */
     #dashboard-container {
         padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-md);
         border-bottom: 1px solid var(--divider-color);
@@ -286,13 +279,10 @@
     .date-picker-actions .modal-button { padding: 6px 12px; border-radius: var(--radius-sm); border: none; font-size: 13px; font-weight: 500; cursor: pointer; transition: all .2s ease; }
     #date-picker-today-btn { background-color: var(--hover-bg-color); color: var(--font-color); }
     #date-picker-confirm-btn { background-color: var(--accent-color); color: var(--solar-base3); }
-
-    /* [개선] 리플 효과를 위해 버튼 속성 추가 */
-    .ripple-effect { position: relative; overflow: hidden; }
     
     .icon-button { background: none; border: none; color: var(--font-color-dim); font-size: 20px; cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); line-height: 1; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
-    .icon-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); }
-    .icon-button:active { transform: scale(0.92); }
+    .icon-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); box-shadow: 0 0 10px var(--accent-color); }
+    .icon-button:active { transform: scale(0.92); } /* [개선] Flexing 효과 */
     #empty-trash-btn:hover { color: var(--danger-color); }
 
     .text-button { background: none; border: none; color: var(--font-color-dim); cursor: pointer; padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--radius-sm); font-size: inherit; font-family: inherit; display: flex; align-items: center; gap: var(--spacing-xs); transition: all 0.2s ease; white-space: nowrap; }
@@ -304,7 +294,7 @@
 
     /* [개선] 사이드바 섹션 헤더 스타일 */
     .section-header {
-        padding: 16px var(--spacing-md) 4px;
+        padding: 24px var(--spacing-md) 4px;
         font-size: 12px;
         font-weight: 600;
         color: var(--font-color-dim);
@@ -313,7 +303,8 @@
     }
     
     .item-list { list-style: none; overflow-y: auto; padding: var(--spacing-sm); flex-grow: 1; }
-    .item-list-entry { display: flex; align-items: center; gap: var(--spacing-sm); padding: 10px var(--spacing-md); border-radius: var(--radius-sm); cursor: pointer; user-select: none; font-size: 14px; line-height: 1.4; overflow: hidden; max-height: 80px; transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
+    /* [수정] 목록 아이템 여백 및 스타일 조정 */
+    .item-list-entry { display: flex; align-items: center; gap: var(--spacing-sm); padding: 12px var(--spacing-md); border-radius: var(--radius-sm); cursor: pointer; user-select: none; font-size: 14px; line-height: 1.4; overflow: hidden; max-height: 80px; transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
     .item-list-entry:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; box-shadow: 0 0 0 2px var(--material-opaque-bg), 0 0 0 4px var(--accent-color); }
     .item-list-entry:hover { background-color: var(--hover-bg-color); }
     /* [개선] 활성 상태 스타일 변경 */
@@ -323,13 +314,12 @@
     .item-list-entry.dragging { opacity: 0.4; background: var(--active-bg-color); }
     .item-list-entry.pinned { background-color: var(--pin-bg-color); }
     .item-list-entry[draggable="true"] { cursor: grab; }
-    #folder-list .item-list-entry { max-height: 44px; }
+    #folder-list .item-list-entry { max-height: 48px; }
 
     .drag-over-indicator { height: 2px; background-color: var(--accent-color); margin-block: -1px; margin-inline: var(--spacing-sm); list-style: none; }
     .pin-divider { height: 0; border-bottom: 1px solid var(--divider-color); margin: 6px var(--spacing-sm); list-style: none; }
     
     .item-details { flex-grow: 1; overflow: hidden; display: flex; align-items: baseline; }
-    /* [개선] 폰트 두께 Medium 적용 */
     .item-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0; font-weight: 500; transition: color 0.2s ease, font-weight 0.2s ease; }
     .item-name mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
     .item-name[contenteditable="true"] { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-all; background-color: var(--input-focus-bg-color); box-shadow: 0 0 0 2px var(--accent-color); outline: none; cursor: text; padding-inline: var(--spacing-xs); border-radius: 4px; }
@@ -350,7 +340,8 @@
     .search-container #clear-search { display: none; }
     .search-container:has(#search-input:not(:placeholder-shown)) #clear-search { display: block; }
     #search-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 9px var(--spacing-md); border-radius: var(--radius-sm); font-size: 14px; outline: none; transition: all .2s ease; }
-    #search-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
+    /* [개선] 검색 필드 포커스 스타일 */
+    #search-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); box-shadow: 0 0 8px color-mix(in srgb, var(--accent-color) 25%, transparent); }
     #search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
     #clear-search { position: absolute; inset-inline-end: var(--spacing-sm); top: 50%; transform: translateY(-50%); background: 0; border: 0; color: var(--font-color-dim); font-size: 20px; cursor: pointer; }
     #note-sort-select { background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: var(--spacing-sm) var(--spacing-xs); border-radius: var(--radius-sm); font-size: 13px; outline: none; flex-shrink: 0; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2393a1a1' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708 .708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; background-size: 16px; padding-inline-end: var(--spacing-xl); }
@@ -366,6 +357,7 @@
     .placeholder { display: flex; flex-direction: column; gap: 10px; justify-content: center; align-items: center; height: 100%; font-size: 18px; color: var(--font-color-dim); text-align: center; }
     .placeholder-icon { font-size: 50px; }
     
+    /* [개선] 모달 스타일 개선 */
     .modal {
         background: var(--material-thick-bg);
         color: var(--font-color);
@@ -402,8 +394,9 @@
     .modal-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 12px var(--spacing-md); border-radius: 10px; font-size: 16px; outline: none; transition: all .2s ease; }
     .modal-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     .modal-buttons { display: flex; justify-content: center; gap: var(--spacing-md); }
+    /* [개선] 모달 버튼 스타일 */
     .modal-button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s ease; }
-    .modal-button:hover { opacity: 0.85; }
+    .modal-button:hover { opacity: 0.85; box-shadow: 0 0 10px color-mix(in srgb, currentColor 30%, transparent); }
     .modal-button:active { transform: scale(0.96); }
     .modal-button.confirm { background-color: var(--accent-color); color: var(--solar-base3); }
     .modal-button.cancel { background-color: var(--hover-bg-color); color: var(--font-color); }
@@ -465,22 +458,4 @@
     
     .editor-area.readonly #note-title-input, .editor-area.readonly #note-content-textarea { cursor: default; background-color: var(--input-bg-color); opacity: 0.8; }
     .editor-area.readonly #editor-footer { justify-content: center; }
-
-    /* [개선] 리플(Ripple) 효과 스타일 */
-    .ripple {
-        position: absolute;
-        border-radius: 50%;
-        background-color: rgba(255, 255, 255, 0.4);
-        transform: scale(0);
-        animation: ripple-effect 0.6s linear;
-    }
-    body.dark-mode .ripple {
-        background-color: rgba(255, 255, 255, 0.2);
-    }
-    @keyframes ripple-effect {
-        to {
-            transform: scale(4);
-            opacity: 0;
-        }
-    }
 }

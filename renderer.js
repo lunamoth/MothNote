@@ -148,8 +148,7 @@ const updateListItemElement = (li, item, type) => {
 
 const createActionButton = ({ className, textContent, title }) => {
     const button = document.createElement('button');
-    // [개선] 생성되는 버튼에도 리플 효과 클래스 추가
-    button.className = `icon-button ripple-effect ${className}`;
+    button.className = `icon-button ${className}`;
     button.textContent = textContent;
     button.title = title;
     return button;
