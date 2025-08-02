@@ -26,7 +26,7 @@
         --body-bg-color: var(--solar-base2); /* 전체 페이지 배경 */
         --blur-effect: blur(12px) saturate(100%); /* 프로스티드 글래스 효과 */
         --border-color: rgba(0, 43, 54, 0.1); 
-        --divider-color: rgba(0, 43, 54, 0.1); /* [수정] 투명도 0.15 -> 0.1 */
+        --divider-color: rgba(0, 43, 54, 0.1);
         --font-color: var(--solar-base02);
         --font-color-dim: var(--solar-base01);
         --accent-color: var(--solar-blue);
@@ -44,11 +44,11 @@
         --input-focus-bg-color: rgba(0, 43, 54, 0.08);
 
         /* [개선] Apple-like Layout & Spacing */
-        --radius-md: 16px; /* 더 둥글게 */
+        --radius-md: 16px;
         --radius-sm: 8px;
         --spacing-xs: 4px;
         --spacing-sm: 8px;
-        --spacing-md: 14px; /* 여백 조정 */
+        --spacing-md: 14px;
         --spacing-lg: 18px;
         --spacing-xl: 28px;
     }
@@ -59,7 +59,7 @@
         --bg-color-opaque: var(--solar-base03);
         --body-bg-color: var(--solar-base02);
         --border-color: rgba(253, 246, 227, 0.1); 
-        --divider-color: rgba(253, 246, 227, 0.1); /* [수정] 투명도 0.15 -> 0.1 */
+        --divider-color: rgba(253, 246, 227, 0.1);
         --font-color: var(--solar-base2);
         --font-color-dim: var(--solar-base0);
         --accent-color: var(--solar-blue);
@@ -76,7 +76,6 @@
         --input-bg-color: rgba(253, 246, 227, 0.05);
         --input-focus-bg-color: rgba(253, 246, 227, 0.08);
 
-        /* [추가] 다크모드 버튼 클릭 시 밝기 증가 */
         .icon-button:active,
         .text-button:active,
         .modal-button:active {
@@ -108,7 +107,6 @@
         height: 100vh;
         padding: var(--spacing-lg);
         gap: 0 var(--spacing-lg);
-        /* transition: grid-template-columns 0.4s ease, gap 0.4s ease; */
     }
     .panel {
         background: var(--bg-color);
@@ -120,15 +118,13 @@
         flex-direction: column;
         overflow: hidden;
         transition: all 0.3s ease;
-        min-width: 0; /* Prevent grid blowout */
-        /* [개선] 다중 레이어 그림자와 내부 하이라이트로 물리성 강화 */
+        min-width: 0;
         box-shadow: 0 1px 2px rgba(0,43,54,0.07), 
                     0 4px 12px rgba(0,43,54,0.08), 
                     inset 0 1px 0 rgba(253, 246, 227, 0.3);
     }
 
     body.dark-mode .panel {
-        /* [개선] 다크모드용 다중 레이어 그림자 */
         box-shadow: 0 1px 2px rgba(0,0,0,0.2), 
                     0 4px 16px rgba(0,0,0,0.3), 
                     inset 0 1px 0 rgba(253, 246, 227, 0.05);
@@ -150,7 +146,7 @@
     }
     .panel-footer {
         padding: var(--spacing-sm) var(--spacing-lg);
-        border-block-start: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-block-start: 0.5px solid var(--divider-color);
         font-size: 13px;
         color: var(--font-color-dim);
         flex-shrink: 0;
@@ -165,7 +161,7 @@
     #editor-footer {
         flex-shrink: 0;
         padding: var(--spacing-sm) var(--spacing-xl);
-        border-block-start: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-block-start: 0.5px solid var(--divider-color);
         display: flex;
         gap: var(--spacing-lg);
         font-size: 13px;
@@ -205,7 +201,7 @@
     
     #dashboard-container {
         padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-bottom: 0.5px solid var(--divider-color);
         display: flex;
         flex-direction: column;
         gap: var(--spacing-md);
@@ -310,7 +306,6 @@
         background-color: var(--hover-bg-color);
         color: var(--font-color);
     }
-    /* [개선] 노트 있는 날짜를 밑줄로 표시 (애플 캘린더 스타일) */
     .date-cell.has-notes {
         cursor: pointer;
         text-decoration: underline;
@@ -323,35 +318,51 @@
     }
     .date-cell.active-date {
         background-color: var(--accent-color);
-        color: var(--solar-base3); /* 파란 배경 위에 밝은 텍스트 */
+        color: var(--solar-base3);
         font-weight: 700;
-        text-decoration: none; /* 활성 상태에서는 밑줄 제거 */
+        text-decoration: none;
     }
-    /* 선택된 날이 오늘일 경우, 선택 스타일이 우선 적용됨 */
     .date-cell.today.active-date {
         color: var(--solar-base3);
     }
 
+    /* [수정] 팝오버 최종 스타일 */
     .date-picker-popover {
         position: absolute;
         top: 32px;
         left: 50%;
         transform: translateX(-50%);
-        width: 90%;
+        width: 100%;
+        min-width: 250px;
         background-color: var(--bg-color-opaque);
         border: 1px solid var(--border-color);
         border-radius: var(--radius-sm);
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        padding: var(--spacing-md);
+        padding: 0; /* 내부에서 패딩 관리 */
         z-index: 10;
         display: flex;
         flex-direction: column;
-        gap: var(--spacing-md);
+        gap: var(--spacing-sm); /* 내부 요소 간격 */
+    }
+    .date-picker-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md);
+        border-bottom: 0.5px solid var(--divider-color);
+    }
+    .date-picker-header h4 {
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .date-picker-header .modal-close-button {
+        position: static; /* position absolute 해제 */
     }
     .date-picker-inputs {
         display: flex;
         gap: var(--spacing-sm);
         align-items: center;
+        padding: 0 var(--spacing-md); /* 좌우 패딩 */
     }
     .date-picker-inputs input[type="number"] {
         width: 100%;
@@ -373,23 +384,33 @@
     .date-picker-inputs input[type="number"]:focus {
         border-color: var(--accent-color);
     }
-    .date-picker-buttons {
+    .date-picker-actions {
         display: flex;
-        gap: var(--spacing-sm);
-        justify-content: flex-end;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        padding: var(--spacing-xs) var(--spacing-md) var(--spacing-md); /* 하단 패딩 */
     }
-    .date-picker-buttons button {
+    .date-picker-actions .modal-button {
         padding: 6px 12px;
         border-radius: var(--radius-sm);
         border: none;
         font-size: 13px;
         font-weight: 500;
         cursor: pointer;
-        transition: opacity .2s ease;
+        transition: all .2s ease;
     }
-    .date-picker-buttons button:hover { opacity: 0.8; }
-    #date-picker-confirm-btn { background-color: var(--accent-color); color: var(--solar-base3); }
-    #date-picker-cancel-btn { background-color: var(--hover-bg-color); color: var(--font-color); }
+    .date-picker-actions .modal-button:hover {
+        opacity: 0.8;
+    }
+    #date-picker-today-btn {
+        background-color: var(--hover-bg-color);
+        color: var(--font-color);
+    }
+    #date-picker-confirm-btn {
+        background-color: var(--accent-color);
+        color: var(--solar-base3);
+    }
     
     .icon-button {
         background: none; border: none; color: var(--font-color-dim); font-size: 20px;
@@ -399,7 +420,7 @@
     .icon-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); }
     .icon-button:active {
         transform: scale(0.92);
-        filter: brightness(0.9); /* [수정] 밝기 필터 추가 */
+        filter: brightness(0.9);
     }
     #empty-trash-btn:hover { color: var(--danger-color); }
 
@@ -422,7 +443,6 @@
         color: var(--font-color);
         background-color: var(--hover-bg-color);
     }
-    /* [추가] text-button 액티브 상태 */
     .text-button:active {
         transform: scale(0.97);
         filter: brightness(0.9);
@@ -439,10 +459,9 @@
         line-height: 1.4;
         font-weight: 400;
         overflow: hidden;
-        max-height: 80px; /* 노트 아이템의 최대 높이 (스니펫 포함) */
-        transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; /* [수정] box-shadow 트랜지션 추가 */
+        max-height: 80px;
+        transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     }
-    /* [수정] 키보드 네비게이션 포커스 시각화 */
     .item-list-entry:focus-visible {
         outline: 2px solid var(--accent-color);
         outline-offset: -2px;
@@ -459,7 +478,6 @@
     }
 
     .drag-over-indicator { height: 2px; background-color: var(--accent-color); margin-block: -1px; margin-inline: var(--spacing-sm); list-style: none; }
-    /* [수정] pin-divider 스타일 재정의 */
     .pin-divider {
         height: 0;
         border-bottom: 0.5px solid var(--divider-color);
@@ -631,7 +649,7 @@
     }
 
     .shortcut-list { list-style: none; padding: 0; margin: 0 0 var(--spacing-md) 0; text-align: left; }
-    .shortcut-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) 0; border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */ }
+    .shortcut-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) 0; border-bottom: 0.5px solid var(--divider-color); }
     .shortcut-list li:last-child { border-bottom: none; }
     .shortcut-list li span { font-weight: 600; color: var(--accent-color); background-color: var(--hover-bg-color); padding: 2px 6px; border-radius: 4px; margin-right: var(--spacing-lg); }
 
@@ -644,7 +662,7 @@
     .modal-button:hover { opacity: 0.85; }
     .modal-button:active {
         transform: scale(0.96);
-        filter: brightness(0.9); /* [수정] 밝기 필터 추가 */
+        filter: brightness(0.9);
     }
     .modal-button.confirm { background-color: var(--accent-color); color: var(--solar-base3); }
     .modal-button.cancel { background-color: var(--hover-bg-color); color: var(--font-color); }
@@ -671,7 +689,7 @@
         justify-content: center;
         align-items: center;
         position: relative;
-        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-bottom: 0.5px solid var(--divider-color);
         padding: var(--spacing-lg) 32px;
     }
     .settings-header h3 {
@@ -686,7 +704,7 @@
     .settings-tabs {
         display: flex;
         gap: var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-bottom: 0.5px solid var(--divider-color);
         margin-top: var(--spacing-md);
         padding-bottom: var(--spacing-md);
         justify-content: center;
@@ -729,7 +747,7 @@
         font-size: 16px;
         margin-bottom: var(--spacing-sm);
         padding-bottom: var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-bottom: 0.5px solid var(--divider-color);
     }
     .settings-group {
         display: grid;
@@ -805,7 +823,7 @@
         padding: 10px var(--spacing-md);
         font-size: 14px;
         cursor: pointer;
-        border-bottom: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-bottom: 0.5px solid var(--divider-color);
     }
     .city-results-list li:last-child {
         border-bottom: none;
@@ -831,7 +849,7 @@
         text-decoration: underline;
     }
     .settings-footer {
-        border-top: 0.5px solid var(--divider-color); /* [수정] 1px -> 0.5px */
+        border-top: 0.5px solid var(--divider-color);
         display: flex;
         justify-content: space-between;
         align-items: center;

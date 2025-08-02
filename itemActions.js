@@ -1,4 +1,4 @@
-import { state, setState, findFolder, findNote, updateNoteCreationDates, CONSTANTS } from './state.js';
+import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
 import { saveData, saveSession } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
@@ -9,9 +9,35 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
-// [수정] 아이템 추가/삭제 애니메이션 제거
+// [추가] 날짜를 'YYYY-MM-DD' 형식으로 변환하는 유틸리티 함수
+export const toYYYYMMDD = (dateInput) => {
+    if (!dateInput) return null;
+    const date = (dateInput instanceof Date) ? dateInput : new Date(dateInput);
+    if (isNaN(date.getTime())) return null;
+
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
+// [추가] state.js에서 이동해온 함수. 노트 생성 날짜 Set을 다시 빌드합니다.
+export const updateNoteCreationDates = () => {
+    state.noteCreationDates.clear();
+    // 활성 노트와 휴지통에 있는 노트를 모두 포함하여 날짜를 계산합니다.
+    const allNotes = [...Array.from(state.noteMap.values()).map(e => e.note), ...state.trash.filter(i => i.type === 'note')];
+    
+    for (const note of allNotes) {
+        if (note.createdAt) {
+            const dateStr = toYYYYMMDD(note.createdAt);
+            if (dateStr) {
+                state.noteCreationDates.add(dateStr);
+            }
+        }
+    }
+};
+
 const animateAndRemove = (itemId, onAfterAnimate) => {
-    // 애니메이션 없이 콜백을 즉시 실행하여 상태를 업데이트합니다.
     onAfterAnimate();
 };
 
@@ -49,6 +75,7 @@ const commitChanges = async (newState = {}) => {
 
 // --- 공통 후처리 로직 추상화 ---
 const finalizeItemChange = async (newState = {}, successMessage = '') => {
+    // [수정] 상태 변경 후 날짜 데이터를 다시 계산하고 달력을 렌더링합니다.
     updateNoteCreationDates();
     calendarRenderer(true);
     if (successMessage) {
@@ -207,22 +234,18 @@ export const handleAddFolder = async () => {
     }
 };
 
-// 프로미스 체인 잠금을 위한 변수. 초기는 즉시 완료된 프로미스.
 let addNoteLock = Promise.resolve();
 
 export const handleAddNote = () => {
-    // 1. UI 즉시 비활성화
     addNoteBtn.disabled = true;
 
-    // 2. 현재 잠금 프로미스에 다음 작업을 순차적으로 연결(chaining)
     addNoteLock = addNoteLock.then(async () => {
-        // 이 블록은 이전의 모든 노트 추가 작업이 끝나야만 실행됨이 보장됩니다.
         await finishPendingRename();
 
         const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
         if (!state.activeFolderId || [ALL.id, RECENT.id, TRASH.id, FAVORITES.id].includes(state.activeFolderId)) {
             showToast(CONSTANTS.MESSAGES.ERROR.ADD_NOTE_PROMPT, CONSTANTS.TOAST_TYPE.ERROR);
-            return; // finally 블록에서 버튼은 다시 활성화됩니다.
+            return;
         }
         
         const { item: activeFolder } = findFolder(state.activeFolderId);
@@ -244,7 +267,6 @@ export const handleAddNote = () => {
 
             let newTitle = baseTitle;
             let counter = 2;
-            // 이 시점의 state는 이전 작업이 모두 반영된 최신 상태임이 보장됩니다.
             const existingTitles = new Set(activeFolder.notes.map(n => n.title));
             while (existingTitles.has(newTitle)) {
                 newTitle = `${baseTitle} (${counter++})`;
@@ -257,17 +279,13 @@ export const handleAddNote = () => {
             state.totalNoteCount++;
             state.lastActiveNotePerFolder[state.activeFolderId] = newNote.id;
             state.noteMap.set(newNote.id, { note: newNote, folderId: state.activeFolderId });
-
-            const noteDate = new Date(newNote.createdAt);
-            const y = noteDate.getFullYear();
-            const m = String(noteDate.getMonth() + 1).padStart(2, '0');
-            const d = String(noteDate.getDate()).padStart(2, '0');
-            const newNoteDateStr = `${y}-${m}-${d}`;
-
-            state.noteCreationDates.add(newNoteDateStr);
-            calendarRenderer(true);
-
+            
+            // [수정] finalizeItemChange에서 날짜 데이터 갱신을 처리하므로, 여기서는 commit만 호출합니다.
             await commitChanges({ activeNoteId: newNote.id, searchTerm: '' });
+            
+            // 공통 후처리 로직 호출
+            updateNoteCreationDates();
+            calendarRenderer(true);
             saveSession();
             
             setTimeout(() => {
@@ -280,7 +298,6 @@ export const handleAddNote = () => {
             }, 100);
         }
     }).finally(() => {
-        // 3. 이 작업이 성공하든 실패하든, 끝나면 버튼을 다시 활성화합니다.
         addNoteBtn.disabled = false;
     });
 };
@@ -385,12 +402,7 @@ const handleDeleteNote = (id) => {
             });
 
             if (!hasOtherNotesOnSameDate) {
-                const year = filterDate.getFullYear();
-                const month = String(filterDate.getMonth() + 1).padStart(2, '0');
-                const day = String(filterDate.getDate()).padStart(2, '0');
-                const dateStrToRemove = `${year}-${month}-${day}`;
-
-                state.noteCreationDates.delete(dateStrToRemove);
+                // [수정] 이 부분은 finalizeItemChange에서 처리합니다.
                 newState.dateFilter = null;
                 newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 newState.activeNoteId = null;
@@ -445,41 +457,17 @@ export const handlePermanentlyDeleteItem = async (id) => {
         const idsToDelete = new Set([id]);
         let successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_ITEM_SUCCESS;
 
-        const datesToRecheck = new Set();
-        const getNoteDateString = (timestamp) => {
-            if (!timestamp) return null;
-            const noteDate = new Date(timestamp);
-            const y = noteDate.getFullYear();
-            const m = String(noteDate.getMonth() + 1).padStart(2, '0');
-            const d = String(noteDate.getDate()).padStart(2, '0');
-            return `${y}-${m}-${d}`;
-        };
-
         if (item.type === 'folder') {
             state.trash.forEach(i => {
                 if (i.originalFolderId === id && i.type === 'note') {
                     idsToDelete.add(i.id);
-                    const dateStr = getNoteDateString(i.createdAt);
-                    if (dateStr) datesToRecheck.add(dateStr);
                 }
             });
             successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_FOLDER_SUCCESS;
-        } else if (item.type === 'note') {
-            const dateStr = getNoteDateString(item.createdAt);
-            if (dateStr) datesToRecheck.add(dateStr);
         }
         
         state.trash = state.trash.filter(i => !idsToDelete.has(i.id));
         
-        datesToRecheck.forEach(dateStr => {
-            const hasNotesOnDate = Array.from(state.noteMap.values()).some(({ note }) => getNoteDateString(note.createdAt) === dateStr) ||
-                                  state.trash.some(trashNote => trashNote.type === 'note' && getNoteDateString(trashNote.createdAt) === dateStr);
-
-            if (!hasNotesOnDate) {
-                state.noteCreationDates.delete(dateStr);
-            }
-        });
-
         await finalizeItemChange({}, successMessage);
     };
 
@@ -503,27 +491,22 @@ export const handleEmptyTrash = async () => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '모두 삭제', confirmButtonType: 'danger' },
         async () => {
-            // [수정된 부분]
-            // 1. 휴지통 상태를 비웁니다.
             state.trash = [];
 
-            // 2. 만약 현재 휴지통을 보고 있었다면, 세션의 활성 ID들을 초기화합니다.
             if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
                 localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
                     ...JSON.parse(localStorage.getItem(CONSTANTS.LS_KEY) || '{}'),
-                    f: CONSTANTS.VIRTUAL_FOLDERS.ALL.id, // 기본 폴더로 전환
-                    n: null, // 활성 노트 없음
+                    f: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+                    n: null,
                 }));
             }
             
-            // 3. 변경된 데이터를 저장합니다.
-            await saveData();
+            await finalizeItemChange({}, '🗑️ 휴지통을 비웠습니다.');
 
-            // 4. 사용자에게 알리고 페이지를 새로고침합니다.
-            showToast('휴지통을 비웠습니다. 페이지를 새로고침합니다.');
-            setTimeout(() => {
-                location.reload();
-            }, 1500);
+            // 휴지통 비운 후에는 새로고침 대신 상태 업데이트로 처리
+            if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+                await changeActiveFolder(CONSTANTS.VIRTUAL_FOLDERS.ALL.id, { force: true });
+            }
         }
     );
 };
@@ -650,9 +633,6 @@ export const startRename = (liElement, type) => {
 let debounceTimer = null;
 let saveLock = Promise.resolve(); // '열쇠' 역할을 하는 Promise. 초기는 즉시 완료된 상태.
 
-/**
- * 실제 저장 작업을 수행하는 핵심 함수. 전달받은 데이터('스냅샷')만 사용.
- */
 async function _performSave(noteId, titleToSave, contentToSave) {
     updateSaveStatus('saving');
 
@@ -674,9 +654,6 @@ async function _performSave(noteId, titleToSave, contentToSave) {
     }
 }
 
-/**
- * 모든 저장 요청을 조율하는 유일한 핸들러.
- */
 export async function handleNoteUpdate(isForced = false) {
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);

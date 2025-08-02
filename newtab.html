@@ -32,16 +32,21 @@
                         <h3 id="calendar-month-year"></h3>
                         <button id="next-month-btn">➡️</button>
                     </div>
+                    <!-- [수정] 팝오버 구조 변경: 헤더 추가 -->
                     <div id="date-picker-popover" class="date-picker-popover" style="display: none;">
+                        <div class="date-picker-header">
+                            <h4>날짜 선택</h4>
+                            <button id="date-picker-close-btn" class="modal-close-button" title="닫기">🗙</button>
+                        </div>
                         <div class="date-picker-inputs">
                             <input type="number" id="year-input" min="1900" max="2200">
                             <span>년</span>
                             <input type="number" id="month-input" min="1" max="12">
                             <span>월</span>
                         </div>
-                        <div class="date-picker-buttons">
-                            <button id="date-picker-cancel-btn">취소</button>
-                            <button id="date-picker-confirm-btn">이동</button>
+                        <div class="date-picker-actions">
+                            <button id="date-picker-today-btn" class="modal-button neutral">오늘</button>
+                            <button id="date-picker-confirm-btn" class="modal-button confirm">이동</button>
                         </div>
                     </div>
                     <div id="calendar-grid"></div>
@@ -99,7 +104,7 @@
     
     <dialog id="modal" class="modal">
         <h3 id="modal-title"></h3>
-        <button id="modal-close-btn" class="modal-close-button" title="닫기" style="display: none;">❌</button>
+        <button id="modal-close-btn" class="modal-close-button" title="닫기" style="display: none;">🗙</button>
         <div id="modal-message"></div>
         <form id="modal-form" method="dialog">
             <div id="modal-error-message" class="modal-error"></div>
@@ -114,7 +119,7 @@
     <dialog id="settings-modal" class="modal settings-modal">
         <header class="settings-header">
             <h3 id="settings-modal-title">⚙️ 설정</h3>
-            <button id="settings-modal-close-btn" class="modal-close-button" title="닫기">❌</button>
+            <button id="settings-modal-close-btn" class="modal-close-button" title="닫기">🗙</button>
         </header>
         <div class="settings-content">
             <div class="settings-tabs">

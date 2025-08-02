@@ -1,5 +1,4 @@
-// [수정] 순환 참조 문제를 해결하기 위해 storage.js import 구문 제거
-// import { saveSession } from './storage.js';
+// state.js
 
 export const CONSTANTS = {
     ITEM_TYPE: { FOLDER: 'folder', NOTE: 'note' },
@@ -44,7 +43,6 @@ export const CONSTANTS = {
     DEBOUNCE_DELAY: {
         KEY_NAV: 200,
         SEARCH: 300,
-        // [핵심 수정] 자동 저장 지연 시간을 400ms에서 300ms로 줄여 반응성을 높임
         SAVE: 300,
         WEATHER_SEARCH: 500
     },
@@ -64,7 +62,7 @@ export const CONSTANTS = {
     },
     DASHBOARD: {
         WEATHER_CACHE_KEY: 'weather_cache_v1',
-        LS_KEY_WEATHER: 'newTabNoteWeatherLocation_v1', // 이제 사용되지 않지만 호환성을 위해 유지
+        LS_KEY_WEATHER: 'newTabNoteWeatherLocation_v1',
         DOM_IDS: {
             digitalClock: 'digital-clock',
             analogClockCanvas: 'analog-clock',
@@ -152,18 +150,8 @@ export const subscribe = (callback) => {
 };
 const notify = () => subscribers.forEach(callback => callback());
 
-export const updateNoteCreationDates = () => {
-    state.noteCreationDates.clear();
-    for (const folder of state.folders) {
-        for (const note of folder.notes) {
-            const noteDate = new Date(note.createdAt);
-            const y = noteDate.getFullYear();
-            const m = String(noteDate.getMonth() + 1).padStart(2, '0');
-            const d = String(noteDate.getDate()).padStart(2, '0');
-            state.noteCreationDates.add(`${y}-${m}-${d}`);
-        }
-    }
-};
+// [수정] 이 함수는 itemActions.js로 이동했습니다.
+// export const updateNoteCreationDates = () => { ... };
 
 export const buildNoteMap = () => {
     state._virtualFolderCache.all = null;
@@ -177,7 +165,8 @@ export const buildNoteMap = () => {
             state.noteMap.set(note.id, { note, folderId: folder.id });
         }
     }
-    updateNoteCreationDates();
+    // [수정] 이 함수 호출은 이제 itemActions.js에서 관리합니다.
+    // updateNoteCreationDates();
 };
 
 export const setState = (newState) => {

@@ -5,6 +5,8 @@ import {
     itemTemplate, saveStatusIndicator,
     formatDate, sortNotes
 } from './components.js';
+// [수정] toYYYYMMDD 함수를 itemActions.js에서 import
+import { toYYYYMMDD } from './itemActions.js';
 
 // --- 헬퍼 함수 ---
 
@@ -15,10 +17,8 @@ const _getDateFilteredViewData = () => {
     const sourceNotes = Array.from(state.noteMap.values())
         .map(entry => entry.note)
         .filter(note => {
-            const noteDate = new Date(note.createdAt);
-            return noteDate.getFullYear() === filterDate.getFullYear() &&
-                   noteDate.getMonth() === filterDate.getMonth() &&
-                   noteDate.getDate() === filterDate.getDate();
+            // [수정] toYYYYMMDD 함수 사용
+            return toYYYYMMDD(note.createdAt) === toYYYYMMDD(filterDate);
         });
         
     return {
@@ -339,7 +339,7 @@ export const renderFolders = () => {
         if (activeDateEl) activeDateEl.classList.remove('active-date');
 
         if (state.dateFilter) {
-            const dateStr = new Date(state.dateFilter).toISOString().split('T')[0];
+            const dateStr = toYYYYMMDD(state.dateFilter);
             const targetCell = calendarGrid.querySelector(`.date-cell[data-date="${dateStr}"]`);
             if (targetCell) {
                 targetCell.classList.add('active-date');
@@ -378,8 +378,6 @@ const getPlaceholderMessage = (viewData) => {
         return '✍️<br>첫 노트를 작성해보세요!';
     }
     
-    // [수정] "아직 노트가 없네요." 메시지 제거 요청에 따라 빈 문자열을 반환하여
-    // 빈 가상 폴더(휴지통, 최근 노트 등)에서 플레이스홀더가 보이지 않도록 함
     return '';
 };
 
@@ -445,7 +443,6 @@ export const renderNotes = () => {
 
     if (sortedNotes.length === 0) {
         const placeholderMessage = getPlaceholderMessage(viewData);
-        // [수정] 플레이스홀더 메시지가 있을 때만 DOM에 추가
         if (placeholderMessage) {
             noteList.innerHTML = `<div class="placeholder">${placeholderMessage}</div>`;
         }

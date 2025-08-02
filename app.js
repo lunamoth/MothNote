@@ -16,7 +16,9 @@ import {
     handleAddFolder, handleAddNote, handleEmptyTrash, handlePinNote,
     handleDelete, handleRestoreItem, handlePermanentlyDeleteItem,
     startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
-    finishPendingRename
+    finishPendingRename,
+    // [수정] toYYYYMMDD 유틸리티 함수 import
+    toYYYYMMDD
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -26,9 +28,8 @@ import {
 
 // --- 설정 관련 로직 ---
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
-let isSavingSettings = false; // [추가] 설정 저장 여부 플래그
+let isSavingSettings = false;
 
-// [추가] 젠 모드 설정 관련 DOM 요소 캐싱
 const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
 const settingsZenMaxValue = document.getElementById('settings-zen-max-value');
 
@@ -61,9 +62,7 @@ const loadAndApplySettings = () => {
     applySettings(appSettings);
 };
 
-// [최종 버그 수정] 설정창을 열기 전에 반드시 현재 노트를 저장하도록 수정
 const openSettingsModal = async () => {
-    // 이 한 줄이 모든 데이터 유실 문제를 해결합니다.
     await handleNoteUpdate(true);
 
     settingsCol1Width.value = appSettings.layout.col1;
@@ -99,7 +98,6 @@ const handleSettingsSave = () => {
         settingsEditorFontFamily.value = finalFontFamily;
     }
 
-    // [버그 수정] 위도/경도 값 유효성 검사 및 피드백
     let lat = parseFloat(settingsWeatherLat.value);
     let lon = parseFloat(settingsWeatherLon.value);
 
@@ -438,7 +436,7 @@ class Dashboard {
     _updateCalendarHighlights() {
         if (!this.dom.calendarGrid) return;
         const dateCells = this.dom.calendarGrid.querySelectorAll('.date-cell');
-        const activeDateStr = state.dateFilter ? new Date(state.dateFilter).toISOString().split('T')[0] : null;
+        const activeDateStr = state.dateFilter ? toYYYYMMDD(state.dateFilter) : null;
         dateCells.forEach(cell => {
             const dateStr = cell.dataset.date;
             if (!dateStr) return;
@@ -464,8 +462,7 @@ class Dashboard {
             el.className = 'calendar-day date-cell current-month';
             el.textContent = i;
             if (i === todayDate && year === todayYear && month === todayMonth) el.classList.add('today');
-            const y = year, m = String(month + 1).padStart(2, '0'), d = String(i).padStart(2, '0');
-            el.dataset.date = `${y}-${m}-${d}`;
+            el.dataset.date = toYYYYMMDD(new Date(year, month, i));
             this.dom.calendarGrid.appendChild(el);
         }
     }
@@ -507,10 +504,7 @@ class Dashboard {
                     this.internalState.currentDate = newFilterDate;
                     
                     const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
-                        const noteDate = new Date(note.createdAt);
-                        return noteDate.getFullYear() === newFilterDate.getFullYear() &&
-                               noteDate.getMonth() === newFilterDate.getMonth() &&
-                               noteDate.getDate() === newFilterDate.getDate();
+                        return toYYYYMMDD(note.createdAt) === target.dataset.date;
                     });
 
                     const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
@@ -527,8 +521,7 @@ class Dashboard {
             if (target) {
                 const dateStr = target.dataset.date;
                 const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
-                    const noteDate = new Date(note.createdAt);
-                    return `${noteDate.getFullYear()}-${String(noteDate.getMonth() + 1).padStart(2, '0')}-${String(noteDate.getDate()).padStart(2, '0')}` === dateStr;
+                    return toYYYYMMDD(note.createdAt) === dateStr;
                 }).map(note => note.title || '📝 제목 없음');
                 if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`;
             }
@@ -538,7 +531,6 @@ class Dashboard {
 
 
 // --- 전역 변수 ---
-// [수정] isListNavigating 플래그 추가하여 방향키 네비게이션 버그 수정
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const handleTextareaKeyDown = (e) => {
@@ -611,7 +603,6 @@ const setupDragAndDrop = (listElement, type) => {
         const indicator = getDragOverIndicator();
         const li = e.target.closest('.item-list-entry');
         
-        // [버그 수정] 드래그 가능한 아이템이 없을 때의 예외 처리
         const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]');
         if (!hasDraggableItems) {
             listElement.append(indicator);
@@ -749,7 +740,6 @@ const _focusAndScrollToListItem = (listElement, itemId) => {
 };
 
 const _navigateList = async (type, direction) => {
-    // [수정] 레이스 컨디션 방지를 위한 잠금(lock) 확인
     if (isListNavigating) return;
     
     isListNavigating = true;
@@ -780,7 +770,6 @@ const _navigateList = async (type, direction) => {
         clearTimeout(keyboardNavDebounceTimer);
         keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV);
         
-        // [수정] UI 렌더링이 안정화될 시간을 준 뒤 잠금 해제
         setTimeout(() => {
             isListNavigating = false;
         }, 50);
@@ -808,7 +797,6 @@ const handleListKeyDown = async (e, type) => {
                 searchInput.focus();
             }
         }
-        // [수정] 요청에 따라 노트 리스트에서 Enter키 동작 제거
     } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) {
         if (state.activeNoteId && noteContentTextarea) {
             e.preventDefault();

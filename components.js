@@ -24,10 +24,12 @@ export const saveStatusIndicator = getEl(CONSTANTS.EDITOR.DOM_IDS.saveStatus);
 export const datePickerPopover = getEl('date-picker-popover');
 export const yearInput = getEl('year-input');
 export const monthInput = getEl('month-input');
+// [수정] 캐싱 요소 변경
+export const datePickerCloseBtn = getEl('date-picker-close-btn');
+export const datePickerTodayBtn = getEl('date-picker-today-btn');
 export const datePickerConfirmBtn = getEl('date-picker-confirm-btn');
-export const datePickerCancelBtn = getEl('date-picker-cancel-btn');
 
-// --- [추가] 설정 모달 DOM 요소 캐싱 ---
+// --- 설정 모달 DOM 요소 캐싱 ---
 export const settingsModal = getEl('settings-modal');
 export const settingsModalCloseBtn = getEl('settings-modal-close-btn');
 export const settingsTabs = document.querySelector('.settings-tabs');
@@ -50,11 +52,10 @@ export const settingsSaveBtn = getEl('settings-save-btn');
 
 
 // --- UI 유틸리티 ---
-// [수정] 날짜 형식을 'yyyy. M. d.'로 변경
 export const formatDate = d => {
     const date = new Date(d);
     const year = date.getFullYear();
-    const month = date.getMonth() + 1; // getMonth()는 0부터 시작
+    const month = date.getMonth() + 1;
     const day = date.getDate();
     
     const timePart = date.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true });
@@ -84,7 +85,7 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
         }
 
         modalErrorMessage.textContent = '';
-        modalErrorMessage.style.display = 'none'; // [수정] 기본적으로 에러 메시지 숨김
+        modalErrorMessage.style.display = 'none';
 
         modalConfirmBtn.textContent = confirmText;
         modalCancelBtn.textContent = cancelText;
@@ -128,10 +129,10 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
 
                 if ((force || hasUserInput) && !isValid && message) {
                     modalErrorMessage.textContent = message;
-                    modalErrorMessage.style.display = 'block'; // [수정] 에러 발생 시 보이기
+                    modalErrorMessage.style.display = 'block';
                 } else {
                     modalErrorMessage.textContent = '';
-                    modalErrorMessage.style.display = 'none'; // [수정] 에러 없을 시 숨기기
+                    modalErrorMessage.style.display = 'none';
                 }
                 return isValid;
             };
@@ -139,9 +140,6 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
             const handleInputKeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
-                    // [버그 수정] Enter키가 눌리면 확인 버튼을 직접 클릭하도록 변경
-                    // 이렇게 하면 브라우저가 이벤트를 더 안정적으로 처리하여
-                    // 팝업이 닫힌 후 다른 버튼이 눌리는 현상을 방지합니다.
                     modalConfirmBtn.click();
                 } else if (e.key === 'Tab' && !e.shiftKey) {
                     e.preventDefault();
@@ -155,8 +153,6 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
                 runValidation();
             };
             
-            // [핵심 수정] 확인 버튼의 기본 동작은 form 제출(dialog 닫기)이다.
-            // 유효성 검사가 실패했을 때만 이 기본 동작을 막는다(e.preventDefault()).
             const handleConfirmClick = (e) => {
                 if (validationFn && !runValidation(true)) {
                     e.preventDefault();
@@ -201,7 +197,7 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
                     resolve(true);
                 }
             } else {
-                resolve(null); // 다른 모든 경우 (e.g. Escape 키)
+                resolve(null);
             }
         };
         modal.addEventListener('close', handleClose);
@@ -269,7 +265,9 @@ export const showDatePickerPopover = ({ initialDate }) => {
         const cleanup = () => {
             datePickerPopover.style.display = 'none';
             datePickerConfirmBtn.removeEventListener('click', onConfirm);
-            datePickerCancelBtn.removeEventListener('click', onCancel);
+            // [수정] 이벤트 리스너 정리
+            datePickerCloseBtn.removeEventListener('click', onCancel);
+            datePickerTodayBtn.removeEventListener('click', onToday);
             document.removeEventListener('click', onOutsideClick, true);
             datePickerPopover.removeEventListener('keydown', onKeydown);
         };
@@ -285,15 +283,31 @@ export const showDatePickerPopover = ({ initialDate }) => {
             resolve({ year, month: month - 1 });
         };
         
+        const onToday = () => {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = today.getMonth();
+            cleanup();
+            resolve({ year, month });
+        };
+
         const onCancel = () => { cleanup(); resolve(null); };
-        const onOutsideClick = (e) => { if (!datePickerPopover.contains(e.target) && e.target.id !== 'calendar-month-year') onCancel(); };
+        
+        const onOutsideClick = (e) => { 
+            if (!datePickerPopover.contains(e.target) && e.target.id !== 'calendar-month-year') {
+                onCancel(); 
+            }
+        };
+        
         const onKeydown = (e) => {
             if (e.key === 'Enter') { e.preventDefault(); onConfirm(); }
             else if (e.key === 'Escape') onCancel();
         };
 
         datePickerConfirmBtn.addEventListener('click', onConfirm);
-        datePickerCancelBtn.addEventListener('click', onCancel);
+        // [수정] 이벤트 리스너 등록
+        datePickerCloseBtn.addEventListener('click', onCancel);
+        datePickerTodayBtn.addEventListener('click', onToday);
         document.addEventListener('click', onOutsideClick, true);
         datePickerPopover.addEventListener('keydown', onKeydown);
     });
