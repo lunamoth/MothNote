@@ -17,7 +17,6 @@ import {
     handleDelete, handleRestoreItem, handlePermanentlyDeleteItem,
     startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
     finishPendingRename,
-    // [수정] toYYYYMMDD 유틸리티 함수 import
     toYYYYMMDD
 } from './itemActions.js';
 import { 
@@ -101,16 +100,15 @@ const handleSettingsSave = () => {
     let lat = parseFloat(settingsWeatherLat.value);
     let lon = parseFloat(settingsWeatherLon.value);
 
-    // [수정된 부분] 유효성 검사 실패 시, 저장 프로세스를 중단하고 사용자 입력을 유도합니다.
     if (isNaN(lat) || lat < -90 || lat > 90) {
         showToast('유효하지 않은 위도 값입니다. (-90 ~ 90)', CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLat.focus();
-        return; // 저장 중단
+        return;
     }
     if (isNaN(lon) || lon < -180 || lon > 180) {
         showToast('유효하지 않은 경도 값입니다. (-180 ~ 180)', CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLon.focus();
-        return; // 저장 중단
+        return;
     }
 
     const newSettings = {
@@ -460,7 +458,7 @@ class Dashboard {
         const today = new Date(), todayYear = today.getFullYear(), todayMonth = today.getMonth(), todayDate = today.getDate();
         for (let i = 1; i <= daysInMonth; i++) {
             const el = document.createElement('div');
-            el.className = 'calendar-day date-cell current-month';
+            el.className = 'calendar-day date-cell current-month ripple-effect';
             el.textContent = i;
             if (i === todayDate && year === todayYear && month === todayMonth) el.classList.add('today');
             el.dataset.date = toYYYYMMDD(new Date(year, month, i));
@@ -533,6 +531,37 @@ class Dashboard {
 
 // --- 전역 변수 ---
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
+
+// [개선] 미세 상호작용 - 리플 효과 설정
+const setupRippleEffect = () => {
+    document.body.addEventListener('click', (e) => {
+        const button = e.target.closest('.ripple-effect');
+        if (!button) return;
+
+        const rect = button.getBoundingClientRect();
+        const ripple = document.createElement('span');
+        const diameter = Math.max(button.clientWidth, button.clientHeight);
+        const radius = diameter / 2;
+
+        ripple.style.width = ripple.style.height = `${diameter}px`;
+        ripple.style.left = `${e.clientX - rect.left - radius}px`;
+        ripple.style.top = `${e.clientY - rect.top - radius}px`;
+        ripple.classList.add('ripple');
+        
+        const existingRipple = button.querySelector('.ripple');
+        if (existingRipple) {
+            existingRipple.remove();
+        }
+
+        button.appendChild(ripple);
+
+        setTimeout(() => {
+            if (ripple.parentElement) {
+                ripple.remove();
+            }
+        }, 600); // CSS 애니메이션 시간과 일치
+    });
+};
 
 const handleTextareaKeyDown = (e) => {
     if (e.key === 'Tab') {
@@ -624,23 +653,40 @@ const setupDragAndDrop = (listElement, type) => {
     listElement.addEventListener('drop', async e => {
         e.preventDefault();
         if (listElement !== folderList) return;
-        const indicator = getDragOverIndicator();
-        if(!indicator.parentElement) return;
+        
         const draggedId = draggedItemInfo.id;
         if (!draggedId) return;
-        const list = state.folders, fromIndex = list.findIndex(item => item.id === draggedId);
+        
+        const list = state.folders;
+        const fromIndex = list.findIndex(item => item.id === draggedId);
         if (fromIndex === -1) return;
+
+        const indicator = getDragOverIndicator();
+        if(!indicator.parentElement) return;
+
+        // [수정] 위치 변경이 없는 경우 저장을 방지하는 로직 추가
+        const originalNextElId = list[fromIndex + 1]?.id;
+        const dropNextElId = indicator.nextElementSibling?.dataset.id;
+
+        if (originalNextElId === dropNextElId) {
+            indicator.remove();
+            // 위치 변경이 없어도 드래그 스타일은 제거해야 하므로 상태를 한번 더 업데이트하여 리렌더링.
+            setState({}); 
+            return;
+        }
+        
         const [draggedItem] = list.splice(fromIndex, 1);
         const targetEl = indicator.previousElementSibling;
         indicator.remove();
-        if (!targetEl) list.unshift(draggedItem);
-        else {
+
+        if (!targetEl) {
+            list.unshift(draggedItem);
+        } else {
             const toIndex = list.findIndex(item => item.id === targetEl.dataset.id);
             list.splice(toIndex + 1, 0, draggedItem);
         }
         
         buildNoteMap();
-        
         await saveData();
         setState({});
     });
@@ -841,7 +887,6 @@ const handleRename = (e, type) => {
     }
 };
 
-// [개선] 패널 크기 조절을 위한 범용 로직
 const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, sliderElement, valueElement) => {
     const splitter = document.getElementById(splitterId);
     if (!splitter) return;
@@ -894,7 +939,6 @@ const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, 
     });
 };
 
-// [개선] 젠 모드 너비 조절 로직
 const setupZenModeResize = () => {
     const leftHandle = document.getElementById('zen-resize-handle-left');
     const rightHandle = document.getElementById('zen-resize-handle-right');
@@ -973,7 +1017,6 @@ const setupEventListeners = () => {
     
     setupSettingsModal();
 
-    // [개선] 스플리터 이벤트 리스너 설정
     setupSplitter('splitter-1', 'folders-panel', 'notes-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Value);
     setupSplitter('splitter-2', 'folders-panel', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Value);
     setupZenModeResize();
@@ -1046,6 +1089,7 @@ const init = async () => {
     initializeDragAndDrop();
     setupImportHandler();
     setupGlobalEventListeners();
+    setupRippleEffect(); // [개선] 리플 효과 초기화
 
     subscribe(renderAll);
     

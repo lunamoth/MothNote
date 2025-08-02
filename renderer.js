@@ -5,80 +5,8 @@ import {
     itemTemplate, saveStatusIndicator,
     formatDate, sortNotes
 } from './components.js';
-// [수정] toYYYYMMDD 함수를 itemActions.js에서 import
 import { toYYYYMMDD } from './itemActions.js';
 
-// --- 헬퍼 함수 ---
-
-const _getDateFilteredViewData = () => {
-    const filterDate = new Date(state.dateFilter);
-    const dateString = filterDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
-    
-    const sourceNotes = Array.from(state.noteMap.values())
-        .map(entry => entry.note)
-        .filter(note => {
-            // [수정] toYYYYMMDD 함수 사용
-            return toYYYYMMDD(note.createdAt) === toYYYYMMDD(filterDate);
-        });
-        
-    return {
-        name: `${dateString} 노트`,
-        notes: sourceNotes,
-        isSortable: true,
-        canAddNote: false,
-        isTrashView: false,
-        isDateFilteredView: true,
-        icon: '📅'
-    };
-};
-
-const _getVirtualFolderViewData = (activeFolderData) => {
-    return {
-        name: activeFolderData.displayName,
-        notes: activeFolderData.notes,
-        isSortable: activeFolderData.isSortable !== false, // 기본값 true
-        canAddNote: !!activeFolderData.canAddNote,
-        isTrashView: activeFolderData.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id,
-        icon: activeFolderData.icon,
-    };
-};
-
-const _getNormalFolderViewData = (activeFolderData) => {
-    return {
-        name: `📁 ${activeFolderData.name}`, 
-        notes: activeFolderData.notes,
-        isSortable: true,
-        canAddNote: true,
-        isTrashView: false,
-        icon: '📁',
-    };
-};
-
-const getActiveViewData = () => {
-    if (state.dateFilter) {
-        return _getDateFilteredViewData();
-    }
-
-    const { activeFolderId } = state;
-    const { item: activeFolderData } = findFolder(activeFolderId);
-
-    if (!activeFolderData) {
-        return { 
-            name: '📝 노트',
-            notes: [], 
-            isSortable: false, 
-            canAddNote: false, 
-            needsFolderSelection: true,
-            icon: '📝'
-        };
-    }
-
-    if (activeFolderData.isVirtual) {
-        return _getVirtualFolderViewData(activeFolderData);
-    }
-    
-    return _getNormalFolderViewData(activeFolderData);
-};
 
 const highlightText = (container, text, term) => {
     container.innerHTML = ''; 
@@ -195,7 +123,6 @@ const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
     }
 };
 
-
 const updateListItemElement = (li, item, type) => {
     const isActive = item.id === (type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId);
     const isFolderAndDateFiltering = type === CONSTANTS.ITEM_TYPE.FOLDER && state.dateFilter;
@@ -221,7 +148,8 @@ const updateListItemElement = (li, item, type) => {
 
 const createActionButton = ({ className, textContent, title }) => {
     const button = document.createElement('button');
-    button.className = `icon-button ${className}`;
+    // [개선] 생성되는 버튼에도 리플 효과 클래스 추가
+    button.className = `icon-button ripple-effect ${className}`;
     button.textContent = textContent;
     button.title = title;
     return button;
@@ -322,17 +250,43 @@ const renderList = (listElement, items, type) => {
     }
 };
 
+// [개선] 사이드바 스타일 개선을 위해 폴더 렌더링 방식 변경
 export const renderFolders = () => {
-    const allFolders = [
+    const fragment = document.createDocumentFragment();
+    const sectionHeaderTemplate = document.getElementById('section-header-template');
+    
+    const createSectionHeader = (title) => {
+        const headerFragment = sectionHeaderTemplate.content.cloneNode(true);
+        const li = headerFragment.querySelector('.section-header');
+        li.querySelector('span').textContent = title;
+        return li;
+    };
+
+    // Library Section
+    fragment.appendChild(createSectionHeader('라이브러리'));
+    [
         CONSTANTS.VIRTUAL_FOLDERS.ALL,
         CONSTANTS.VIRTUAL_FOLDERS.RECENT,
-        CONSTANTS.VIRTUAL_FOLDERS.FAVORITES,
-        ...state.folders,
-        CONSTANTS.VIRTUAL_FOLDERS.TRASH
-    ];
-    
-    renderList(folderList, allFolders, CONSTANTS.ITEM_TYPE.FOLDER);
+        CONSTANTS.VIRTUAL_FOLDERS.FAVORITES
+    ].forEach(folder => {
+        fragment.appendChild(createListItemElement(folder, CONSTANTS.ITEM_TYPE.FOLDER));
+    });
 
+    // My Folders Section
+    if (state.folders.length > 0) {
+        fragment.appendChild(createSectionHeader('내 폴더'));
+        state.folders.forEach(folder => {
+            fragment.appendChild(createListItemElement(folder, CONSTANTS.ITEM_TYPE.FOLDER));
+        });
+    }
+    
+    // Trash at the bottom (without a header)
+    fragment.appendChild(createListItemElement(CONSTANTS.VIRTUAL_FOLDERS.TRASH, CONSTANTS.ITEM_TYPE.FOLDER));
+
+    folderList.innerHTML = '';
+    folderList.appendChild(fragment);
+
+    // Calendar highlight update
     const calendarGrid = document.getElementById('calendar-grid');
     if (calendarGrid) {
         const activeDateEl = calendarGrid.querySelector('.active-date');
@@ -363,24 +317,38 @@ const getPlaceholderMessage = (viewData) => {
     if (state.searchTerm) {
         return '🤷‍♂️<br>검색 결과가 없어요.';
     }
-
     if (viewData.isDateFilteredView) {
         const filterDate = new Date(state.dateFilter);
         const dateString = filterDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
         return `🤷‍♂️<br>${dateString}에 작성된 노트가 없습니다.`;
     }
-    
     if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.ALL.id && state.folders.length === 0) {
         return '✨<br>첫 폴더를 만들고<br>생각을 기록해보세요!';
     }
-    
     if (viewData.canAddNote) {
         return '✍️<br>첫 노트를 작성해보세요!';
     }
-    
     return '';
 };
 
+const getActiveViewData = () => {
+    if (state.dateFilter) {
+        const filterDate = new Date(state.dateFilter);
+        const dateString = filterDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+        const sourceNotes = Array.from(state.noteMap.values())
+            .map(entry => entry.note)
+            .filter(note => toYYYYMMDD(note.createdAt) === toYYYYMMDD(filterDate));
+        return { name: `${dateString} 노트`, notes: sourceNotes, isSortable: true, canAddNote: false, isTrashView: false, isDateFilteredView: true, icon: '📅' };
+    }
+    const { item: activeFolderData } = findFolder(state.activeFolderId);
+    if (!activeFolderData) {
+        return { name: '📝 노트', notes: [], isSortable: false, canAddNote: false, needsFolderSelection: true, icon: '📝' };
+    }
+    if (activeFolderData.isVirtual) {
+        return { name: activeFolderData.displayName, notes: activeFolderData.notes, isSortable: activeFolderData.isSortable !== false, canAddNote: !!activeFolderData.canAddNote, isTrashView: activeFolderData.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id, icon: activeFolderData.icon };
+    }
+    return { name: `📁 ${activeFolderData.name}`, notes: activeFolderData.notes, isSortable: true, canAddNote: true, isTrashView: false, icon: '📁' };
+};
 
 export const renderNotes = () => {
     const viewData = getActiveViewData();

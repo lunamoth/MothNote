@@ -2,7 +2,7 @@
 
 @layer base {
     :root {
-        /* Solarized Light Palette (Maintained) */
+        /* Solarized Palette (Maintained for color consistency) */
         --solar-base03:  #002b36;
         --solar-base02:  #073642;
         --solar-base01:  #586e75;
@@ -20,30 +20,40 @@
         --solar-cyan:    #2aa198;
         --solar-green:   #859900;
 
-        /* [개선] Apple-like Light Theme Semantic Colors */
-        --bg-color: rgba(253, 246, 227, 0.85); /* 반투명 배경 */
-        --bg-color-opaque: var(--solar-base3); /* 불투명 배경 (모달용) */
+        /* [개선] Apple HIG Semantic Colors - Light Theme */
         --body-bg-color: var(--solar-base2); /* 전체 페이지 배경 */
-        --blur-effect: blur(12px) saturate(100%); /* 프로스티드 글래스 효과 */
-        --border-color: rgba(0, 43, 54, 0.1); 
-        --divider-color: rgba(0, 43, 54, 0.1);
         --font-color: var(--solar-base02);
         --font-color-dim: var(--solar-base01);
         --accent-color: var(--solar-blue);
-        --hover-bg-color: rgba(0, 43, 54, 0.05);
-        --active-bg-color: color-mix(in srgb, var(--accent-color) 25%, transparent); /* 강조색 틴트 */
         --danger-color: var(--solar-red);
         --success-color: var(--solar-green);
         --pin-color: var(--solar-orange);
-        --pin-bg-color: rgba(203, 75, 22, 0.1);
         --highlight-bg-color: var(--solar-yellow);
         --highlight-font-color: var(--solar-base3);
-        --panel-header-bg: rgba(0,0,0,0.02);
-        --panel-footer-bg: rgba(0,0,0,0.03);
+        
+        /* [개선] 소재(Material) 세분화 */
+        --material-regular-bg: rgba(253, 246, 227, 0.85);
+        --material-thick-bg: rgba(253, 246, 227, 0.95); /* 모달용, 더 불투명 */
+        --material-thin-bg: rgba(253, 246, 227, 0.75);  /* 팝오버용, 더 투명 */
+        --material-opaque-bg: var(--solar-base3);
+        --blur-effect: blur(16px) saturate(120%);
+        
+        /* [개선] 고도화된 그림자 */
+        --shadow-subtle: 0 1px 2px rgba(0,43,54,0.05);
+        --shadow-card: 0 2px 4px rgba(0,43,54,0.07), 0 0 1px rgba(0,43,54,0.05);
+        --shadow-panel: 0 3px 8px rgba(0,43,54,0.09), 0 1px 1px rgba(0,43,54,0.07);
+        --shadow-modal: 0 10px 30px rgba(0,43,54,0.15), 0 4px 10px rgba(0,43,54,0.1);
+
+        /* [개선] 활성 상태 색상 */
+        --active-bg-color: color-mix(in srgb, var(--accent-color) 12%, transparent);
+        --hover-bg-color: rgba(0, 43, 54, 0.05);
+
+        --border-color: rgba(0, 43, 54, 0.1); 
+        --divider-color: rgba(0, 43, 54, 0.08);
+        
         --input-bg-color: rgba(0, 43, 54, 0.05);
         --input-focus-bg-color: rgba(0, 43, 54, 0.08);
 
-        /* [개선] Apple-like Layout & Spacing */
         --radius-md: 16px;
         --radius-sm: 8px;
         --spacing-xs: 4px;
@@ -54,27 +64,32 @@
     }
 
     body.dark-mode {
-        /* [개선] Apple-like Dark Theme Semantic Colors */
-        --bg-color: rgba(0, 43, 54, 0.85); 
-        --bg-color-opaque: var(--solar-base03);
-        --body-bg-color: var(--solar-base02);
-        --border-color: rgba(253, 246, 227, 0.1); 
-        --divider-color: rgba(253, 246, 227, 0.1);
+        /* [개선] Apple HIG Semantic Colors - Dark Theme */
+        --body-bg-color: var(--solar-base03);
         --font-color: var(--solar-base2);
         --font-color-dim: var(--solar-base0);
-        --accent-color: var(--solar-blue);
+        
+        --material-regular-bg: rgba(7, 54, 66, 0.85);
+        --material-thick-bg: rgba(0, 43, 54, 0.95);
+        --material-thin-bg: rgba(7, 54, 66, 0.75);
+        --material-opaque-bg: var(--solar-base03);
+        
+        --shadow-subtle: 0 1px 2px rgba(0,0,0,0.1);
+        --shadow-card: 0 2px 4px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
+        --shadow-panel: 0 4px 12px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+        --shadow-modal: 0 15px 40px rgba(0,0,0,0.4), 0 5px 15px rgba(0,0,0,0.3);
+
+        --active-bg-color: color-mix(in srgb, var(--accent-color) 20%, transparent);
         --hover-bg-color: rgba(253, 246, 227, 0.05);
-        --active-bg-color: color-mix(in srgb, var(--accent-color) 25%, transparent);
-        --danger-color: var(--solar-red);
-        --success-color: var(--solar-green);
-        --pin-color: var(--solar-yellow);
-        --pin-bg-color: rgba(181, 137, 0, 0.15);
-        --highlight-bg-color: var(--solar-yellow);
-        --highlight-font-color: var(--solar-base03);
-        --panel-header-bg: rgba(255,255,255,0.02);
-        --panel-footer-bg: rgba(255,255,255,0.03);
+
+        --border-color: rgba(253, 246, 227, 0.1); 
+        --divider-color: rgba(253, 246, 227, 0.08);
+
         --input-bg-color: rgba(253, 246, 227, 0.05);
         --input-focus-bg-color: rgba(253, 246, 227, 0.08);
+
+        --pin-bg-color: rgba(181, 137, 0, 0.15);
+        --highlight-font-color: var(--solar-base03);
 
         .icon-button:active,
         .text-button:active,
@@ -92,6 +107,7 @@
         overflow: hidden;
         height: 100vh;
         transition: background-color 0.3s ease, color 0.3s ease;
+        font-weight: 400; /* [개선] 기본 폰트 두께 Regular */
     }
 
     ::-webkit-scrollbar { width: 5px; }
@@ -103,14 +119,13 @@
 @layer layout {
     .container {
         display: grid;
-        /* [버그 수정] minmax() 안전장치를 다시 추가하여 레이아웃 깨짐 방지 */
         grid-template-columns: minmax(280px, var(--column-folders-width, 10%)) 8px minmax(350px, var(--column-notes-width, 10%)) 8px 1fr;
         height: 100vh;
         padding: var(--spacing-lg);
         gap: 0;
     }
     .panel {
-        background: var(--bg-color);
+        background: var(--material-regular-bg);
         -webkit-backdrop-filter: var(--blur-effect);
         backdrop-filter: var(--blur-effect);
         border: 1px solid var(--border-color);
@@ -120,37 +135,29 @@
         overflow: hidden;
         transition: all 0.3s ease;
         min-width: 0;
-        box-shadow: 0 1px 2px rgba(0,43,54,0.07), 
-                    0 4px 12px rgba(0,43,54,0.08), 
-                    inset 0 1px 0 rgba(253, 246, 227, 0.3);
+        box-shadow: var(--shadow-panel);
     }
 
-    /* [개선] 스플리터 스타일. 투명하지만 호버 시 피드백 제공 */
     .splitter {
         cursor: col-resize;
-        background-color: transparent; /* 평상시에는 보이지 않음 */
+        background-color: transparent;
         transition: background-color 0.2s ease;
-        align-self: center; /* 수직 중앙 정렬 */
-        height: 100%; /* 부모 높이만큼 확장 */
-        margin: 0 -4px; /* 패널과 겹치는 영역을 만들기 위해 음수 마진 */
+        align-self: center;
+        height: 100%;
+        margin: 0 -4px;
         z-index: 10;
     }
-
     .splitter:hover, .splitter.dragging {
-        background-color: var(--accent-color); /* 호버 또는 드래그 시 색상 표시 */
+        background-color: var(--accent-color);
         opacity: 0.5;
     }
 
-
     body.dark-mode .panel {
-        box-shadow: 0 1px 2px rgba(0,0,0,0.2), 
-                    0 4px 16px rgba(0,0,0,0.3), 
-                    inset 0 1px 0 rgba(253, 246, 227, 0.05);
+         box-shadow: var(--shadow-panel), inset 0 1px 0 rgba(253, 246, 227, 0.05);
     }
-
     .panel.drop-target, .item-list-entry.drop-target {
         border-color: var(--accent-color);
-        box-shadow: 0 0 10px var(--accent-color);
+        box-shadow: 0 0 10px var(--accent-color), var(--shadow-panel);
         background-color: var(--active-bg-color);
     }
     .panel-header {
@@ -160,15 +167,13 @@
         padding: var(--spacing-md) var(--spacing-lg);
         flex-shrink: 0;
         gap: var(--spacing-sm);
-        background-color: var(--panel-header-bg);
     }
     .panel-footer {
         padding: var(--spacing-sm) var(--spacing-lg);
-        border-block-start: 0.5px solid var(--divider-color);
+        border-block-start: 1px solid var(--divider-color);
         font-size: 13px;
         color: var(--font-color-dim);
         flex-shrink: 0;
-        background-color: var(--panel-footer-bg);
         display: flex;
         justify-content: center;
         align-items: center;
@@ -179,75 +184,42 @@
     #editor-footer {
         flex-shrink: 0;
         padding: var(--spacing-sm) var(--spacing-xl);
-        border-block-start: 0.5px solid var(--divider-color);
+        border-block-start: 1px solid var(--divider-color);
         display: flex;
         gap: var(--spacing-lg);
         font-size: 13px;
         color: var(--font-color-dim);
-        background-color: var(--panel-footer-bg);
         align-items: center;
         justify-content: flex-end;
     }
     
     body.zen-mode .container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 0;
-        grid-template-columns: none;
+        display: flex; justify-content: center; align-items: center; gap: 0; grid-template-columns: none;
     }
-    
-    body.zen-mode .panel:not(.main-content), body.zen-mode .splitter {
-        display: none;
-    }
-
+    body.zen-mode .panel:not(.main-content), body.zen-mode .splitter { display: none; }
     body.zen-mode .main-content {
-        width: 100%;
-        max-width: var(--zen-max-width, 850px);
-        height: 98%;
-        flex-shrink: 0;
-        position: relative; /* 자식 요소인 핸들의 position: absolute 기준점 */
+        width: 100%; max-width: var(--zen-max-width, 850px); height: 98%; flex-shrink: 0; position: relative;
     }
+    body.zen-mode #editor-footer { display: none; }
     
-    body.zen-mode #editor-footer {
-        display: none;
-    }
-    
-    /* [개선] 젠 모드 리사이즈 핸들 스타일 */
     .zen-resize-handle {
-        display: none; /* 평상시에는 숨김 */
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        width: 10px;
-        cursor: col-resize;
-        z-index: 20;
+        display: none; position: absolute; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 20;
     }
-
-    body.zen-mode .zen-resize-handle {
-        display: block; /* 젠 모드에서만 보임 */
-    }
-    
-    body.zen-mode .zen-resize-handle:hover {
-        background-color: var(--accent-color);
-        opacity: 0.5;
-    }
-
-    #zen-resize-handle-left {
-        left: 0;
-    }
-    #zen-resize-handle-right {
-        right: 0;
-    }
+    body.zen-mode .zen-resize-handle { display: block; }
+    body.zen-mode .zen-resize-handle:hover { background-color: var(--accent-color); opacity: 0.5; }
+    #zen-resize-handle-left { left: 0; }
+    #zen-resize-handle-right { right: 0; }
 }
 
 @layer components {
-    .panel-header > h2 { font-size: 16px; font-weight: 600; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* [개선] 폰트 두께 Semibold 적용 */
+    .panel-header > h2 { font-size: 18px; font-weight: 600; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .panel-header > .button-group { display: flex; gap: var(--spacing-xs); }
     
+    /* [수정] 대시보드 위젯 카드 디자인 제거 및 원복 */
     #dashboard-container {
         padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color);
+        border-bottom: 1px solid var(--divider-color);
         display: flex;
         flex-direction: column;
         gap: var(--spacing-md);
@@ -271,385 +243,131 @@
         justify-content: center;
         align-items: center;
     }
-    #analog-clock {
-        width: 105px;
-        height: 105px;
-    }
     #weather-container {
         gap: var(--spacing-sm);
         font-size: 16px;
         font-weight: 500;
     }
-    #weather-icon {
-        font-size: 48px;
-        line-height: 1;
-    }
-	#weather-temp {
-		font-size: 28px;
-		font-weight: 700;
-	}
-    #calendar-container {
-        width: 100%;
-        position: relative;
-    }
-    #calendar-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: var(--spacing-sm);
-    }
-    #calendar-header h3 {
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        padding: var(--spacing-xs);
-        border-radius: var(--radius-sm);
-        transition: background-color 0.2s ease;
-    }
-    #calendar-header h3:hover {
-        background-color: var(--hover-bg-color);
-    }
-    #calendar-header button {
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: var(--spacing-xs);
-        font-size: 14px;
-        color: var(--font-color-dim);
-        border-radius: var(--radius-sm);
-    }
-    #calendar-header button:hover {
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
-    #calendar-grid {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 2px;
-        text-align: center;
-        font-size: 14px;
-    }
-    .calendar-day {
-        padding: 4px 2px;
-        border-radius: 4px;
-        position: relative;
-    }
-    .day-name {
-        font-weight: 600;
-        color: var(--font-color-dim);
-    }
-    .date-cell {
-        cursor: default;
-    }
-    .date-cell.current-month {
-        color: var(--font-color);
-    }
-    .date-cell:not(.current-month) {
-        color: var(--font-color-dim);
-    }
-    .date-cell.today {
-        font-weight: 700;
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
-    .date-cell.has-notes {
-        cursor: pointer;
-        text-decoration: underline;
-        text-decoration-color: var(--accent-color);
-        text-decoration-thickness: 2px;
-        text-underline-offset: 3px;
-    }
-    .date-cell.has-notes:hover {
-        background-color: var(--hover-bg-color);
-    }
-    .date-cell.active-date {
-        background-color: var(--accent-color);
-        color: var(--solar-base3);
-        font-weight: 700;
-        text-decoration: none;
-    }
-    .date-cell.today.active-date {
-        color: var(--solar-base3);
-    }
+    #analog-clock { width: 105px; height: 105px; }
+    #weather-icon { font-size: 48px; line-height: 1; }
+	#weather-temp { font-size: 28px; font-weight: 700; }
+    #calendar-container { width: 100%; position: relative; }
 
-    /* [수정] 팝오버 최종 스타일 */
-    .date-picker-popover {
-        position: absolute;
-        top: 32px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 100%;
-        min-width: 250px;
-        background-color: var(--bg-color-opaque);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        padding: 0; /* 내부에서 패딩 관리 */
-        z-index: 10;
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-sm); /* 내부 요소 간격 */
-    }
-    .date-picker-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color);
-    }
-    .date-picker-header h4 {
-        font-size: 14px;
-        font-weight: 600;
-    }
-    .date-picker-header .modal-close-button {
-        position: static; /* position absolute 해제 */
-    }
-    .date-picker-inputs {
-        display: flex;
-        gap: var(--spacing-sm);
-        align-items: center;
-        padding: 0 var(--spacing-md); /* 좌우 패딩 */
-    }
-    .date-picker-inputs input[type="number"] {
-        width: 100%;
-        background: var(--input-bg-color);
-        border: 1px solid transparent;
-        color: var(--font-color);
-        padding: var(--spacing-sm);
-        border-radius: var(--radius-sm);
-        font-size: 14px;
-        outline: none;
-        text-align: center;
-        -moz-appearance: textfield;
-    }
-    .date-picker-inputs input[type="number"]::-webkit-outer-spin-button,
-    .date-picker-inputs input[type="number"]::-webkit-inner-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-    }
-    .date-picker-inputs input[type="number"]:focus {
-        border-color: var(--accent-color);
-    }
-    .date-picker-actions {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        width: 100%;
-        padding: var(--spacing-xs) var(--spacing-md) var(--spacing-md); /* 하단 패딩 */
-    }
-    .date-picker-actions .modal-button {
-        padding: 6px 12px;
-        border-radius: var(--radius-sm);
-        border: none;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all .2s ease;
-    }
-    .date-picker-actions .modal-button:hover {
-        opacity: 0.8;
-    }
-    #date-picker-today-btn {
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
-    #date-picker-confirm-btn {
-        background-color: var(--accent-color);
-        color: var(--solar-base3);
-    }
+    #calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm); }
+    #calendar-header h3 { font-size: 14px; font-weight: 600; cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); transition: background-color 0.2s ease; }
+    #calendar-header h3:hover { background-color: var(--hover-bg-color); }
+    #calendar-header button { background: none; border: none; cursor: pointer; padding: var(--spacing-xs); font-size: 14px; color: var(--font-color-dim); border-radius: var(--radius-sm); }
+    #calendar-header button:hover { background-color: var(--hover-bg-color); color: var(--font-color); }
+    #calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: 14px; }
+    .calendar-day { padding: 4px 2px; border-radius: 4px; position: relative; }
+    .day-name { font-weight: 600; color: var(--font-color-dim); }
+    .date-cell { cursor: default; }
+    .date-cell.current-month { color: var(--font-color); }
+    .date-cell.today { font-weight: 700; background-color: var(--hover-bg-color); color: var(--font-color); }
+    .date-cell.has-notes { cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent-color); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    .date-cell.has-notes:hover { background-color: var(--hover-bg-color); }
+    .date-cell.active-date { background-color: var(--accent-color); color: var(--solar-base3) !important; font-weight: 700; text-decoration: none; }
     
-    .icon-button {
-        background: none; border: none; color: var(--font-color-dim); font-size: 20px;
-        cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); line-height: 1;
-        transition: all 0.2s ease;
+    .date-picker-popover {
+        position: absolute; top: 32px; left: 50%; transform: translateX(-50%); width: 100%; min-width: 250px;
+        background-color: var(--material-thin-bg);
+        -webkit-backdrop-filter: var(--blur-effect);
+        backdrop-filter: var(--blur-effect);
+        border: 1px solid var(--border-color); border-radius: var(--radius-sm); box-shadow: var(--shadow-modal); padding: 0;
+        z-index: 10; display: flex; flex-direction: column; gap: var(--spacing-sm);
     }
+    .date-picker-header { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md); border-bottom: 1px solid var(--divider-color); }
+    .date-picker-header h4 { font-size: 14px; font-weight: 600; }
+    .date-picker-inputs { display: flex; gap: var(--spacing-sm); align-items: center; padding: 0 var(--spacing-md); }
+    .date-picker-inputs input[type="number"] { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: var(--spacing-sm); border-radius: var(--radius-sm); font-size: 14px; outline: none; text-align: center; -moz-appearance: textfield; }
+    .date-picker-inputs input[type="number"]::-webkit-outer-spin-button, .date-picker-inputs input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .date-picker-inputs input[type="number"]:focus { border-color: var(--accent-color); }
+    .date-picker-actions { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: var(--spacing-xs) var(--spacing-md) var(--spacing-md); }
+    .date-picker-actions .modal-button { padding: 6px 12px; border-radius: var(--radius-sm); border: none; font-size: 13px; font-weight: 500; cursor: pointer; transition: all .2s ease; }
+    #date-picker-today-btn { background-color: var(--hover-bg-color); color: var(--font-color); }
+    #date-picker-confirm-btn { background-color: var(--accent-color); color: var(--solar-base3); }
+
+    /* [개선] 리플 효과를 위해 버튼 속성 추가 */
+    .ripple-effect { position: relative; overflow: hidden; }
+    
+    .icon-button { background: none; border: none; color: var(--font-color-dim); font-size: 20px; cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); line-height: 1; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
     .icon-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); }
-    .icon-button:active {
-        transform: scale(0.92);
-        filter: brightness(0.9);
-    }
+    .icon-button:active { transform: scale(0.92); }
     #empty-trash-btn:hover { color: var(--danger-color); }
 
-    .text-button {
-        background: none;
-        border: none;
-        color: var(--font-color-dim);
-        cursor: pointer;
-        padding: var(--spacing-xs) var(--spacing-sm);
-        border-radius: var(--radius-sm);
-        font-size: inherit;
-        font-family: inherit;
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-xs);
-        transition: all 0.2s ease;
-        white-space: nowrap;
-    }
-    .text-button:hover {
-        color: var(--font-color);
-        background-color: var(--hover-bg-color);
-    }
-    .text-button:active {
-        transform: scale(0.97);
-        filter: brightness(0.9);
-    }
+    .text-button { background: none; border: none; color: var(--font-color-dim); cursor: pointer; padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--radius-sm); font-size: inherit; font-family: inherit; display: flex; align-items: center; gap: var(--spacing-xs); transition: all 0.2s ease; white-space: nowrap; }
+    .text-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); }
+    .text-button:active { transform: scale(0.97); }
 
     .pin-btn.pinned { color: var(--pin-color); }
     .favorite-btn.favorited { color: var(--solar-yellow); }
 
+    /* [개선] 사이드바 섹션 헤더 스타일 */
+    .section-header {
+        padding: 16px var(--spacing-md) 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--font-color-dim);
+        text-transform: uppercase;
+        pointer-events: none;
+    }
+    
     .item-list { list-style: none; overflow-y: auto; padding: var(--spacing-sm); flex-grow: 1; }
-    .item-list-entry {
-        display: flex; align-items: center; gap: var(--spacing-sm); padding: 10px var(--spacing-md); border-radius: var(--radius-sm);
-        cursor: pointer; user-select: none;
-        font-size: 14px;
-        line-height: 1.4;
-        font-weight: 400;
-        overflow: hidden;
-        max-height: 80px;
-        transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-    }
-    .item-list-entry:focus-visible {
-        outline: 2px solid var(--accent-color);
-        outline-offset: -2px;
-        box-shadow: 0 0 0 2px var(--bg-color-opaque), 0 0 0 4px var(--accent-color);
-    }
+    .item-list-entry { display: flex; align-items: center; gap: var(--spacing-sm); padding: 10px var(--spacing-md); border-radius: var(--radius-sm); cursor: pointer; user-select: none; font-size: 14px; line-height: 1.4; overflow: hidden; max-height: 80px; transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
+    .item-list-entry:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; box-shadow: 0 0 0 2px var(--material-opaque-bg), 0 0 0 4px var(--accent-color); }
     .item-list-entry:hover { background-color: var(--hover-bg-color); }
-    .item-list-entry.active { background-color: var(--active-bg-color); color: var(--font-color); font-weight: 600; }
+    /* [개선] 활성 상태 스타일 변경 */
+    .item-list-entry.active { background-color: var(--active-bg-color); }
+    .item-list-entry.active .item-name { color: var(--accent-color); font-weight: 600; }
+    .item-list-entry.active .item-count { color: color-mix(in srgb, var(--accent-color) 70%, var(--font-color-dim)); }
     .item-list-entry.dragging { opacity: 0.4; background: var(--active-bg-color); }
     .item-list-entry.pinned { background-color: var(--pin-bg-color); }
     .item-list-entry[draggable="true"] { cursor: grab; }
-    .item-list-entry[draggable="false"] { cursor: pointer; }
-    #folder-list .item-list-entry {
-        max-height: 44px;
-    }
+    #folder-list .item-list-entry { max-height: 44px; }
 
     .drag-over-indicator { height: 2px; background-color: var(--accent-color); margin-block: -1px; margin-inline: var(--spacing-sm); list-style: none; }
-    .pin-divider {
-        height: 0;
-        border-bottom: 0.5px solid var(--divider-color);
-        margin: 6px var(--spacing-sm);
-        list-style: none;
-    }
+    .pin-divider { height: 0; border-bottom: 1px solid var(--divider-color); margin: 6px var(--spacing-sm); list-style: none; }
     
     .item-details { flex-grow: 1; overflow: hidden; display: flex; align-items: baseline; }
-    .item-name {
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0;
-    }
+    /* [개선] 폰트 두께 Medium 적용 */
+    .item-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0; font-weight: 500; transition: color 0.2s ease, font-weight 0.2s ease; }
     .item-name mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
-    .item-name[contenteditable="true"] {
-        white-space: normal;
-        overflow: visible;
-        text-overflow: clip;
-        word-break: break-all;
-        background-color: var(--input-focus-bg-color); 
-        box-shadow: 0 0 0 2px var(--accent-color); 
-        outline: none; 
-        cursor: text; 
-        padding-inline: var(--spacing-xs); 
-        border-radius: 4px;
-    }
-    .item-count {
-        font-size: 13px;
-        color: var(--font-color-dim);
-        margin-left: var(--spacing-xs);
-        flex-shrink: 0;
-    }
-    
-    .item-snippet { 
-        font-size: 13px;
-        color: var(--font-color-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--spacing-xs);
-    }
+    .item-name[contenteditable="true"] { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-all; background-color: var(--input-focus-bg-color); box-shadow: 0 0 0 2px var(--accent-color); outline: none; cursor: text; padding-inline: var(--spacing-xs); border-radius: 4px; }
+    .item-count { font-size: 13px; color: var(--font-color-dim); margin-left: var(--spacing-xs); flex-shrink: 0; transition: color 0.2s ease; }
+    .item-snippet { font-size: 13px; color: var(--font-color-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--spacing-xs); }
     .item-snippet mark { background-color: var(--highlight-bg-color); color: var(--highlight-font-color); border-radius: 3px; padding: 0 2px; }
-    
-    #note-list .item-details {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-    }
-
-    #note-list .item-snippet {
-        width: 100%;
-        margin-top: 0;
-    }
-
-    .item-actions {
-        display: flex; align-items: center; opacity: 0; transition: opacity .2s ease; margin-inline-start: auto;
-    }
+    #note-list .item-details { flex-direction: column; align-items: flex-start; gap: 2px; }
+    #note-list .item-snippet { width: 100%; margin-top: 0; }
+    .item-actions { display: flex; align-items: center; opacity: 0; transition: opacity .2s ease; margin-inline-start: auto; }
     .item-list-entry:hover > .item-actions, .item-list-entry.active > .item-actions { opacity: 1; }
     .delete-item-btn, .pin-btn, .restore-item-btn, .perm-delete-item-btn, .favorite-btn { font-size: 16px; }
     .delete-item-btn:hover { color: var(--danger-color); }
     .restore-item-btn:hover { color: var(--success-color); }
     .perm-delete-item-btn:hover { color: var(--danger-color); }
 
-    .notes-header-extra {
-        padding: var(--spacing-sm); 
-        flex-shrink: 0; display: flex; gap: var(--spacing-sm); align-items: center;
-    }
-    .search-container {
-        position: relative; flex-grow: 1;
-    }
+    .notes-header-extra { padding: var(--spacing-sm); flex-shrink: 0; display: flex; gap: var(--spacing-sm); align-items: center; }
+    .search-container { position: relative; flex-grow: 1; }
     .search-container #clear-search { display: none; }
     .search-container:has(#search-input:not(:placeholder-shown)) #clear-search { display: block; }
-    #search-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 9px var(--spacing-md); border-radius: var(--radius-sm); font-size: 14px; outline: none; transition: all .2s ease;
-    }
+    #search-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 9px var(--spacing-md); border-radius: var(--radius-sm); font-size: 14px; outline: none; transition: all .2s ease; }
     #search-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
-    #search-input::-webkit-search-cancel-button {
-        -webkit-appearance: none;
-        appearance: none;
-        display: none;
-    }
+    #search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
     #clear-search { position: absolute; inset-inline-end: var(--spacing-sm); top: 50%; transform: translateY(-50%); background: 0; border: 0; color: var(--font-color-dim); font-size: 20px; cursor: pointer; }
+    #note-sort-select { background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: var(--spacing-sm) var(--spacing-xs); border-radius: var(--radius-sm); font-size: 13px; outline: none; flex-shrink: 0; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2393a1a1' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708 .708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; background-size: 16px; padding-inline-end: var(--spacing-xl); }
     
-    #note-sort-select {
-        background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: var(--spacing-sm) var(--spacing-xs); border-radius: var(--radius-sm); font-size: 13px; outline: none; flex-shrink: 0;
-        -webkit-appearance: none; appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2393a1a1' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708 .708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 4px center;
-        background-size: 16px;
-        padding-inline-end: var(--spacing-xl);
-    }
+    #note-title-input { background: transparent; border: none; color: var(--font-color); font-weight: 700; font-family: var(--editor-font-family); font-size: calc(var(--editor-font-size, 17px) + 11px); padding: 32px var(--spacing-xl) var(--spacing-md); width: 100%; outline: none; flex-shrink: 0; }
+    #note-content-textarea { background: transparent; border: none; color: var(--font-color); line-height: 1.7; width: 100%; flex-grow: 1; outline: none; resize: none; padding: 0 var(--spacing-xl) var(--spacing-xl); font-family: var(--editor-font-family); font-size: var(--editor-font-size, 17px); }
     
-    #note-title-input { 
-        background: transparent; border: none; color: var(--font-color);
-        font-weight: 700; 
-        font-family: var(--editor-font-family);
-        font-size: calc(var(--editor-font-size, 17px) + 11px);
-        padding: 32px var(--spacing-xl) var(--spacing-md); 
-        width: 100%; outline: none; flex-shrink: 0; 
-    }
-    #note-content-textarea { 
-        background: transparent; border: none; color: var(--font-color); 
-        line-height: 1.7; width: 100%; flex-grow: 1; outline: none; 
-        resize: none; padding: 0 var(--spacing-xl) var(--spacing-xl); 
-        font-family: var(--editor-font-family);
-        font-size: var(--editor-font-size, 17px);
-    }
-    
-    #save-status-indicator {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        transition: opacity 0.3s ease;
-        opacity: 0;
-    }
+    #save-status-indicator { display: flex; align-items: center; gap: 6px; transition: opacity 0.3s ease; opacity: 0; }
     #save-status-indicator.visible { opacity: 1; }
-    #save-status-indicator.saving::before {
-        content: '';
-        width: 12px;
-        height: 12px;
-        border: 2px solid var(--font-color-dim);
-        border-top-color: var(--font-color);
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
+    #save-status-indicator.saving::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--font-color-dim); border-top-color: var(--font-color); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .placeholder { display: flex; flex-direction: column; gap: 10px; justify-content: center; align-items: center; height: 100%; font-size: 18px; color: var(--font-color-dim); text-align: center; }
     .placeholder-icon { font-size: 50px; }
     
     .modal {
-        background: var(--bg-color-opaque);
+        background: var(--material-thick-bg);
         color: var(--font-color);
         border: 1px solid var(--border-color);
         border-radius: var(--radius-md);
@@ -657,308 +375,112 @@
         width: 90%;
         max-width: 450px;
         margin: auto;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+        box-shadow: var(--shadow-modal);
+        border: none;
     }
-    .modal::backdrop { 
-        background: rgba(0,0,0,0.3);
-        -webkit-backdrop-filter: blur(5px);
-        backdrop-filter: blur(5px);
+    /* [개선] 모달 등장 애니메이션 */
+    @keyframes modal-pop-in {
+        0% { opacity: 0; transform: scale(0.95); }
+        60% { opacity: 1; transform: scale(1.02); }
+        100% { opacity: 1; transform: scale(1); }
     }
+    .modal[open] {
+        animation: modal-pop-in 0.3s ease-out forwards;
+    }
+    .modal::backdrop { background: rgba(0,0,0,0.3); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
     .modal h3 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 24px; }
     .modal div#modal-message { font-size: 14px; color: var(--font-color-dim); text-align: center; line-height: 1.5; margin-bottom: 24px;}
     .modal form { display: flex; flex-direction: column; gap: 20px; }
-    .modal-close-button {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        background: none;
-        border: none;
-        font-size: 20px;
-        cursor: pointer;
-        padding: 8px;
-        line-height: 1;
-        border-radius: 50%;
-        color: var(--font-color-dim);
-        transition: all 0.2s ease;
-    }
-    .modal-close-button:hover {
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
+    .modal-close-button { position: absolute; top: 12px; right: 12px; background: none; border: none; font-size: 20px; cursor: pointer; padding: 8px; line-height: 1; border-radius: 50%; color: var(--font-color-dim); transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
+    .modal-close-button:hover { background-color: var(--hover-bg-color); color: var(--font-color); }
     
-    .modal-error {
-        color: var(--danger-color);
-        font-size: 13px;
-        font-weight: 500;
-        text-align: center;
-        min-height: 18px;
-    }
-
+    .modal-error { color: var(--danger-color); font-size: 13px; font-weight: 500; text-align: center; min-height: 18px; }
     .shortcut-list { list-style: none; padding: 0; margin: 0 0 var(--spacing-md) 0; text-align: left; }
-    .shortcut-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) 0; border-bottom: 0.5px solid var(--divider-color); }
+    .shortcut-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) 0; border-bottom: 1px solid var(--divider-color); }
     .shortcut-list li:last-child { border-bottom: none; }
     .shortcut-list li span { font-weight: 600; color: var(--accent-color); background-color: var(--hover-bg-color); padding: 2px 6px; border-radius: 4px; margin-right: var(--spacing-lg); }
-
-    .modal-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 12px var(--spacing-md); border-radius: 10px; font-size: 16px; outline: none; transition: all .2s ease;
-    }
+    .modal-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 12px var(--spacing-md); border-radius: 10px; font-size: 16px; outline: none; transition: all .2s ease; }
     .modal-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     .modal-buttons { display: flex; justify-content: center; gap: var(--spacing-md); }
-    .modal-button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s ease;
-    }
+    .modal-button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s ease; }
     .modal-button:hover { opacity: 0.85; }
-    .modal-button:active {
-        transform: scale(0.96);
-        filter: brightness(0.9);
-    }
+    .modal-button:active { transform: scale(0.96); }
     .modal-button.confirm { background-color: var(--accent-color); color: var(--solar-base3); }
     .modal-button.cancel { background-color: var(--hover-bg-color); color: var(--font-color); }
     .modal-button.danger { background-color: var(--danger-color); color: var(--solar-base3); }
-    .modal-button.neutral {
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
+    .modal-button.neutral { background-color: var(--hover-bg-color); color: var(--font-color); }
     
-    /* 설정 모달 스타일 */
-    .settings-modal {
-        max-width: 600px;
-        padding: 0;
-    }
-
-    .settings-modal::backdrop {
-        -webkit-backdrop-filter: none;
-        backdrop-filter: none;
-        background-color: rgba(0, 0, 0, 0.3);
-    }
-
-    .settings-header {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        position: relative;
-        border-bottom: 0.5px solid var(--divider-color);
-        padding: var(--spacing-lg) 32px;
-    }
-    .settings-header h3 {
-        font-size: 18px;
-    }
-    .settings-content {
-        display: flex;
-        flex-direction: column;
-        padding: 0 32px var(--spacing-xl);
-        gap: var(--spacing-xl);
-    }
-    .settings-tabs {
-        display: flex;
-        gap: var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color);
-        margin-top: var(--spacing-md);
-        padding-bottom: var(--spacing-md);
-        justify-content: center;
-        width: 100%;
-    }
-    .settings-tab-btn {
-        flex: 1;
-        text-align: center;
-        padding: var(--spacing-sm) var(--spacing-md);
-        border: none;
-        background-color: transparent;
-        color: var(--font-color-dim);
-        cursor: pointer;
-        border-radius: var(--radius-sm);
-        font-size: 14px;
-        font-weight: 500;
-        transition: all 0.2s ease;
-        white-space: nowrap; 
-    }
-    .settings-tab-btn:hover {
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
-    .settings-tab-btn.active {
-        background-color: var(--active-bg-color);
-        color: var(--accent-color);
-    }
-    .settings-tab-panel {
-        display: none;
-        flex-direction: column;
-        gap: 20px;
-        animation: fadeIn 0.3s ease;
-    }
-    .settings-tab-panel.active {
-        display: flex;
-    }
+    .settings-modal { max-width: 600px; padding: 0; }
+    .settings-modal::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: rgba(0, 0, 0, 0.3); }
+    .settings-header { display: flex; justify-content: center; align-items: center; position: relative; border-bottom: 1px solid var(--divider-color); padding: var(--spacing-lg) 32px; }
+    .settings-header h3 { font-size: 18px; }
+    .settings-content { display: flex; flex-direction: column; padding: 0 32px var(--spacing-xl); gap: var(--spacing-xl); }
+    .settings-tabs { display: flex; gap: var(--spacing-md); border-bottom: 1px solid var(--divider-color); margin-top: var(--spacing-md); padding-bottom: var(--spacing-md); justify-content: center; width: 100%; }
+    .settings-tab-btn { flex: 1; text-align: center; padding: var(--spacing-sm) var(--spacing-md); border: none; background-color: transparent; color: var(--font-color-dim); cursor: pointer; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; transition: all 0.2s ease; white-space: nowrap; }
+    .settings-tab-btn:hover { background-color: var(--hover-bg-color); color: var(--font-color); }
+    .settings-tab-btn.active { background-color: var(--active-bg-color); color: var(--accent-color); font-weight: 600; }
+    .settings-tab-panel { display: none; flex-direction: column; gap: 20px; animation: fadeIn 0.3s ease; }
+    .settings-tab-panel.active { display: flex; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     
-    .settings-tab-panel h4 {
-        font-size: 16px;
-        margin-bottom: var(--spacing-sm);
-        padding-bottom: var(--spacing-md);
-        border-bottom: 0.5px solid var(--divider-color);
-    }
-    .settings-group {
-        display: grid;
-        grid-template-columns: 120px 1fr 50px;
-        align-items: center;
-        gap: var(--spacing-md);
-    }
-    #settings-tab-editor .settings-group,
-    #settings-tab-weather .settings-group {
-        grid-template-columns: 120px 1fr;
-    }
-    #settings-tab-weather .settings-group.weather-search-group {
-        grid-template-columns: 120px 1fr;
-    }
-    .settings-group label {
-        font-size: 14px;
-        font-weight: 500;
-    }
-    .settings-group input[type="range"] {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 100%;
-        height: 6px;
-        background: var(--input-bg-color);
-        outline: none;
-        border-radius: 3px;
-    }
-    .settings-group input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 18px;
-        height: 18px;
-        background: var(--accent-color);
-        cursor: pointer;
-        border-radius: 50%;
-    }
-    .settings-group span {
-        font-size: 14px;
-        text-align: right;
-    }
-    .weather-search-wrapper {
-        position: relative;
-    }
-    .weather-search-input-wrapper {
-        display: flex;
-        gap: var(--spacing-sm);
-    }
-    .weather-search-input-wrapper input {
-        flex-grow: 1;
-        min-width: 0;
-    }
-    .weather-search-input-wrapper button {
-        flex-shrink: 0;
-        padding-inline: 16px;
-    }
-    .city-results-list {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        background-color: var(--bg-color-opaque);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        list-style: none;
-        margin-top: 4px;
-        max-height: 150px;
-        overflow-y: auto;
-        z-index: 10;
-        display: none;
-    }
-    .city-results-list li {
-        padding: 10px var(--spacing-md);
-        font-size: 14px;
-        cursor: pointer;
-        border-bottom: 0.5px solid var(--divider-color);
-    }
-    .city-results-list li:last-child {
-        border-bottom: none;
-    }
-    .city-results-list li:hover {
-        background-color: var(--hover-bg-color);
-    }
-
-    .settings-group-row {
-        display: flex;
-        gap: var(--spacing-md);
-    }
-    .settings-description {
-        font-size: 13px;
-        color: var(--font-color-dim);
-        line-height: 1.6;
-    }
-    .settings-description a {
-        color: var(--accent-color);
-        text-decoration: none;
-    }
-    .settings-description a:hover {
-        text-decoration: underline;
-    }
-    .settings-footer {
-        border-top: 0.5px solid var(--divider-color);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: var(--spacing-lg) 32px;
-    }
-
-    .settings-footer .modal-button.danger {
-        background-color: var(--hover-bg-color);
-        color: var(--font-color);
-    }
+    .settings-tab-panel h4 { font-size: 16px; margin-bottom: var(--spacing-sm); padding-bottom: var(--spacing-md); border-bottom: 1px solid var(--divider-color); font-weight: 600; }
+    .settings-group { display: grid; grid-template-columns: 120px 1fr 50px; align-items: center; gap: var(--spacing-md); }
+    #settings-tab-editor .settings-group, #settings-tab-weather .settings-group { grid-template-columns: 120px 1fr; }
+    #settings-tab-weather .settings-group.weather-search-group { grid-template-columns: 120px 1fr; }
+    .settings-group label { font-size: 14px; font-weight: 500; }
+    .settings-group input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: var(--input-bg-color); outline: none; border-radius: 3px; }
+    .settings-group input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--accent-color); cursor: pointer; border-radius: 50%; }
+    .settings-group span { font-size: 14px; text-align: right; }
+    .weather-search-wrapper { position: relative; }
+    .weather-search-input-wrapper { display: flex; gap: var(--spacing-sm); }
+    .weather-search-input-wrapper input { flex-grow: 1; min-width: 0; }
+    .weather-search-input-wrapper button { flex-shrink: 0; padding-inline: 16px; }
+    .city-results-list { position: absolute; top: 100%; left: 0; right: 0; background-color: var(--material-opaque-bg); border: 1px solid var(--border-color); border-radius: var(--radius-sm); box-shadow: var(--shadow-modal); list-style: none; margin-top: 4px; max-height: 150px; overflow-y: auto; z-index: 10; display: none; }
+    .city-results-list li { padding: 10px var(--spacing-md); font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--divider-color); }
+    .city-results-list li:last-child { border-bottom: none; }
+    .city-results-list li:hover { background-color: var(--hover-bg-color); }
+    .settings-group-row { display: flex; gap: var(--spacing-md); }
+    .settings-description { font-size: 13px; color: var(--font-color-dim); line-height: 1.6; }
+    .settings-description a { color: var(--accent-color); text-decoration: none; }
+    .settings-description a:hover { text-decoration: underline; }
+    .settings-footer { border-top: 1px solid var(--divider-color); display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-lg) 32px; }
+    .settings-footer .modal-button.danger { background-color: var(--hover-bg-color); color: var(--font-color); }
 
     #toast-container { position: fixed; inset-block-start: 20px; inset-inline-end: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
-    .toast {
-        padding: var(--spacing-md) 20px; border-radius: var(--radius-sm); color: var(--solar-base3); font-size: 14px; font-weight: 500;
-        opacity: 0; transform: translateX(100%); animation: slideIn-out 4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-    }
+    .toast { padding: var(--spacing-md) 20px; border-radius: var(--radius-sm); color: var(--solar-base3); font-size: 14px; font-weight: 500; opacity: 0; transform: translateX(100%); animation: slideIn-out 4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
     .toast.success { background-color: var(--success-color); }
     .toast.error { background-color: var(--danger-color); }
     @keyframes slideIn-out { 0%, 100% { opacity: 0; transform: translateX(100%); } 10%, 90% { opacity: 1; transform: translateX(0); } }
 
-    #zen-mode-toggle-btn,
-    #theme-toggle-btn {
-        position: fixed;
-        top: 24px;
-        width: 44px;
-        height: 44px;
+    #zen-mode-toggle-btn, #theme-toggle-btn {
+        position: fixed; top: 24px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-color);
+        background-color: var(--material-regular-bg);
+        -webkit-backdrop-filter: var(--blur-effect); backdrop-filter: var(--blur-effect);
+        color: var(--font-color); font-size: 22px; cursor: pointer; display: flex; justify-content: center; align-items: center;
+        transition: all 0.3s ease; z-index: 1000;
+    }
+    #zen-mode-toggle-btn { right: 84px; }
+    #theme-toggle-btn { right: 28px; }
+	#zen-mode-toggle-btn:hover, #theme-toggle-btn:hover { transform: scale(1.1); box-shadow: 0 0 10px var(--accent-color); }
+    
+    .editor-area.readonly #note-title-input, .editor-area.readonly #note-content-textarea { cursor: default; background-color: var(--input-bg-color); opacity: 0.8; }
+    .editor-area.readonly #editor-footer { justify-content: center; }
+
+    /* [개선] 리플(Ripple) 효과 스타일 */
+    .ripple {
+        position: absolute;
         border-radius: 50%;
-        border: 1px solid var(--border-color);
-        background-color: var(--bg-color);
-        -webkit-backdrop-filter: var(--blur-effect);
-        backdrop-filter: var(--blur-effect);
-        color: var(--font-color);
-        font-size: 22px;
-        cursor: pointer;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        transition: all 0.3s ease;
-        z-index: 1000;
+        background-color: rgba(255, 255, 255, 0.4);
+        transform: scale(0);
+        animation: ripple-effect 0.6s linear;
     }
-    
-    #zen-mode-toggle-btn {
-        right: 84px;
+    body.dark-mode .ripple {
+        background-color: rgba(255, 255, 255, 0.2);
     }
-
-    #theme-toggle-btn {
-        right: 28px;
-    }
-	
-    #zen-mode-toggle-btn:hover,
-    #theme-toggle-btn:hover {
-        transform: scale(1.1);
-        box-shadow: 0 0 10px var(--accent-color);
-    }
-    
-    .editor-area.readonly #note-title-input,
-    .editor-area.readonly #note-content-textarea {
-        cursor: default;
-        background-color: var(--input-bg-color);
-        opacity: 0.8;
-    }
-
-    .editor-area.readonly #editor-footer {
-        justify-content: center;
+    @keyframes ripple-effect {
+        to {
+            transform: scale(4);
+            opacity: 0;
+        }
     }
 }

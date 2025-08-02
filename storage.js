@@ -325,7 +325,15 @@ export const setupImportHandler = () => {
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
                 const sanitizedSettings = hasSettingsInFile ? sanitizeSettings(importedData.settings) : null;
 
-                const ok = await showConfirm({ title: CONSTANTS.MODAL_TITLES.IMPORT_DATA, message: CONSTANTS.MESSAGES.CONFIRM.IMPORT_DATA, confirmText: '가져오기' });
+                // [개선] 데이터 가져오기 경고 메시지 강화 및 버튼 스타일 변경
+                const ok = await showConfirm({
+                    title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
+                    message: "가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong><br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
+                    isHtml: true,
+                    confirmText: '가져와서 덮어쓰기',
+                    confirmButtonType: 'danger'
+                });
+
                 if (ok) {
                     const totalNoteCount = sanitizedContent.folders.reduce((sum, f) => sum + f.notes.length, 0);
                     const rebuiltFavorites = new Set(sanitizedContent.favorites);
