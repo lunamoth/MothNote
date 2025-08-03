@@ -362,8 +362,12 @@ export const setupImportHandler = () => {
                 const importedData = JSON.parse(event.target.result);
                 const sanitizedContent = sanitizeContentData(importedData);
                 
+                // [BUG #1 FIX] 파일에 설정이 없으면 기본 설정으로 덮어쓰도록 수정하여,
+                // "모든 설정을 덮어쓴다"는 경고 메시지와 동작을 일치시킵니다.
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
-                const sanitizedSettings = hasSettingsInFile ? sanitizeSettings(importedData.settings) : null;
+                const sanitizedSettings = hasSettingsInFile 
+                    ? sanitizeSettings(importedData.settings) 
+                    : JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
 
                 const ok = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
@@ -411,10 +415,8 @@ export const setupImportHandler = () => {
                     // 2. 메인 데이터 저장
                     await chrome.storage.local.set({ appState: appStateToSave });
 
-                    // 3. 설정 저장
-                    if (sanitizedSettings) {
-                        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                    }
+                    // 3. 설정 저장 (이제 null 체크 없이 항상 실행)
+                    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
 
                     // 4. 세션 정보 저장
                     localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify(newSessionState));
