@@ -370,14 +370,27 @@ export const setupImportHandler = () => {
                     // [수정] Critical 버그 수정: 비동기 저장이 완료된 후 페이지를 새로고침하여 레이스 컨디션 방지
                     await chrome.storage.local.set({ appState: { folders: newState.folders, trash: newState.trash, favorites: Array.from(newState.favorites) } });
                     
-                    // 세션 정보는 저장이 완료된 후 기록
-                    saveSession();
+                    // [수정] 세션 정보는 전역 state가 아닌, 방금 생성한 newState를 기준으로 직접 저장합니다.
+                    localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
+                        f: newState.activeFolderId,
+                        n: newState.activeNoteId,
+                        s: newState.noteSortOrder,
+                        l: newState.lastActiveNotePerFolder
+                    }));
                     
-                    // 모든 저장이 완료되었으므로 안전하게 새로고침
-                    location.reload();
+                    // [수정] 모든 저장이 완료되었으므로 UI 차단을 해제하고, 사용자에게 알린 후 안전하게 새로고침합니다.
+                    overlay.remove(); // 오버레이 제거
+                    showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
+                    
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1500); // 사용자에게 토스트 메시지를 보여줄 시간 + I/O 완료를 위한 약간의 버퍼
                 }
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
+                // 가져오기 실패 시 오버레이가 남아있을 수 있으므로 제거
+                const overlay = document.querySelector('div[style*="z-index: 9999"]');
+                if (overlay) overlay.remove();
             }
         };
         reader.readAsText(file);

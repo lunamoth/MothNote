@@ -275,7 +275,12 @@ export const handleAddNote = () => {
                 newTitle = `${baseTitle} (${counter++})`;
             }
             
-            const uniqueId = crypto.randomUUID();
+            // [수정] crypto.randomUUID()의 안정성을 위해 대체(Fallback) ID 생성 로직 추가
+            const generateFallbackId = () => `${CONSTANTS.ID_PREFIX.NOTE}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            
+            const uniqueId = (typeof crypto?.randomUUID === 'function')
+                ? crypto.randomUUID()
+                : generateFallbackId();
 
             const newNote = { id: uniqueId, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             activeFolder.notes.unshift(newNote);
