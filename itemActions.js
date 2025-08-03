@@ -675,14 +675,24 @@ export async function handleNoteUpdate(isForced = false) {
         if (!activeNote) return;
         
         const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
+        
+        // --- [BUG FIX START] ---
+        // 사용자가 입력할 때마다 변경사항을 감지합니다.
         if (hasChanged) {
+            // isDirty 상태가 아니었다면, 상태를 변경하고 UI에 '변경됨'을 표시합니다.
+            // 이렇게 하면 불필요한 리렌더링을 방지할 수 있습니다.
             if (!state.isDirty) {
                 setState({ isDirty: true });
-                updateSaveStatus('dirty');
             }
+            // 하지만 UI 상태(저장 상태 인디케이터)는 항상 'dirty'로 업데이트하여
+            // 저장 직후의 입력도 시각적으로 즉시 반영되도록 합니다.
+            updateSaveStatus('dirty');
+            
+            // 디바운스 타이머는 변경이 있을 때마다 초기화합니다.
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
         }
+        // --- [BUG FIX END] ---
         return;
     }
     
