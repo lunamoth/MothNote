@@ -315,21 +315,28 @@ export const showDatePickerPopover = ({ initialDate }) => {
 
 export const showShortcutModal = () => {
     const shortcuts = [
-        { key: 'Alt + Shift + N', desc: '새 폴더 추가' },
-        { key: 'Alt + N', desc: '새 노트 추가' },
-        { key: 'F2 / 더블클릭', desc: '폴더/노트 이름 변경' },
-        { key: '↑ / ↓', desc: '폴더/노트 이동' },
-        { key: '드래그 앤 드롭', desc: '폴더 위치 변경, 노트를 다른 폴더로 이동' },
+        { key: 'Alt + Shift + N', desc: '✨ 새 폴더 추가' },
+        { key: 'Alt + N', desc: '✍️ 새 노트 추가' },
+        { key: 'F2 / 더블클릭', desc: '✏️ 폴더/노트 이름 변경' },
+        { key: '↑ / ↓', desc: '↕️ 폴더/노트 이동' },
+        { key: '드래그 앤 드롭', desc: '🖐️ 폴더 위치 변경, 노트를 다른 폴더로 이동' },
     ];
 
     const list = document.createElement('ul');
     list.className = 'shortcut-list';
     shortcuts.forEach(sc => {
         const li = document.createElement('li');
+
         const keySpan = document.createElement('span');
+        keySpan.className = 'shortcut-key';
         keySpan.textContent = sc.key;
+
+        const descSpan = document.createElement('span');
+        descSpan.className = 'shortcut-desc';
+        descSpan.textContent = sc.desc;
+
         li.appendChild(keySpan);
-        li.append(document.createTextNode(` ${sc.desc}`));
+        li.appendChild(descSpan);
         list.appendChild(li);
     });
 

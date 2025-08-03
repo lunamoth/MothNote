@@ -427,7 +427,7 @@ export const updateSaveStatus = (status) => {
     saveStatusIndicator.classList.add('visible');
 
     if (status === 'dirty') {
-        saveStatusIndicator.textContent = '●';
+        saveStatusIndicator.textContent = '✏️ 변경됨';
         saveStatusIndicator.classList.remove('saving');
     } else if (status === 'saving') {
         saveStatusIndicator.textContent = '💾 저장 중...';
