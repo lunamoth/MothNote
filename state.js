@@ -78,10 +78,7 @@ export const CONSTANTS = {
     AUTO_TITLE_LENGTH_KOR: 50, // [추가] 한글 기준 자동 제목 길이 상수
     RECENT_NOTES_COUNT: 10,
     TOAST_DURATION: 4000,
-    PLACEHOLDER_EMOJIS: [
-        '💡', '✨', '✍️', '🌱', '🦋', '🎨', '🧠', '🌟', '☕', '📖', '📝', '🧭', '🔭', '🗺️', '🤔',
-        '🌿', '🌻', '🍃', '🌈', '🦉', '🪐', '🌌', '🧘', '🍵', '🪁', '🎈', '🚀', '💎', '🎯', '🔑'
-    ],
+    PLACEHOLDER_EMOJIS: ['💡', '🧘', '🎨', '✍️', '🌱', '🧠', '📖', '🍵', '🌿', '✨'],
     MESSAGES: {
         SUCCESS: {
             NOTE_PINNED: '📍 노트를 고정했습니다.',
