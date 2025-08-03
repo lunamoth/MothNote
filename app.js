@@ -97,6 +97,7 @@ const handleSettingsSave = () => {
     } else if (newFontFamily) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_FONT_NAME, CONSTANTS.TOAST_TYPE.ERROR);
         settingsEditorFontFamily.value = finalFontFamily;
+        isSavingSettings = false; // [버그 수정] 플래그 초기화
         return;
     } else {
         finalFontFamily = CONSTANTS.DEFAULT_SETTINGS.editor.fontFamily;
@@ -109,11 +110,13 @@ const handleSettingsSave = () => {
     if (isNaN(lat) || lat < -90 || lat > 90) {
         showToast('유효하지 않은 위도 값입니다. (-90 ~ 90)', CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLat.focus();
+        isSavingSettings = false; // [버그 수정] 플래그 초기화
         return;
     }
     if (isNaN(lon) || lon < -180 || lon > 180) {
         showToast('유효하지 않은 경도 값입니다. (-180 ~ 180)', CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLon.focus();
+        isSavingSettings = false; // [버그 수정] 플래그 초기화
         return;
     }
 
@@ -330,6 +333,7 @@ const setupSettingsModal = () => {
 class Dashboard {
     constructor() {
         this.dom = {
+            panel: document.getElementById('folders-panel'),
             digitalClock: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.digitalClock),
             analogClockCanvas: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.analogClockCanvas),
             weatherContainer: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.weatherContainer),
@@ -341,26 +345,66 @@ class Dashboard {
         this.internalState = {
             currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(),
             analogClockAnimationId: null,
+            digitalClockIntervalId: null, // [성능 개선] 디지털 시계 인터벌 ID
             weatherFetchController: null,
             displayedMonth: null,
         };
+        this.observer = null;
     }
 
     init() {
-        this._updateDigitalClock();
-        setInterval(this._updateDigitalClock.bind(this), 1000);
-        this._initAnalogClock();
+        // [성능 개선] 시계 시작/중지 로직을 IntersectionObserver로 관리
+        this._setupVisibilityObserver();
+        this._initAnalogClock(); // 초기 캔버스 설정
         if (document.body) {
-            new MutationObserver(this._initAnalogClock.bind(this)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+            new MutationObserver(() => this._initAnalogClock(true)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
         }
         this.fetchWeather();
         this.renderCalendar();
         this._setupCalendarEvents();
         window.addEventListener('unload', () => {
             if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort();
+            this._stopClocks(); // 페이지 떠날 때 정리
         });
     }
 
+    _setupVisibilityObserver() {
+        if (!this.dom.panel) return;
+
+        this.observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    this._startClocks();
+                } else {
+                    this._stopClocks();
+                }
+            });
+        });
+
+        this.observer.observe(this.dom.panel);
+    }
+    
+    _startClocks() {
+        if (!this.internalState.digitalClockIntervalId) {
+            this._updateDigitalClock();
+            this.internalState.digitalClockIntervalId = setInterval(this._updateDigitalClock.bind(this), 1000);
+        }
+        if (!this.internalState.analogClockAnimationId) {
+            this._animateAnalogClock();
+        }
+    }
+
+    _stopClocks() {
+        if (this.internalState.digitalClockIntervalId) {
+            clearInterval(this.internalState.digitalClockIntervalId);
+            this.internalState.digitalClockIntervalId = null;
+        }
+        if (this.internalState.analogClockAnimationId) {
+            cancelAnimationFrame(this.internalState.analogClockAnimationId);
+            this.internalState.analogClockAnimationId = null;
+        }
+    }
+    
     _getWeatherInfo(wmoCode, isDay = true) {
         let weather = CONSTANTS.DASHBOARD.WMO_MAP[wmoCode] ?? { icon: "❓", text: "알 수 없음" };
         if (!isDay) {
@@ -375,15 +419,31 @@ class Dashboard {
         this.dom.digitalClock.textContent = new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true });
     }
 
-    _initAnalogClock() {
+    _initAnalogClock(forceRedraw = false) {
         if (!this.dom.analogClockCanvas) return;
-        if (this.internalState.analogClockAnimationId) cancelAnimationFrame(this.internalState.analogClockAnimationId);
+        if (this.internalState.analogClockAnimationId && !forceRedraw) return;
+
+        if(forceRedraw && this.internalState.analogClockAnimationId) {
+            cancelAnimationFrame(this.internalState.analogClockAnimationId);
+            this.internalState.analogClockAnimationId = null;
+        }
 
         const ctx = this.dom.analogClockCanvas.getContext('2d');
         const radius = this.dom.analogClockCanvas.height / 2;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.translate(radius, radius);
-
+        this._drawClockFace();
+        
+        if (forceRedraw) {
+            this._animateAnalogClock();
+        }
+    }
+    
+    _drawClockFace() {
+        if (!this.dom.analogClockCanvas) return;
+        const ctx = this.dom.analogClockCanvas.getContext('2d');
+        const radius = this.dom.analogClockCanvas.height / 2;
+        
         const drawHand = (pos, length, width, color) => {
             ctx.beginPath(); ctx.lineWidth = width; ctx.lineCap = 'round';
             ctx.strokeStyle = color || getComputedStyle(document.documentElement).getPropertyValue('--font-color').trim();
@@ -401,34 +461,33 @@ class Dashboard {
                 ctx.fillText(num.toString(), x, y);
             }
         };
-        const drawClock = () => {
-            const style = getComputedStyle(document.documentElement);
-            const accentColor = style.getPropertyValue('--accent-color').trim(); 
+        
+        const style = getComputedStyle(document.documentElement);
+        const accentColor = style.getPropertyValue('--accent-color').trim();
+        
+        ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
+        ctx.beginPath(); ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); ctx.lineWidth = 2; ctx.stroke();
+        drawNumbers(ctx, radius);
+        ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = accentColor; ctx.fill();
+        
+        const now = new Date(), h = now.getHours(), m = now.getMinutes();
 
-            ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
-            ctx.beginPath(); ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); ctx.lineWidth = 2; ctx.stroke();
-            drawNumbers(ctx, radius);
-            ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = accentColor; ctx.fill();
-            
-            const now = new Date(), h = now.getHours(), m = now.getMinutes();
+        drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
+        drawHand(m * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
+    }
 
-            drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
-            drawHand(m * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
-        };
-
+    _animateAnalogClock() {
         let lastMinute = -1;
         const animate = () => {
             const now = new Date();
             const currentMinute = now.getMinutes();
-
             if (currentMinute !== lastMinute) {
-                drawClock();
+                this._drawClockFace();
                 lastMinute = currentMinute;
             }
             this.internalState.analogClockAnimationId = requestAnimationFrame(animate);
         };
-        
-        requestAnimationFrame(animate);
+        animate();
     }
 
     async fetchWeather() {
@@ -1120,7 +1179,7 @@ const setupFeatureToggles = () => {
             localStorage.setItem('theme', theme);
             
             if (dashboard && typeof dashboard._initAnalogClock === 'function') {
-                dashboard._initAnalogClock(); 
+                dashboard._initAnalogClock(true); // 테마 변경 시 시계 강제 다시 그리기
             }
         });
     }

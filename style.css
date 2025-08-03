@@ -258,7 +258,7 @@
         align-items: center;
     }
     #weather-container {
-        gap: var(--spacing-sm);
+        gap: 4px;
         font-size: 16px;
         font-weight: 500;
     }

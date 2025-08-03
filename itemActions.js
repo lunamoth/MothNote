@@ -346,19 +346,15 @@ const handleDeleteFolder = (id) => {
         
         delete state.lastActiveNotePerFolder[id];
         
-        // [핵심 개선] 폴더 삭제 후, 다음 활성 폴더를 명시적으로 선택합니다.
-        // 1. 삭제된 폴더의 '다음' 폴더를 우선적으로 선택합니다 (splice 후 같은 index).
-        // 2. '다음' 폴더가 없다면 (즉, 마지막 폴더를 삭제했다면), '이전' 폴더를 선택합니다.
-        // 3. 남은 폴더가 없다면 '모든 노트'를 선택합니다.
-        const nextActiveFolderId = (state.activeFolderId === id)
-            ? (state.folders[index]?.id ?? state.folders[index - 1]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id)
-            : state.activeFolderId;
-
-        await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name));
-        
+        // [버그 수정] 폴더 삭제 후 다음 활성 폴더/노트 상태를 한 번에 업데이트
+        const newState = {};
         if (state.activeFolderId === id) {
-            await changeActiveFolder(nextActiveFolderId);
+            newState.activeFolderId = state.folders[index]?.id ?? state.folders[index - 1]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+            newState.activeNoteId = null; // 명시적으로 null 처리
         }
+        
+        // `changeActiveFolder` 호출 대신, `finalizeItemChange`로 상태를 한번에 업데이트
+        await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name));
     };
     
     animateAndRemove(id, deletionLogic);
@@ -643,7 +639,13 @@ async function _performSave(noteId, titleToSave, contentToSave) {
 
     const { item: noteToSave } = findNote(noteId);
     if (noteToSave) {
-        noteToSave.title = titleToSave;
+        // [기능 추가] 노트 내용 기반 자동 제목 생성
+        let finalTitle = titleToSave;
+        if (!finalTitle.trim() && contentToSave.trim()) {
+            finalTitle = contentToSave.trim().split('\n')[0].substring(0, CONSTANTS.AUTO_TITLE_LENGTH);
+        }
+
+        noteToSave.title = finalTitle;
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = Date.now();
 
