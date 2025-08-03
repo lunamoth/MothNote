@@ -199,10 +199,20 @@ export const handleRestoreItem = async (id) => {
 
 const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
     if (!notesInView || notesInView.length === 0) return null;
-    const deletedIndex = notesInView.findIndex(n => n.id === deletedNoteId);
-    if (deletedIndex === -1) return notesInView[0]?.id ?? null;
-    const nextNote = notesInView[deletedIndex + 1] || notesInView[deletedIndex - 1] || null;
-    return nextNote?.id ?? null;
+
+    // [High 버그 수정] 삭제될 노트를 제외한 새로운 리스트를 기준으로 인덱스를 찾음
+    const futureNotesInView = notesInView.filter(n => n.id !== deletedNoteId);
+    if(futureNotesInView.length === 0) return null;
+
+    const deletedIndexInOriginalView = notesInView.findIndex(n => n.id === deletedNoteId);
+    if (deletedIndexInOriginalView === -1) {
+        // 이 경우는 거의 없지만, 안전장치로 첫 번째 노트를 반환
+        return futureNotesInView[0].id;
+    }
+
+    // 다음 아이템은 원래 인덱스에 위치하거나, 마지막 아이템이었다면 그 이전 아이템
+    const nextItem = futureNotesInView[deletedIndexInOriginalView] || futureNotesInView[deletedIndexInOriginalView - 1];
+    return nextItem?.id ?? null;
 };
 
 export const handleAddFolder = async () => {
@@ -373,10 +383,14 @@ const handleDeleteNote = (id) => {
         let nextActiveNoteIdToSet = null;
         const wasActiveNoteDeleted = state.activeNoteId === id;
         const wasInDateFilteredView = !!state.dateFilter;
+        
+        // [High 버그 수정] stale cache 대신 현재 렌더링된 뷰를 기준으로 다음 노트 결정
         if (wasActiveNoteDeleted) {
-            const notesInCurrentView = sortedNotesCache.result;
-            if (notesInCurrentView) nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, notesInCurrentView);
-            else if (folder) nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, sortNotes(folder.notes, state.noteSortOrder));
+            // sortedNotesCache.result는 현재 UI에 표시된 노트 목록이므로 가장 정확
+            const notesInCurrentView = sortedNotesCache.result; 
+            if (notesInCurrentView) {
+                nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, notesInCurrentView);
+            }
         }
 
         state.favorites.delete(id);

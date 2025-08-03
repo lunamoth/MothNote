@@ -638,25 +638,24 @@ class Dashboard {
                 this.renderCalendar();
             }
         };
-        // [핵심 개선] 날짜 필터링 경험 향상
+        
+        // [High 버그 수정] 날짜 필터 전환 교착 상태 해결
         this.dom.calendarGrid.onclick = async e => {
             const target = e.target.closest('.date-cell.has-notes');
             if (target) {
+                // 어떤 경우든 항상 저장 여부를 먼저 확인
+                if (!(await confirmNavigation())) return;
+
                 const newFilterDate = new Date(target.dataset.date);
                 const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime();
                 
-                // 이미 다른 날짜 필터가 활성화된 상태에서, 다른 날짜를 클릭한 경우에는 확인창을 건너뜁니다.
-                if (state.dateFilter && !isSameDate) {
-                    // 아무것도 하지 않음 (confirmNavigation을 호출하지 않음)
-                } else {
-                    if (!(await confirmNavigation())) return;
-                }
-
                 searchInput.value = '';
                 
                 if (isSameDate) {
+                    // 같은 날짜를 다시 클릭하면 필터 해제
                     setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
                 } else {
+                    // 다른 날짜를 클릭하면 해당 날짜로 필터 전환
                     this.internalState.currentDate = newFilterDate;
                     
                     const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
@@ -1283,8 +1282,8 @@ const setupGlobalEventListeners = () => {
     window.addEventListener('beforeunload', (e) => {
         // debounce 타이머 등으로 아직 반영되지 않은 최신 UI 변경사항이 있는지 확인
         const activeNote = state.activeNoteId ? findNote(state.activeNoteId).item : null;
-        const titleChanged = activeNote && activeNote.title !== noteTitleInput.value;
-        const contentChanged = activeNote && activeNote.content !== noteContentTextarea.value;
+        const titleChanged = activeNote && noteTitleInput.value && activeNote.title !== noteTitleInput.value;
+        const contentChanged = activeNote && noteContentTextarea.value && activeNote.content !== noteContentTextarea.value;
 
         // isDirty 플래그 또는 UI와 state 간의 불일치가 존재할 경우
         if (state.isDirty || titleChanged || contentChanged) {

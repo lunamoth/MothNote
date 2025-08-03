@@ -28,6 +28,26 @@ export const saveSession = () => {
 
 export const loadData = async () => {
     try {
+        // [Critical 버그 수정] 가져오기 중단 시 복구 로직
+        const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+        if (importInProgressData && Object.keys(importInProgressData).length > 0) {
+            const recoveredData = importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS];
+            console.warn("중단된 가져오기 발견. 데이터 복구를 시도합니다.");
+            
+            // 1. 복구된 데이터로 메인 저장소 덮어쓰기
+            await chrome.storage.local.set({ appState: recoveredData.appState });
+            
+            // 2. 복구된 설정이 있으면 localStorage에 저장
+            if (recoveredData.settings) {
+                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(recoveredData.settings));
+            }
+
+            // 3. 임시 데이터 삭제
+            await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            console.log("가져오기 데이터 복구 완료.");
+        }
+
+
         // [High 버그 수정] 앱 로딩 시, 비정상 종료로 저장되지 않은 데이터가 있는지 확인하고 복구합니다.
         const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
         if (uncommittedDataStr) {
@@ -335,6 +355,9 @@ export const setupImportHandler = () => {
 
         const reader = new FileReader();
         reader.onload = async event => {
+            const overlay = document.createElement('div'); // 오버레이를 미리 생성
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold;';
+
             try {
                 const importedData = JSON.parse(event.target.result);
                 const sanitizedContent = sanitizeContentData(importedData);
@@ -342,7 +365,6 @@ export const setupImportHandler = () => {
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
                 const sanitizedSettings = hasSettingsInFile ? sanitizeSettings(importedData.settings) : null;
 
-                // [개선] 데이터 가져오기 경고 메시지 강화 및 버튼 스타일 변경
                 const ok = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
                     message: "가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong><br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
@@ -352,9 +374,6 @@ export const setupImportHandler = () => {
                 });
 
                 if (ok) {
-                    // [Critical 버그 수정] 데이터 덮어쓰기 전 사용자 입력을 막기 위해 UI 차단 오버레이 표시
-                    const overlay = document.createElement('div');
-                    overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold;';
                     overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
                     document.body.appendChild(overlay);
 
@@ -367,51 +386,54 @@ export const setupImportHandler = () => {
                         });
                     });
 
-                    const newState = {
+                    const appStateToSave = {
                         folders: sanitizedContent.folders,
                         trash: sanitizedContent.trash,
-                        favorites: rebuiltFavorites,
-                        activeFolderId: sanitizedContent.folders[0]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
-                        activeNoteId: sanitizedContent.folders[0]?.notes[0]?.id ?? null,
-                        searchTerm: '',
-                        noteSortOrder: 'updatedAt_desc',
-                        isDirty: false,
-                        totalNoteCount: totalNoteCount,
-                        lastActiveNotePerFolder: {}
+                        favorites: Array.from(rebuiltFavorites)
                     };
 
+                    const newSessionState = {
+                        f: sanitizedContent.folders[0]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+                        n: sanitizedContent.folders[0]?.notes[0]?.id ?? null,
+                        s: 'updatedAt_desc',
+                        l: {}
+                    };
+
+                    // [Critical 버그 수정] 가져오기 프로세스를 트랜잭션화하여 데이터 유실 방지
+                    // 1. 가져올 데이터를 임시 키에 저장
+                    await chrome.storage.local.set({ 
+                        [CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]: { 
+                            appState: appStateToSave,
+                            settings: sanitizedSettings
+                        } 
+                    });
+
+                    // 2. 메인 데이터 저장
+                    await chrome.storage.local.set({ appState: appStateToSave });
+
+                    // 3. 설정 저장
                     if (sanitizedSettings) {
                         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                     }
-                    
-                    // [Critical 버그 수정] 비동기 저장이 완료된 후 페이지를 새로고침하여 레이스 컨디션 방지
-                    // 1. 비동기 저장 시작
-                    const savePromise = chrome.storage.local.set({ appState: { folders: newState.folders, trash: newState.trash, favorites: Array.from(newState.favorites) } });
-                    
-                    // 2. 세션 정보는 전역 state가 아닌, 방금 생성한 newState를 기준으로 직접 저장합니다.
-                    localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
-                        f: newState.activeFolderId,
-                        n: newState.activeNoteId,
-                        s: newState.noteSortOrder,
-                        l: newState.lastActiveNotePerFolder
-                    }));
-                    
-                    // 3. 비동기 저장이 완료될 때까지 기다립니다.
-                    await savePromise;
 
-                    // 4. 모든 저장이 완료되었으므로, 사용자에게 알린 후 안전하게 새로고침합니다.
+                    // 4. 세션 정보 저장
+                    localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify(newSessionState));
+                    
+                    // 5. 모든 저장이 성공했으므로 임시 데이터 삭제
+                    await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+
+                    // 6. 모든 저장이 완료되었으므로, 사용자에게 알린 후 안전하게 새로고침
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                     
-                    // 5. 짧은 지연 후 새로고침 (이때 UI는 계속 차단 상태)
                     setTimeout(() => {
                         location.reload();
                     }, 1500);
                 }
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
-                // 가져오기 실패 시 오버레이가 남아있을 수 있으므로 제거
-                const overlay = document.querySelector('div[style*="z-index: 9999"]');
-                if (overlay) overlay.remove();
+                if (overlay.parentElement) {
+                    overlay.remove();
+                }
             }
         };
         reader.readAsText(file);
