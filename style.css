@@ -456,13 +456,47 @@
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     
     .settings-tab-panel h4 { font-size: 16px; margin-bottom: var(--spacing-sm); padding-bottom: var(--spacing-md); border-bottom: 1px solid var(--divider-color); font-weight: 600; }
-    .settings-group { display: grid; grid-template-columns: 120px 1fr 50px; align-items: center; gap: var(--spacing-md); }
+    /* [수정] 레이아웃 설정 그룹의 그리드 템플릿 변경 */
+    .settings-group {
+        display: grid;
+        grid-template-columns: 120px 1fr 80px 30px;
+        align-items: center;
+        gap: var(--spacing-md);
+    }
     #settings-tab-editor .settings-group, #settings-tab-weather .settings-group { grid-template-columns: 120px 1fr; }
     #settings-tab-weather .settings-group.weather-search-group { grid-template-columns: 120px 1fr; }
     .settings-group label { font-size: 14px; font-weight: 500; }
     .settings-group input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: var(--input-bg-color); outline: none; border-radius: 3px; }
     .settings-group input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--accent-color); cursor: pointer; border-radius: 50%; }
-    .settings-group span { font-size: 14px; text-align: right; }
+    /* [추가] 숫자 입력 필드 스타일 */
+    .settings-value-input {
+        width: 100%;
+        background: var(--input-bg-color);
+        border: 1px solid transparent;
+        color: var(--font-color);
+        padding: var(--spacing-sm);
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        outline: none;
+        text-align: right;
+        -moz-appearance: textfield;
+    }
+    .settings-value-input::-webkit-outer-spin-button,
+    .settings-value-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .settings-value-input:focus {
+        border-color: var(--accent-color);
+        background: var(--input-focus-bg-color);
+    }
+    /* [수정] 단위 표시 라벨 스타일 */
+    .settings-unit-label {
+        font-size: 14px;
+        color: var(--font-color-dim);
+        text-align: left;
+        padding-left: 4px;
+    }
     .weather-search-wrapper { position: relative; }
     .weather-search-input-wrapper { display: flex; gap: var(--spacing-sm); }
     .weather-search-input-wrapper input { flex-grow: 1; min-width: 0; }

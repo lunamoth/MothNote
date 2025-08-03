@@ -142,12 +142,14 @@
                 <div class="settings-group">
                     <label for="settings-col1-width">폴더 패널</label>
                     <input type="range" id="settings-col1-width" min="10" max="50" step="1">
-                    <span id="settings-col1-value"></span>
+                    <input type="number" id="settings-col1-input" min="10" max="50" class="settings-value-input">
+                    <span class="settings-unit-label">%</span>
                 </div>
                 <div class="settings-group">
                     <label for="settings-col2-width">노트 패널</label>
                     <input type="range" id="settings-col2-width" min="10" max="50" step="1">
-                    <span id="settings-col2-value"></span>
+                    <input type="number" id="settings-col2-input" min="10" max="50" class="settings-value-input">
+                    <span class="settings-unit-label">%</span>
                 </div>
                 <p class="settings-description">
                     💡 팁: 각 패널 사이의 경계선을 마우스로 직접 드래그하여 너비를 조절할 수도 있습니다.
@@ -156,7 +158,8 @@
                  <div class="settings-group">
                     <label for="settings-zen-max-width">최대 너비 (px)</label>
                     <input type="range" id="settings-zen-max-width" min="500" max="2000" step="10">
-                    <span id="settings-zen-max-value"></span>
+                    <input type="number" id="settings-zen-max-input" min="500" max="2000" step="10" class="settings-value-input">
+                    <span class="settings-unit-label">px</span>
                 </div>
                 <p class="settings-description">
                     젠 모드에서 편집기의 최대 너비를 설정합니다. 가독성을 위해 적절한 너비를 선택하세요.<br><br>

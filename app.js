@@ -2,11 +2,10 @@ import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteM
 import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {
     folderList, noteList, addFolderBtn, addNoteBtn, emptyTrashBtn, searchInput, clearSearchBtn, noteSortSelect,
-    // [개선] Enter키 동작 일관성을 위해 noteTitleInput 추가
     noteTitleInput, noteContentTextarea, shortcutGuideBtn, settingsBtn,
     showToast, showShortcutModal, sortNotes, showDatePickerPopover, showConfirm as showConfirmModal,
     settingsModal, settingsModalCloseBtn, settingsTabs, settingsTabPanels,
-    settingsCol1Width, settingsCol1Value, settingsCol2Width, settingsCol2Value,
+    settingsCol1Width, settingsCol2Width,
     settingsEditorFontFamily, settingsEditorFontSize,
     settingsWeatherLat, settingsWeatherLon,
     settingsExportBtn, settingsImportBtn, settingsResetBtn, settingsSaveBtn,
@@ -30,8 +29,11 @@ import {
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
 
+// [수정] 숫자 입력 필드 DOM 요소 캐싱 추가
+const settingsCol1Input = document.getElementById('settings-col1-input');
+const settingsCol2Input = document.getElementById('settings-col2-input');
 const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
-const settingsZenMaxValue = document.getElementById('settings-zen-max-value');
+const settingsZenMaxInput = document.getElementById('settings-zen-max-input');
 
 const applySettings = (settings) => {
     const root = document.documentElement;
@@ -65,12 +67,14 @@ const loadAndApplySettings = () => {
 const openSettingsModal = async () => {
     await handleNoteUpdate(true);
 
+    // [수정] 슬라이더와 숫자 입력 필드 모두에 값 설정
     settingsCol1Width.value = appSettings.layout.col1;
-    settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
+    settingsCol1Input.value = appSettings.layout.col1;
     settingsCol2Width.value = appSettings.layout.col2;
-    settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
+    settingsCol2Input.value = appSettings.layout.col2;
     settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
-    settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
+    settingsZenMaxInput.value = appSettings.zenMode.maxWidth;
+
     settingsEditorFontFamily.value = appSettings.editor.fontFamily;
     settingsEditorFontSize.value = appSettings.editor.fontSize;
     settingsWeatherLat.value = appSettings.weather.lat;
@@ -113,13 +117,14 @@ const handleSettingsSave = () => {
         return;
     }
 
+    // [수정] 숫자 입력 필드에서 값을 읽어옴
     const newSettings = {
         layout: {
-            col1: parseInt(settingsCol1Width.value, 10),
-            col2: parseInt(settingsCol2Width.value, 10),
+            col1: parseInt(settingsCol1Input.value, 10),
+            col2: parseInt(settingsCol2Input.value, 10),
         },
         zenMode: {
-            maxWidth: parseInt(settingsZenMaxWidth.value, 10)
+            maxWidth: parseInt(settingsZenMaxInput.value, 10)
         },
         editor: {
             fontFamily: finalFontFamily,
@@ -158,23 +163,22 @@ const handleSettingsReset = async () => {
     if (ok) {
         appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
-        applySettings(appSettings);
-
+        
+        // [수정] 모달의 값들을 리셋된 값으로 업데이트
         settingsCol1Width.value = appSettings.layout.col1;
-        settingsCol1Value.textContent = `${appSettings.layout.col1}%`;
+        settingsCol1Input.value = appSettings.layout.col1;
         settingsCol2Width.value = appSettings.layout.col2;
-        settingsCol2Value.textContent = `${appSettings.layout.col2}%`;
+        settingsCol2Input.value = appSettings.layout.col2;
         settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
-        settingsZenMaxValue.textContent = `${appSettings.zenMode.maxWidth}px`;
+        settingsZenMaxInput.value = appSettings.zenMode.maxWidth;
         settingsEditorFontFamily.value = appSettings.editor.fontFamily;
         settingsEditorFontSize.value = appSettings.editor.fontSize;
         settingsWeatherLat.value = appSettings.weather.lat;
         settingsWeatherLon.value = appSettings.weather.lon;
-
+        
+        applySettings(appSettings);
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
         settingsModal.close();
-    } else {
-        applySettings(appSettings);
     }
 };
 
@@ -230,6 +234,7 @@ const setupSettingsModal = () => {
     settingsImportBtn.addEventListener('click', handleImport);
 
     settingsModal.addEventListener('close', () => {
+        // [수정] 저장하지 않고 닫을 경우, 원래 설정으로 복원
         if (!isSavingSettings) {
             applySettings(appSettings);
         }
@@ -247,22 +252,58 @@ const setupSettingsModal = () => {
         document.getElementById(`settings-tab-${target.dataset.tab}`).classList.add('active');
     });
     
-    const updateSliderValue = (slider, valueEl, unit, isCol1) => {
-        const value = slider.value;
-        valueEl.textContent = `${value}${unit}`;
-        const root = document.documentElement;
-        if (isCol1 !== undefined) {
-            if (isCol1) root.style.setProperty('--column-folders-width', `${value}%`);
-            else root.style.setProperty('--column-notes-width', `${value}%`);
-        } else if (unit === 'px') {
-             root.style.setProperty('--zen-max-width', `${value}px`);
-        }
+    // [추가] 슬라이더와 숫자 입력을 양방향으로 동기화하고 실시간으로 스타일을 적용하는 헬퍼 함수
+    const bindSliderAndInput = (slider, input, cssVar, unit) => {
+        const updateStyle = (value) => {
+            document.documentElement.style.setProperty(cssVar, `${value}${unit}`);
+        };
+
+        // 슬라이더 변경 -> 숫자 입력 및 스타일 업데이트
+        slider.addEventListener('input', () => {
+            const value = slider.value;
+            input.value = value;
+            updateStyle(value);
+        });
+
+        // 숫자 입력 -> 슬라이더 및 스타일 업데이트
+        input.addEventListener('input', () => {
+            let value = parseInt(input.value, 10);
+            const min = parseInt(input.min, 10);
+            const max = parseInt(input.max, 10);
+
+            if (isNaN(value)) {
+                // 입력 중일 때는 아무것도 하지 않음 (예: "1"만 입력한 상태)
+                return; 
+            }
+            
+            // 입력 값이 min/max를 벗어나도 일단 스타일은 적용하여 실시간 피드백 제공
+            slider.value = Math.max(min, Math.min(value, max));
+            updateStyle(value);
+        });
+        
+        // 숫자 입력 필드에서 포커스를 잃었을 때 값 보정
+        input.addEventListener('blur', () => {
+            let value = parseInt(input.value, 10);
+            const min = parseInt(input.min, 10);
+            const max = parseInt(input.max, 10);
+
+            if (isNaN(value) || value < min) {
+                value = min;
+            } else if (value > max) {
+                value = max;
+            }
+            
+            input.value = value;
+            slider.value = value;
+            updateStyle(value);
+        });
     };
 
-    settingsCol1Width.addEventListener('input', () => updateSliderValue(settingsCol1Width, settingsCol1Value, '%', true));
-    settingsCol2Width.addEventListener('input', () => updateSliderValue(settingsCol2Width, settingsCol2Value, '%', false));
-    settingsZenMaxWidth.addEventListener('input', () => updateSliderValue(settingsZenMaxWidth, settingsZenMaxValue, 'px'));
-    
+    // [수정] 각 설정에 대해 바인딩 함수 호출
+    bindSliderAndInput(settingsCol1Width, settingsCol1Input, '--column-folders-width', '%');
+    bindSliderAndInput(settingsCol2Width, settingsCol2Input, '--column-notes-width', '%');
+    bindSliderAndInput(settingsZenMaxWidth, settingsZenMaxInput, '--zen-max-width', 'px');
+
     settingsEditorFontFamily.addEventListener('input', (e) => {
         document.documentElement.style.setProperty('--editor-font-family', e.target.value);
     });
@@ -901,7 +942,7 @@ const handleRename = (e, type) => {
     }
 };
 
-const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, sliderElement, valueElement) => {
+const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, sliderElement, inputElement) => {
     const splitter = document.getElementById(splitterId);
     if (!splitter) return;
 
@@ -926,9 +967,10 @@ const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, 
         
         document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`);
         
-        if (sliderElement && valueElement) {
-            sliderElement.value = newPanelPercentage;
-            valueElement.textContent = `${Math.round(newPanelPercentage)}%`;
+        if (sliderElement && inputElement) {
+            const roundedValue = Math.round(newPanelPercentage);
+            sliderElement.value = roundedValue;
+            inputElement.value = roundedValue;
         }
     };
 
@@ -969,8 +1011,6 @@ const setupZenModeResize = () => {
                 const deltaX = moveEvent.clientX - startX;
                 let newWidth;
 
-                // [핵심 개선] 너비 변경 로직을 마우스 이동 거리의 2배로 설정하여,
-                // 중앙을 기준으로 양쪽이 대칭적으로 조절되는 직관적인 경험을 제공합니다.
                 if (handle.id === 'zen-resize-handle-right') {
                     newWidth = startWidth + deltaX * 2;
                 } else {
@@ -980,10 +1020,11 @@ const setupZenModeResize = () => {
                 const min = parseInt(settingsZenMaxWidth.min, 10);
                 const max = parseInt(settingsZenMaxWidth.max, 10);
                 newWidth = Math.max(min, Math.min(newWidth, max));
+                const roundedWidth = Math.round(newWidth);
 
-                document.documentElement.style.setProperty('--zen-max-width', `${newWidth}px`);
-                settingsZenMaxWidth.value = newWidth;
-                settingsZenMaxValue.textContent = `${newWidth}px`;
+                document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`);
+                settingsZenMaxWidth.value = roundedWidth;
+                settingsZenMaxInput.value = roundedWidth;
             };
 
             const onMouseUp = () => {
@@ -1033,8 +1074,8 @@ const setupEventListeners = () => {
     
     setupSettingsModal();
 
-    setupSplitter('splitter-1', 'folders-panel', 'notes-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Value);
-    setupSplitter('splitter-2', 'folders-panel', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Value);
+    setupSplitter('splitter-1', 'folders-panel', 'notes-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input);
+    setupSplitter('splitter-2', 'folders-panel', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input);
     setupZenModeResize();
 };
 
