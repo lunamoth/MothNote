@@ -507,22 +507,22 @@ export const handlePermanentlyDeleteItem = async (id) => {
     const message = CONSTANTS.MESSAGES.CONFIRM.PERM_DELETE(itemName);
 
     const deletionLogic = async () => {
-        // [수정 시작] 다음 활성 노트를 결정하는 로직 추가
         let nextActiveNoteIdToSet = null;
-        // 1. 삭제될 항목이 현재 활성화된 항목인지 확인합니다.
-        //    휴지통 뷰에서는 모든 항목이 노트처럼 취급되므로 activeNoteId와 비교합니다.
         const wasActiveItemDeleted = state.activeNoteId === id;
 
         if (wasActiveItemDeleted) {
-            // 2. 현재 화면에 표시된 항목 목록(휴지통)을 가져옵니다.
-            const itemsInTrashView = sortedNotesCache.result;
-            if (itemsInTrashView) {
-                // 3. 기존 헬퍼 함수를 재사용하여 다음 활성화될 항목의 ID를 찾습니다.
-                nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, itemsInTrashView);
-            }
+            // [High 버그 수정] 불안정한 캐시(sortedNotesCache) 대신,
+            // 현재 state.trash를 기준으로 표시될 목록을 즉시 생성하여 사용합니다.
+            // 이렇게 하면 삭제와 같은 중요 작업이 항상 최신 데이터에 기반하여 동작합니다.
+            const currentTrashItems = state.trash
+                .filter(i =>
+                    (i.title ?? i.name ?? '').toLowerCase().includes(state.searchTerm.toLowerCase())
+                )
+                .sort((a, b) => (b.deletedAt ?? 0) - (b.deletedAt ?? 0));
+            
+            nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, currentTrashItems);
         }
-        // [수정 끝]
-
+        
         const idsToDelete = new Set([id]);
         let successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_ITEM_SUCCESS;
 
@@ -537,7 +537,6 @@ export const handlePermanentlyDeleteItem = async (id) => {
 
         state.trash = state.trash.filter(i => !idsToDelete.has(i.id));
 
-        // [수정] newState 객체를 생성하고, 다음 활성 ID를 담아 전달합니다.
         const newState = {};
         if (wasActiveItemDeleted) {
             newState.activeNoteId = nextActiveNoteIdToSet;

@@ -1278,26 +1278,45 @@ const initializeDragAndDrop = () => {
 const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
 
-    // [CRITICAL BUG FIX] 다중 탭 환경에서의 데이터 유실을 방지하기 위해 else 블록을 제거
+    // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 수정
     window.addEventListener('beforeunload', (e) => {
         const activeNote = state.activeNoteId ? findNote(state.activeNoteId).item : null;
-        const titleChanged = activeNote && noteTitleInput.value && activeNote.title !== noteTitleInput.value;
-        const contentChanged = activeNote && noteContentTextarea.value && activeNote.content !== noteContentTextarea.value;
+        // input/textarea의 value가 undefined/null인 경우를 대비해 빈 문자열로 처리
+        const currentTitle = noteTitleInput?.value ?? '';
+        const currentContent = noteContentTextarea?.value ?? '';
 
+        const titleChanged = activeNote && activeNote.title !== currentTitle;
+        const contentChanged = activeNote && activeNote.content !== currentContent;
+    
         if (state.isDirty || titleChanged || contentChanged) {
-            handleNoteUpdate(true, true); 
-
+            // [수정] async 함수 호출을 제거하고, 동기적인 데이터 처리로 변경
+            // 1. 현재 state를 기반으로 백업할 데이터의 깊은 복사본을 생성합니다.
+            const dataToBackup = JSON.parse(JSON.stringify({
+                folders: state.folders, 
+                trash: state.trash,
+                favorites: Array.from(state.favorites) 
+            }));
+            
+            // 2. 현재 활성 노트에 대한 변경 사항을 백업 데이터에 직접, 동기적으로 반영합니다.
+            const noteEntry = dataToBackup.folders
+                .flatMap(f => f.notes)
+                .find(n => n.id === state.activeNoteId);
+    
+            if (noteEntry) {
+                // 3. input 필드의 최신 값으로 데이터를 업데이트합니다.
+                noteEntry.title = currentTitle;
+                noteEntry.content = currentContent;
+                noteEntry.updatedAt = Date.now();
+            }
+    
+            // 4. 동기적으로 처리된 최신 데이터를 localStorage에 저장합니다.
             try {
-                const dataToSave = { 
-                    folders: state.folders, 
-                    trash: state.trash,
-                    favorites: Array.from(state.favorites) 
-                };
-                localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(dataToSave));
+                localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(dataToBackup));
             } catch (err) {
                 console.error("비상 데이터 저장 실패(localStorage):", err);
             }
-
+    
+            // 5. 브라우저에게 페이지를 떠나지 말라고 알립니다.
             e.preventDefault();
             e.returnValue = '';
         }
