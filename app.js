@@ -180,7 +180,7 @@ const handleSettingsReset = async () => {
         settingsWeatherLat.value = appSettings.weather.lat;
         settingsWeatherLon.value = appSettings.weather.lon;
         
-        // [버그 수정] UI에 즉시 반영하기 위해 applySettings 호출 추가
+        // [High 버그 수정] UI에 즉시 반영하기 위해 applySettings 호출 추가
         applySettings(appSettings);
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
         settingsModal.close();

@@ -233,9 +233,9 @@ const sanitizeContentData = data => {
                 type: 'folder',
                 deletedAt: item.deletedAt || Date.now()
             };
-            // [Critical 버그 수정] 가져오기 시, 폴더에 포함된 노트도 함께 Sanitize 합니다.
+            // [Critical 버그 수정] 가져오기 시, 폴더에 포함된 노트도 isTrash=true로 Sanitize 합니다.
             if (Array.isArray(item.notes)) {
-                folder.notes = item.notes.map(n => sanitizeNote(n));
+                folder.notes = item.notes.map(n => sanitizeNote(n, true));
             }
             acc.push(folder);
         } else if (item.type === 'note') {

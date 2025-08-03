@@ -158,10 +158,10 @@ export const handleRestoreItem = async (id) => {
     const itemIndex = state.trash.findIndex(item => item.id === id);
     if (itemIndex === -1) return;
 
-    // [Critical 버그 수정] 휴지통에서 아이템을 제거하기 전에 복사본을 만듭니다.
-    const itemToRestore = { ...state.trash[itemIndex] };
-    // [Critical 버그 수정] 원본 아이템을 휴지통에서 즉시 제거합니다.
-    state.trash.splice(itemIndex, 1);
+    // [Critical 버그 수정] 원본 데이터 보호를 위해 깊은 복사를 사용합니다.
+    const itemToRestore = JSON.parse(JSON.stringify(state.trash[itemIndex]));
+    // [Critical 버그 수정] 원본 아이템을 휴지통에서 즉시 제거하고, 취소 시 복원을 위해 저장합니다.
+    const originalItemFromTrash = state.trash.splice(itemIndex, 1)[0];
 
     if (itemToRestore.type === 'folder') {
         if (state.folders.some(f => f.name === itemToRestore.name)) {
@@ -180,8 +180,8 @@ export const handleRestoreItem = async (id) => {
             if (newName) {
                 itemToRestore.name = newName.trim();
             } else {
-                // 사용자가 취소하면, 제거했던 아이템을 다시 휴지통에 넣습니다.
-                state.trash.unshift(itemToRestore);
+                // [Critical 버그 수정] 사용자가 취소하면, 제거했던 '원본' 아이템을 다시 휴지통에 넣습니다.
+                state.trash.unshift(originalItemFromTrash);
                 return;
             }
         }
@@ -226,8 +226,8 @@ export const handleRestoreItem = async (id) => {
         }
 
         if (!targetFolder) {
-            // 사용자가 취소하면, 제거했던 아이템을 다시 휴지통에 넣습니다.
-            state.trash.unshift(itemToRestore);
+            // [Critical 버그 수정] 사용자가 취소하면, 제거했던 '원본' 아이템을 다시 휴지통에 넣습니다.
+            state.trash.unshift(originalItemFromTrash);
             return;
         }
         
