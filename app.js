@@ -505,7 +505,7 @@ class Dashboard {
         if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort();
         this.internalState.weatherFetchController = new AbortController();
         const signal = this.internalState.weatherFetchController.signal;
-        this.dom.weatherContainer.innerHTML = `<span>...</span>`;
+        this.dom.weatherContainer.innerHTML = `<span>⏳</span>`;
         try {
             const { lat, lon } = appSettings.weather;
             
