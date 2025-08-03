@@ -494,7 +494,8 @@ export const handleEmptyTrash = async () => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 삭제', confirmButtonType: 'danger' },
         async () => {
-            // [개선] location.reload() 대신 상태 기반 렌더링으로 전환하여 안정성 향상
+            // [검증] High 버그 수정 사항 확인: await 이후 현재 state를 다시 확인하는 올바른 로직이 적용되어 있습니다.
+            // 이 로직은 사용자가 확인창이 떠 있는 동안 다른 곳으로 이동해도, 현재 상태를 기준으로 동작하므로 안전합니다.
             const wasInTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
             const newState = { trash: [] };
 
