@@ -1,7 +1,7 @@
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes } from './components.js';
 // [수정] itemActions.js에서 updateNoteCreationDates 함수를 추가로 가져옵니다.
-import { handleNoteUpdate, updateNoteCreationDates } from './itemActions.js';
+import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemActions.js';
 
 
 export const saveData = async () => {
@@ -35,7 +35,7 @@ export const loadData = async () => {
         const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
         
         // [BUG 2 FIX] 두 복구 로직이 충돌하지 않도록 if...else if... 구조로 변경
-        if (importInProgressData && Object.keys(importInProgressData).length > 0) {
+        if (importInProgressData && Object.keys(importInProgressData).length > 0 && importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]) {
             const recoveredData = importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS];
             console.warn("중단된 가져오기 발견. 데이터 복구를 시도합니다.");
             

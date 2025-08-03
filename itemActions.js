@@ -15,26 +15,26 @@ import { changeActiveFolder } from './navigationActions.js';
  * 이 함수는 ID 충돌로 인한 데이터 유실을 방지합니다.
  */
 const generateUniqueId = () => {
+    // crypto.randomUUID()가 가장 이상적이지만, 모든 환경에서 지원되지는 않음
+    if (typeof crypto?.randomUUID === 'function') {
+        let id;
+        do {
+            id = crypto.randomUUID();
+        } while (state.noteMap.has(id) || state.trash.some(item => item.id === id));
+        return id;
+    }
+    
+    // 대체 수단
     let id;
     let attempts = 0;
     const MAX_ATTEMPTS = 10;
-
     do {
-        // ID 생성 (기존 로직과 동일)
-        id = (typeof crypto?.randomUUID === 'function')
-            ? crypto.randomUUID()
-            : `${CONSTANTS.ID_PREFIX.NOTE}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        
+        id = `${CONSTANTS.ID_PREFIX.NOTE}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         if (attempts++ > MAX_ATTEMPTS) {
-            // 무한 루프 방지용 안전장치
             console.error("고유 ID 생성에 실패했습니다. 매우 드문 경우입니다.");
-            // 최후의 수단으로 더 긴 랜덤 문자열 추가
             id += `-${Math.random().toString(36).substring(2, 15)}`;
             break; 
         }
-
-        // 생성된 ID가 noteMap이나 trash에 이미 존재하는지 확인합니다.
-        // 존재한다면 루프를 다시 실행하여 새 ID를 생성합니다.
     } while (state.noteMap.has(id) || state.trash.some(item => item.id === id));
     
     return id;
