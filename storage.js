@@ -334,7 +334,7 @@ export const setupImportHandler = () => {
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
                     message: "가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong><br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
                     isHtml: true,
-                    confirmText: '가져와서 덮어쓰기',
+                    confirmText: '📥 가져와서 덮어쓰기',
                     confirmButtonType: 'danger'
                 });
 

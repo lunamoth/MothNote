@@ -35,12 +35,13 @@ const _updateFolderListItemElement = (li, item, isBeingRenamed) => {
     const nameSpan = li.querySelector('.item-name');
     const countSpan = li.querySelector('.item-count');
 
-    const displayName = item.displayName || item.name;
+    const isVirtual = Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === item.id);
+    const displayName = item.displayName || (isVirtual ? item.name : `📁 ${item.name}`);
 
     if (!isBeingRenamed) {
         highlightText(nameSpan, displayName, '');
     }
-    nameSpan.title = displayName;
+    nameSpan.title = isVirtual ? (item.displayName || item.name) : item.name;
     
     let count = -1;
     const { ALL, TRASH, RECENT, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;

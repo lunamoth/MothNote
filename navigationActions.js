@@ -20,8 +20,8 @@ export const confirmNavigation = async () => {
     const ok = await showConfirm({
         title: CONSTANTS.MODAL_TITLES.UNSAVED_CHANGES,
         message: '현재 노트에 저장되지 않은 변경사항이 있습니다. 저장하고 이동할까요?',
-        confirmText: '저장하고 이동',
-        cancelText: '취소'
+        confirmText: '💾 저장하고 이동',
+        cancelText: '❌ 취소'
     });
 
     if (ok) {

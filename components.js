@@ -71,7 +71,7 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS) => {
     setTimeout(() => toast.remove(), CONSTANTS.TOAST_DURATION);
 };
 
-const _showModalInternal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '확인', cancelText = '취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
+const _showModalInternal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
     return new Promise(resolve => {
         modalTitle.textContent = title;
         
@@ -240,7 +240,7 @@ export const showFolderSelectPrompt = async ({ title, message }) => {
         await showAlert({
             title,
             message: formContent,
-            confirmText: '확인',
+            confirmText: '✅ 확인',
         });
         return null;
     }
@@ -249,8 +249,8 @@ export const showFolderSelectPrompt = async ({ title, message }) => {
         type: CONSTANTS.MODAL_TYPE.CONFIRM,
         title,
         message: formContent,
-        confirmText: '폴더 선택',
-        cancelText: '취소',
+        confirmText: '✅ 폴더 선택',
+        cancelText: '❌ 취소',
     });
 };
 
@@ -276,7 +276,7 @@ export const showDatePickerPopover = ({ initialDate }) => {
             const year = parseInt(yearInput.value, 10);
             const month = parseInt(monthInput.value, 10);
             if (isNaN(year) || isNaN(month) || month < 1 || month > 12 || year < 1900 || year > 2200) {
-                showToast('유효한 년(1900-2200)과 월(1-12)을 입력해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                showToast('🤔 유효한 년(1900-2200)과 월(1-12)을 입력해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
                 return;
             }
             cleanup();

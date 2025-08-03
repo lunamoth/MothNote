@@ -442,7 +442,7 @@ export const handleDelete = async (id, type, force = false) => {
         : `📝 '${itemName}' 노트를 휴지통으로 이동할까요?`;
 
     await withConfirmation(
-        { title: '🗑️ 휴지통으로 이동', message: confirmMessage, confirmText: '이동' },
+        { title: '🗑️ 휴지통으로 이동', message: confirmMessage, confirmText: '🗑️ 이동' },
         action
     );
 };
@@ -475,7 +475,7 @@ export const handlePermanentlyDeleteItem = async (id) => {
     };
 
     await withConfirmation(
-        { title: CONSTANTS.MODAL_TITLES.PERM_DELETE, message: message, confirmText: '삭제', confirmButtonType: 'danger' },
+        { title: CONSTANTS.MODAL_TITLES.PERM_DELETE, message: message, confirmText: '💥 삭제', confirmButtonType: 'danger' },
         () => animateAndRemove(id, deletionLogic)
     );
 };
@@ -492,7 +492,7 @@ export const handleEmptyTrash = async () => {
     const message = `휴지통에 있는 ${messageParts.join('와 ')} (총 ${state.trash.length}개 항목)을(를) 영구적으로 삭제할까요?`;
 
     await withConfirmation(
-        { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '모두 삭제', confirmButtonType: 'danger' },
+        { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 삭제', confirmButtonType: 'danger' },
         async () => {
             // [개선] location.reload() 대신 상태 기반 렌더링으로 전환하여 안정성 향상
             const wasInTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
@@ -550,7 +550,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
         const virtualFolderNames = Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(vf => vf.name.toLowerCase());
         if (virtualFolderNames.includes(newNameLower)) {
-            showToast('시스템에서 사용하는 이름으로는 변경할 수 없습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            showToast(CONSTANTS.MESSAGES.ERROR.RESERVED_NAME, CONSTANTS.TOAST_TYPE.ERROR);
             nameSpan.textContent = originalName;
             setState({ renamingItemId: null });
             return;
@@ -639,10 +639,15 @@ async function _performSave(noteId, titleToSave, contentToSave) {
 
     const { item: noteToSave } = findNote(noteId);
     if (noteToSave) {
-        // [기능 추가] 노트 내용 기반 자동 제목 생성
+        // [수정] 노트 내용 기반 자동 제목 생성 규칙 개선
         let finalTitle = titleToSave;
         if (!finalTitle.trim() && contentToSave.trim()) {
-            finalTitle = contentToSave.trim().split('\n')[0].substring(0, CONSTANTS.AUTO_TITLE_LENGTH);
+            const firstLine = contentToSave.trim().split('\n')[0];
+            if (firstLine.length > CONSTANTS.AUTO_TITLE_LENGTH_KOR) {
+                finalTitle = firstLine.substring(0, CONSTANTS.AUTO_TITLE_LENGTH_KOR) + '...';
+            } else {
+                finalTitle = firstLine;
+            }
         }
 
         noteToSave.title = finalTitle;

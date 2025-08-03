@@ -108,13 +108,13 @@ const handleSettingsSave = () => {
     let lon = parseFloat(settingsWeatherLon.value);
 
     if (isNaN(lat) || lat < -90 || lat > 90) {
-        showToast('유효하지 않은 위도 값입니다. (-90 ~ 90)', CONSTANTS.TOAST_TYPE.ERROR);
+        showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLat.focus();
         isSavingSettings = false; // [버그 수정] 플래그 초기화
         return;
     }
     if (isNaN(lon) || lon < -180 || lon > 180) {
-        showToast('유효하지 않은 경도 값입니다. (-180 ~ 180)', CONSTANTS.TOAST_TYPE.ERROR);
+        showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLon.focus();
         isSavingSettings = false; // [버그 수정] 플래그 초기화
         return;
@@ -160,7 +160,7 @@ const handleSettingsReset = async () => {
     const ok = await showConfirmModal({
         title: '⚙️ 설정 초기화',
         message: '모든 설정을 기본값으로 되돌리시겠습니까? 이 작업은 즉시 저장됩니다.',
-        confirmText: '초기화 및 저장',
+        confirmText: '🔄 초기화 및 저장',
         confirmButtonType: 'danger'
     });
     if (ok) {
@@ -511,7 +511,7 @@ class Dashboard {
             
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
                 this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
-                showToast('잘못된 위도/경도 값입니다. 설정을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
                 return;
             }
 
@@ -551,7 +551,7 @@ class Dashboard {
         if (!this.dom.calendarGrid || !this.dom.calendarMonthYear) return;
         this.dom.calendarGrid.innerHTML = '';
         const year = this.internalState.currentDate.getFullYear(), month = this.internalState.currentDate.getMonth();
-        this.dom.calendarMonthYear.textContent = `${year}년 ${month + 1}월`;
+        this.dom.calendarMonthYear.textContent = `🗓️ ${year}년 ${month + 1}월`;
         const firstDay = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const days = ['일', '월', '화', '수', '목', '금', '토'];

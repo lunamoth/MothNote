@@ -1,5 +1,3 @@
-// state.js
-
 export const CONSTANTS = {
     ITEM_TYPE: { FOLDER: 'folder', NOTE: 'note' },
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
@@ -77,6 +75,7 @@ export const CONSTANTS = {
         }
     },
     AUTO_TITLE_LENGTH: 100,
+    AUTO_TITLE_LENGTH_KOR: 50, // [추가] 한글 기준 자동 제목 길이 상수
     RECENT_NOTES_COUNT: 10,
     TOAST_DURATION: 4000,
     PLACEHOLDER_EMOJIS: [
@@ -97,11 +96,11 @@ export const CONSTANTS = {
             PERM_DELETE_ITEM_SUCCESS: '💥 항목을 영구적으로 삭제했습니다.',
             EMPTY_TRASH_SUCCESS: '🗑️ 휴지통을 비웠습니다.',
             NOTE_MOVED_SUCCESS: (noteTitle, folderName) => `✅ '${noteTitle}' 노트를 '${folderName}' 폴더로 이동했습니다.`,
-            EXPORT_SUCCESS: '💾✅ 데이터 내보내기 성공!',
-            IMPORT_SUCCESS: '↩️✅ 데이터를 성공적으로 가져왔습니다!',
+            EXPORT_SUCCESS: '📤 데이터 내보내기 성공!',
+            IMPORT_SUCCESS: '📥 데이터를 성공적으로 가져왔습니다!',
             SETTINGS_SAVED: '⚙️ 설정이 저장되었습니다.',
             SETTINGS_RESET: '⚙️ 설정이 기본값으로 복원되었습니다.',
-            IMPORT_RELOAD: '데이터와 설정을 성공적으로 가져왔습니다! 앱을 다시 시작합니다.',
+            IMPORT_RELOAD: '✅ 데이터를 성공적으로 가져왔습니다! 앱을 다시 시작합니다.',
             WEATHER_LOCATION_UPDATED: '🌦️ 날씨 지역 정보가 업데이트되었습니다.'
         },
         ERROR: {
@@ -110,11 +109,14 @@ export const CONSTANTS = {
             RESTORE_FAILED_NO_FOLDER: '🤔 원본 폴더를 찾을 수 없습니다. 먼저 폴더를 복원해주세요.',
             EMPTY_NAME_ERROR: '🤔 이름은 비워둘 수 없어요.',
             DUPLICATE_NAME_ERROR: name => `🤔 '${name}' 이름이 이미 존재합니다.`,
-            EXPORT_FAILURE: '💾❌ 데이터 내보내기 실패.',
-            IMPORT_FAILURE: err => `↩️❌ 가져오기 실패: ${err.message}`,
-            IMPORT_SIZE_EXCEEDED: '↩️❌ 파일 크기가 5MB를 초과할 수 없습니다.',
-            INVALID_FONT_NAME: '유효하지 않은 글꼴 이름입니다. 기본값으로 복원됩니다.',
-            WEATHER_CITY_NOT_FOUND: '🌦️ 도시를 찾을 수 없습니다. 다른 이름으로 검색해보세요.'
+            EXPORT_FAILURE: '📤❌ 데이터 내보내기 실패.',
+            IMPORT_FAILURE: err => `📥❌ 가져오기 실패: ${err.message}`,
+            IMPORT_SIZE_EXCEEDED: '📥❌ 파일 크기가 5MB를 초과할 수 없습니다.',
+            INVALID_FONT_NAME: '🤔 유효하지 않은 글꼴 이름입니다. 기본값으로 복원됩니다.',
+            WEATHER_CITY_NOT_FOUND: '🌦️ 도시를 찾을 수 없습니다. 다른 이름으로 검색해보세요.',
+            INVALID_LATITUDE: '🤔 유효하지 않은 위도 값입니다. (-90 ~ 90)',
+            INVALID_LONGITUDE: '🤔 유효하지 않은 경도 값입니다. (-180 ~ 180)',
+            RESERVED_NAME: '🚫 시스템에서 사용하는 이름으로는 변경할 수 없습니다.'
         },
         CONFIRM: {
             PERM_DELETE: name => `💥 '${name}' 항목을 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없어요! 😱`,
