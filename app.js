@@ -345,17 +345,17 @@ class Dashboard {
         this.internalState = {
             currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(),
             analogClockAnimationId: null,
-            digitalClockIntervalId: null, // [성능 개선] 디지털 시계 인터벌 ID
+            digitalClockIntervalId: null,
             weatherFetchController: null,
             displayedMonth: null,
+            clockFaceCache: null, // [성능 개선] 아날로그 시계 배경 캐시
         };
         this.observer = null;
     }
 
     init() {
-        // [성능 개선] 시계 시작/중지 로직을 IntersectionObserver로 관리
         this._setupVisibilityObserver();
-        this._initAnalogClock(); // 초기 캔버스 설정
+        this._initAnalogClock();
         if (document.body) {
             new MutationObserver(() => this._initAnalogClock(true)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
         }
@@ -364,13 +364,12 @@ class Dashboard {
         this._setupCalendarEvents();
         window.addEventListener('unload', () => {
             if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort();
-            this._stopClocks(); // 페이지 떠날 때 정리
+            this._stopClocks();
         });
     }
 
     _setupVisibilityObserver() {
         if (!this.dom.panel) return;
-
         this.observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -380,7 +379,6 @@ class Dashboard {
                 }
             });
         });
-
         this.observer.observe(this.dom.panel);
     }
     
@@ -419,74 +417,122 @@ class Dashboard {
         this.dom.digitalClock.textContent = new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true });
     }
 
+    // [성능 개선] 아날로그 시계 초기화 로직
     _initAnalogClock(forceRedraw = false) {
         if (!this.dom.analogClockCanvas) return;
-        if (this.internalState.analogClockAnimationId && !forceRedraw) return;
-
-        if(forceRedraw && this.internalState.analogClockAnimationId) {
+        
+        if (this.internalState.analogClockAnimationId) {
             cancelAnimationFrame(this.internalState.analogClockAnimationId);
             this.internalState.analogClockAnimationId = null;
+        }
+        
+        // 테마 변경 등으로 강제 다시 그리기가 필요할 때 캐시 재생성
+        if (forceRedraw || !this.internalState.clockFaceCache) {
+            this._drawStaticClockFace();
         }
 
         const ctx = this.dom.analogClockCanvas.getContext('2d');
         const radius = this.dom.analogClockCanvas.height / 2;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.translate(radius, radius);
-        this._drawClockFace();
         
-        if (forceRedraw) {
-            this._animateAnalogClock();
-        }
+        this._animateAnalogClock();
     }
     
-    _drawClockFace() {
+    // [성능 개선] 정적 배경을 그려서 캐시하는 함수
+    _drawStaticClockFace() {
+        if (!this.dom.analogClockCanvas) return;
+        
+        const cacheCanvas = document.createElement('canvas');
+        cacheCanvas.width = this.dom.analogClockCanvas.width;
+        cacheCanvas.height = this.dom.analogClockCanvas.height;
+        const ctx = cacheCanvas.getContext('2d');
+        const radius = cacheCanvas.height / 2;
+        
+        ctx.translate(radius, radius);
+        
+        const drawNumbers = (context, r) => {
+            context.beginPath(); 
+            const style = getComputedStyle(document.documentElement);
+            context.font = `${r * 0.2}px sans-serif`;
+            context.fillStyle = style.getPropertyValue('--font-color-dim').trim();
+            context.textAlign = 'center'; 
+            context.textBaseline = 'middle';
+            for (let num = 1; num <= 12; num++) {
+                const angle = num * Math.PI / 6;
+                const x = r * 0.85 * Math.cos(angle - Math.PI / 2);
+                const y = r * 0.85 * Math.sin(angle - Math.PI / 2);
+                context.fillText(num.toString(), x, y);
+            }
+        };
+
+        const style = getComputedStyle(document.documentElement);
+        
+        ctx.beginPath(); 
+        ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); 
+        ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); 
+        ctx.lineWidth = 2; 
+        ctx.stroke();
+
+        drawNumbers(ctx, radius);
+
+        ctx.beginPath(); 
+        ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); 
+        ctx.fillStyle = style.getPropertyValue('--accent-color').trim(); 
+        ctx.fill();
+
+        this.internalState.clockFaceCache = cacheCanvas;
+    }
+
+    // [성능 개선] 캐시된 배경 위에 시계 바늘만 그리는 함수
+    _drawHandsOnTop() {
         if (!this.dom.analogClockCanvas) return;
         const ctx = this.dom.analogClockCanvas.getContext('2d');
         const radius = this.dom.analogClockCanvas.height / 2;
-        
+
         const drawHand = (pos, length, width, color) => {
-            ctx.beginPath(); ctx.lineWidth = width; ctx.lineCap = 'round';
+            ctx.beginPath(); 
+            ctx.lineWidth = width; 
+            ctx.lineCap = 'round';
             ctx.strokeStyle = color || getComputedStyle(document.documentElement).getPropertyValue('--font-color').trim();
-            ctx.moveTo(0, 0); ctx.rotate(pos); ctx.lineTo(length, 0); ctx.stroke(); ctx.rotate(-pos);
-        };
-        const drawNumbers = (ctx, radius) => {
-            ctx.beginPath(); const style = getComputedStyle(document.documentElement);
-            ctx.font = `${radius * 0.2}px sans-serif`;
-            ctx.fillStyle = style.getPropertyValue('--font-color-dim').trim();
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            for (let num = 1; num <= 12; num++) {
-                const angle = num * Math.PI / 6;
-                const x = radius * 0.85 * Math.cos(angle - Math.PI / 2);
-                const y = radius * 0.85 * Math.sin(angle - Math.PI / 2);
-                ctx.fillText(num.toString(), x, y);
-            }
+            ctx.moveTo(0, 0); 
+            ctx.rotate(pos); 
+            ctx.lineTo(length, 0); 
+            ctx.stroke(); 
+            ctx.rotate(-pos);
         };
         
+        // 1. 캔버스 전체 지우기
+        ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
+        
+        // 2. 캐시된 배경 그리기
+        if (this.internalState.clockFaceCache) {
+            ctx.drawImage(this.internalState.clockFaceCache, -radius, -radius);
+        }
+
+        // 3. 시침, 분침 그리기
         const style = getComputedStyle(document.documentElement);
         const accentColor = style.getPropertyValue('--accent-color').trim();
-        
-        ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
-        ctx.beginPath(); ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); ctx.lineWidth = 2; ctx.stroke();
-        drawNumbers(ctx, radius);
-        ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = accentColor; ctx.fill();
-        
         const now = new Date(), h = now.getHours(), m = now.getMinutes();
 
         drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor);
         drawHand(m * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
     }
-
+    
+    // [성능 개선] 애니메이션 루프 수정
     _animateAnalogClock() {
         let lastMinute = -1;
         const animate = () => {
             const now = new Date();
             const currentMinute = now.getMinutes();
             if (currentMinute !== lastMinute) {
-                this._drawClockFace();
+                this._drawHandsOnTop(); // 바늘만 다시 그림
                 lastMinute = currentMinute;
             }
             this.internalState.analogClockAnimationId = requestAnimationFrame(animate);
         };
+        // 애니메이션 시작 전 즉시 한 번 그려주기
+        this._drawHandsOnTop();
         animate();
     }
 
