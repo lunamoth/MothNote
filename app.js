@@ -2,6 +2,7 @@ import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteM
 import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {
     folderList, noteList, addFolderBtn, addNoteBtn, emptyTrashBtn, searchInput, clearSearchBtn, noteSortSelect,
+    // [개선] Enter키 동작 일관성을 위해 noteTitleInput 추가
     noteTitleInput, noteContentTextarea, shortcutGuideBtn, settingsBtn,
     showToast, showShortcutModal, sortNotes, showDatePickerPopover, showConfirm as showConfirmModal,
     settingsModal, settingsModalCloseBtn, settingsTabs, settingsTabPanels,
@@ -850,6 +851,11 @@ const handleListKeyDown = async (e, type) => {
                 firstNoteItem.focus();
             } else if (searchInput) {
                 searchInput.focus();
+            }
+        // [개선] 노트 목록에서 Enter키를 누르면 편집기로 포커스 이동
+        } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) {
+            if (noteTitleInput) {
+                noteTitleInput.focus();
             }
         }
     } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) {

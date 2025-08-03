@@ -45,6 +45,7 @@ const animateAndRemove = (itemId, onAfterAnimate) => {
 // --- Promise 기반 이름 변경 동기화 ---
 let pendingRenamePromise = null;
 
+// [개선] 다른 파일에서 재사용할 수 있도록 export 추가
 export const finishPendingRename = async () => {
     if (state.renamingItemId && pendingRenamePromise) {
         const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
@@ -68,6 +69,8 @@ const commitChanges = async (newState = {}) => {
     state._virtualFolderCache.recent = null;
     state._virtualFolderCache.favorites = null;
     state._virtualFolderCache.all = null;
+    // [버그 수정] 휴지통 캐시도 함께 초기화하여 삭제 후 UI가 즉시 갱신되도록 합니다.
+    state._virtualFolderCache.trash = null;
 
     setState(newState);
     await saveData();
@@ -495,7 +498,7 @@ export const handleEmptyTrash = async () => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '모두 삭제', confirmButtonType: 'danger' },
         async () => {
-            // [버그 수정 및 로직 개선] 상태를 먼저 업데이트하고 저장한 후 새로고침합니다.
+            // [개선] location.reload() 대신 상태 기반 렌더링으로 전환하여 안정성 향상
             const wasInTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
             const newState = { trash: [] };
 
@@ -503,21 +506,12 @@ export const handleEmptyTrash = async () => {
                 newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 newState.activeNoteId = null;
             }
-            
-            // 1. 메모리 내 상태를 업데이트합니다.
-            setState(newState);
-            
-            // 2. 변경된 상태(빈 휴지통)를 영구 저장소에 저장합니다.
-            await saveData();
-            
-            // 3. 변경된 세션 정보(활성 폴더 등)를 저장합니다.
-            saveSession();
 
-            // 4. 사용자에게 성공 메시지를 보여줍니다.
-            showToast(CONSTANTS.MESSAGES.SUCCESS.EMPTY_TRASH_SUCCESS);
+            // finalizeItemChange가 상태 업데이트, 저장, 렌더링을 모두 처리
+            await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.EMPTY_TRASH_SUCCESS);
             
-            // 5. 토스트 메시지를 볼 시간을 준 뒤, 페이지를 완전히 새로고침하여 UI를 정리합니다.
-            setTimeout(() => location.reload(), 1500);
+            // 세션 정보는 별도로 저장
+            saveSession();
         }
     );
 };

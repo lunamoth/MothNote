@@ -3,17 +3,12 @@ import { saveSession } from './storage.js';
 import {
     searchInput, showConfirm, sortNotes
 } from './components.js';
-import { handleNoteUpdate } from './itemActions.js';
+// [개선] finishPendingRename을 itemActions에서 가져와 중복 제거
+import { handleNoteUpdate, finishPendingRename } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
-const finishPendingRename = async () => {
-    if (state.renamingItemId) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) {
-            renamingElement.blur();
-        }
-    }
-};
+// [최적화] 중복 함수 제거
+// const finishPendingRename = async () => { ... };
 
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
@@ -39,7 +34,7 @@ export const confirmNavigation = async () => {
 
 export const changeActiveNote = async (newNoteId) => {
     // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
-    // await finishPendingRename(); // 이 파일에서는 itemActions의 함수를 직접 호출하지 않습니다.
+    await finishPendingRename(); // 다른 액션 전에 이름 변경을 완료
 
     if (state.activeNoteId === newNoteId) return;
 
@@ -57,7 +52,7 @@ export const changeActiveNote = async (newNoteId) => {
 // [핵심 수정] 함수가 options 객체를 인자로 받도록 수정
 export const changeActiveFolder = async (newFolderId, options = {}) => {
     // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
-    // await finishPendingRename();
+    await finishPendingRename(); // 다른 액션 전에 이름 변경을 완료
 
     // [버그 수정] 날짜 필터가 있는 상태에서 다른 폴더를 클릭해도 정상적으로 전환되도록 조건 수정
     if (state.activeFolderId === newFolderId && !state.dateFilter) return;
@@ -172,6 +167,7 @@ const handleSearch = (searchTerm) => {
 export const handleSearchInput = async (e) => {
     // `itemActions.js`의 액션 함수들이 `finishPendingRename`을 호출하므로,
     // 여기서 직접 호출하지 않아도 안정성이 보장됩니다.
+    await finishPendingRename(); // 검색 전 이름 변경 완료
     const term = e.target.value;
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
