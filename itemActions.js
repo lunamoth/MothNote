@@ -127,7 +127,10 @@ export const handleRestoreItem = async (id) => {
     const itemIndex = state.trash.findIndex(item => item.id === id);
     if (itemIndex === -1) return;
 
+    // [Critical 버그 수정] 휴지통에서 아이템을 제거하기 전에 복사본을 만듭니다.
     const itemToRestore = { ...state.trash[itemIndex] };
+    // [Critical 버그 수정] 원본 아이템을 휴지통에서 즉시 제거합니다.
+    state.trash.splice(itemIndex, 1);
 
     if (itemToRestore.type === 'folder') {
         if (state.folders.some(f => f.name === itemToRestore.name)) {
@@ -146,27 +149,27 @@ export const handleRestoreItem = async (id) => {
             if (newName) {
                 itemToRestore.name = newName.trim();
             } else {
+                // 사용자가 취소하면, 제거했던 아이템을 다시 휴지통에 넣습니다.
+                state.trash.unshift(itemToRestore);
                 return;
             }
         }
-
-        const notesFromTrash = state.trash.filter(i => i.originalFolderId === id && i.type === 'note');
-        const noteIdsToRestore = new Set(notesFromTrash.map(n => n.id));
-
-        state.totalNoteCount += notesFromTrash.length;
-        itemToRestore.notes = notesFromTrash.map(note => {
-            delete note.deletedAt; delete note.type; delete note.originalFolderId;
-            // [수정 시작] 폴더 내 노트의 즐겨찾기 상태를 복원하는 로직 추가
+        
+        // [Critical 버그 수정] 복원된 폴더 객체 내의 노트들을 처리합니다.
+        state.totalNoteCount += itemToRestore.notes.length;
+        
+        itemToRestore.notes.forEach(note => {
+            delete note.deletedAt;
+            delete note.type;
+            delete note.originalFolderId;
             if (note.isFavorite) {
                 state.favorites.add(note.id);
             }
-            // [수정 끝]
-            return note;
         });
 
-        delete itemToRestore.deletedAt; delete itemToRestore.type;
+        delete itemToRestore.deletedAt;
+        delete itemToRestore.type;
         state.folders.unshift(itemToRestore);
-        state.trash = state.trash.filter(i => i.id !== id && !noteIdsToRestore.has(i.id));
 
         itemToRestore.notes.forEach(note => {
             state.noteMap.set(note.id, { note: note, folderId: itemToRestore.id });
@@ -191,10 +194,15 @@ export const handleRestoreItem = async (id) => {
             }
         }
 
-        if (!targetFolder) return;
-
-        state.trash.splice(itemIndex, 1);
-        delete itemToRestore.deletedAt; delete itemToRestore.type; delete itemToRestore.originalFolderId;
+        if (!targetFolder) {
+            // 사용자가 취소하면, 제거했던 아이템을 다시 휴지통에 넣습니다.
+            state.trash.unshift(itemToRestore);
+            return;
+        }
+        
+        delete itemToRestore.deletedAt;
+        delete itemToRestore.type;
+        delete itemToRestore.originalFolderId;
         if (itemToRestore.isFavorite) state.favorites.add(itemToRestore.id);
         
         targetFolder.notes.unshift(itemToRestore);
@@ -359,12 +367,10 @@ const handleDeleteFolder = (id) => {
             }
         }
 
+        // [Critical 버그 수정] 폴더 객체 하나만 휴지통으로 이동시킵니다.
         moveItemToTrash(folderToMove, 'folder');
-        folderToMove.notes.reverse().forEach(note => {
-            moveItemToTrash(note, 'note', folderToMove.id);
-        });
-
-        // [BUG #1 FIX] 폴더 삭제 시, 해당 폴더에 있던 노트들의 즐겨찾기 상태도 함께 제거
+        
+        // [Critical 버그 수정] 폴더에 포함된 노트들의 즐겨찾기 상태를 제거하고 noteMap에서 삭제합니다.
         noteIdsInDeletedFolder.forEach(noteId => {
             state.noteMap.delete(noteId);
             state.favorites.delete(noteId);
@@ -372,14 +378,13 @@ const handleDeleteFolder = (id) => {
         
         delete state.lastActiveNotePerFolder[id];
         
-        // [버그 수정] 폴더 삭제 후 다음 활성 폴더/노트 상태를 한 번에 업데이트
+        // 폴더 삭제 후 다음 활성 폴더/노트 상태를 한 번에 업데이트
         const newState = {};
         if (state.activeFolderId === id) {
             newState.activeFolderId = state.folders[index]?.id ?? state.folders[index - 1]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
             newState.activeNoteId = null; // 명시적으로 null 처리
         }
         
-        // `changeActiveFolder` 호출 대신, `finalizeItemChange`로 상태를 한번에 업데이트
         await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name));
     };
     
@@ -513,9 +518,6 @@ export const handlePermanentlyDeleteItem = async (id) => {
         const wasActiveItemDeleted = state.activeNoteId === id;
 
         if (wasActiveItemDeleted) {
-            // [High 버그 수정] 불안정한 캐시(sortedNotesCache) 대신,
-            // 현재 state.trash를 기준으로 표시될 목록을 즉시 생성하여 사용합니다.
-            // 이렇게 하면 삭제와 같은 중요 작업이 항상 최신 데이터에 기반하여 동작합니다.
             const currentTrashItems = state.trash
                 .filter(i =>
                     (i.title ?? i.name ?? '').toLowerCase().includes(state.searchTerm.toLowerCase())
@@ -525,19 +527,15 @@ export const handlePermanentlyDeleteItem = async (id) => {
             nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, currentTrashItems);
         }
         
-        const idsToDelete = new Set([id]);
+        // [Critical 버그 수정] 삭제 로직을 새로운 데이터 구조에 맞게 수정합니다.
         let successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_ITEM_SUCCESS;
-
+        
         if (item.type === 'folder') {
-            state.trash.forEach(i => {
-                if (i.originalFolderId === id && i.type === 'note') {
-                    idsToDelete.add(i.id);
-                }
-            });
             successMessage = CONSTANTS.MESSAGES.SUCCESS.PERM_DELETE_FOLDER_SUCCESS;
         }
 
-        state.trash = state.trash.filter(i => !idsToDelete.has(i.id));
+        // 휴지통에서 해당 아이템 하나만 제거합니다. (폴더일 경우 포함된 노트도 함께 사라짐)
+        state.trash.splice(itemIndex, 1);
 
         const newState = {};
         if (wasActiveItemDeleted) {
@@ -558,7 +556,7 @@ export const handleEmptyTrash = async () => {
     if (state.trash.length === 0) return;
 
     const folderCount = state.trash.filter(item => item.type === 'folder').length;
-    const noteCount = state.trash.length - folderCount;
+    const noteCount = state.trash.filter(item => item.type === 'note').length;
     const messageParts = [];
     if (folderCount > 0) messageParts.push(`폴더 ${folderCount}개`);
     if (noteCount > 0) messageParts.push(`노트 ${noteCount}개`);
@@ -567,8 +565,6 @@ export const handleEmptyTrash = async () => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 삭제', confirmButtonType: 'danger' },
         async () => {
-            // [검증] High 버그 수정 사항 확인: await 이후 현재 state를 다시 확인하는 올바른 로직이 적용되어 있습니다.
-            // 이 로직은 사용자가 확인창이 떠 있는 동안 다른 곳으로 이동해도, 현재 상태를 기준으로 동작하므로 안전합니다.
             const wasInTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
             const newState = { trash: [] };
 
@@ -577,10 +573,8 @@ export const handleEmptyTrash = async () => {
                 newState.activeNoteId = null;
             }
 
-            // finalizeItemChange가 상태 업데이트, 저장, 렌더링을 모두 처리
             await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.EMPTY_TRASH_SUCCESS);
             
-            // 세션 정보는 별도로 저장
             saveSession();
         }
     );

@@ -233,15 +233,11 @@ const sanitizeContentData = data => {
                 type: 'folder',
                 deletedAt: item.deletedAt || Date.now()
             };
-            acc.push(folder);
+            // [Critical 버그 수정] 가져오기 시, 폴더에 포함된 노트도 함께 Sanitize 합니다.
             if (Array.isArray(item.notes)) {
-                const notesInFolder = item.notes.map(n => {
-                    const sanitized = sanitizeNote(n, true);
-                    sanitized.originalFolderId = folder.id;
-                    return sanitized;
-                });
-                acc.push(...notesInFolder);
+                folder.notes = item.notes.map(n => sanitizeNote(n));
             }
+            acc.push(folder);
         } else if (item.type === 'note') {
             acc.push(sanitizeNote(item, true));
         }
@@ -389,26 +385,12 @@ export const setupImportHandler = () => {
                     overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
                     document.body.appendChild(overlay);
 
-                    const totalNoteCount = sanitizedContent.folders.reduce((sum, f) => sum + f.notes.length, 0);
                     const rebuiltFavorites = new Set(sanitizedContent.favorites);
-
-                    sanitizedContent.folders.forEach(folder => {
-                        folder.notes.forEach(note => {
-                            note.isFavorite = rebuiltFavorites.has(note.id);
-                        });
-                    });
 
                     const appStateToSave = {
                         folders: sanitizedContent.folders,
                         trash: sanitizedContent.trash,
                         favorites: Array.from(rebuiltFavorites)
-                    };
-
-                    const newSessionState = {
-                        f: sanitizedContent.folders[0]?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
-                        n: sanitizedContent.folders[0]?.notes[0]?.id ?? null,
-                        s: 'updatedAt_desc',
-                        l: {}
                     };
 
                     // [Critical 버그 수정] 가져오기 프로세스를 트랜잭션화하여 데이터 유실 방지
@@ -423,11 +405,11 @@ export const setupImportHandler = () => {
                     // 2. 메인 데이터 저장
                     await chrome.storage.local.set({ appState: appStateToSave });
 
-                    // 3. 설정 저장 (이제 null 체크 없이 항상 실행)
+                    // 3. 설정 저장
                     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
 
-                    // 4. 세션 정보 저장
-                    localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify(newSessionState));
+                    // 4. [High 버그 수정] 이전 세션 정보를 완전히 제거하여, 새로고침 후 안전한 초기 상태로 시작하도록 합니다.
+                    localStorage.removeItem(CONSTANTS.LS_KEY);
                     
                     // 5. 모든 저장이 성공했으므로 임시 데이터 삭제
                     await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
@@ -436,8 +418,6 @@ export const setupImportHandler = () => {
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                     
                     setTimeout(() => {
-                        // [수정] 데이터 가져오기 후 새로고침이 의도된 동작임을 `beforeunload` 핸들러에게 알립니다.
-                        // 이를 통해 불필요한 "페이지를 떠나시겠습니까?" 경고창을 방지합니다.
                         window.isImporting = true;
                         location.reload();
                     }, 1500);
