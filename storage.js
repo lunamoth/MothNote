@@ -436,6 +436,9 @@ export const setupImportHandler = () => {
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                     
                     setTimeout(() => {
+                        // [수정] 데이터 가져오기 후 새로고침이 의도된 동작임을 `beforeunload` 핸들러에게 알립니다.
+                        // 이를 통해 불필요한 "페이지를 떠나시겠습니까?" 경고창을 방지합니다.
+                        window.isImporting = true;
                         location.reload();
                     }, 1500);
                 }

@@ -1280,6 +1280,12 @@ const setupGlobalEventListeners = () => {
 
     // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 수정
     window.addEventListener('beforeunload', (e) => {
+        // [수정] 데이터 가져오기 후 새로고침 시, 경고창이 뜨지 않도록 예외 처리
+        if (window.isImporting) {
+            // 의도된 새로고침이므로 데이터 유실 방지 로직을 건너뜁니다.
+            return;
+        }
+
         const activeNote = state.activeNoteId ? findNote(state.activeNoteId).item : null;
         // input/textarea의 value가 undefined/null인 경우를 대비해 빈 문자열로 처리
         const currentTitle = noteTitleInput?.value ?? '';
