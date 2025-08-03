@@ -776,11 +776,12 @@ async function _performSave(noteId, titleToSave, contentToSave, skipSave = false
 export async function handleNoteUpdate(isForced = false, skipSave = false) {
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
-        return true; // 저장할 것이 없으므로 성공으로 간주
+        return true;
     }
     
     if (state.renamingItemId && isForced) return true;
     
+    // 자동 저장 트리거 로직 (isForced = false)
     if (!isForced) {
         const noteId = state.activeNoteId;
         if (!noteId) return true;
@@ -792,7 +793,8 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
         
         if (hasChanged) {
             if (!state.isDirty) {
-                setState({ isDirty: true });
+                // [수정] 변경 발생 시, 어떤 노트가 변경되었는지 ID와 함께 상태에 기록
+                setState({ isDirty: true, dirtyNoteId: noteId });
             }
             updateSaveStatus('dirty');
             
@@ -802,20 +804,30 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
         return true;
     }
     
+    // 강제 저장 실행 로직 (isForced = true)
     clearTimeout(debounceTimer);
 
-    const noteIdToSave = state.activeNoteId;
-    if (!noteIdToSave) return true;
-    const titleToSave = noteTitleInput.value;
-    const contentToSave = noteContentTextarea.value;
-    const { item: currentNote } = findNote(noteIdToSave);
-    if (!currentNote) return true;
-
-    const hasChanged = currentNote.title !== titleToSave || currentNote.content !== contentToSave;
-    if (!hasChanged && !state.isDirty) {
-        return true;
+    if (!state.isDirty) {
+        return true; // 저장할 변경사항이 없음
     }
 
+    const noteIdToSave = state.dirtyNoteId;
+    if (!noteIdToSave) {
+        // 비정상적인 상태. isDirty는 true인데 ID가 없는 경우. 상태를 안전하게 리셋.
+        setState({ isDirty: false, dirtyNoteId: null });
+        return true;
+    }
+    
+    const titleToSave = noteTitleInput.value;
+    const contentToSave = noteContentTextarea.value;
+    
+    // 저장하려는 노트가 여전히 존재하는지 확인
+    const { item: noteToModify } = findNote(noteIdToSave);
+    if (!noteToModify) {
+        setState({ isDirty: false, dirtyNoteId: null });
+        return true;
+    }
+    
     await saveLock;
 
     let releaseLock;
@@ -827,15 +839,22 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
     try {
         const success = await _performSave(noteIdToSave, titleToSave, contentToSave, skipSave);
         if (!success) {
-            updateSaveStatus('dirty'); // 실패 시 '변경됨' 상태로 되돌림
-            return false; // 저장 실패 전파
+            updateSaveStatus('dirty'); // 실패 시 '변경됨' 상태 유지
+            return false;
         }
         
+        // [수정] 저장 성공 시, dirty 상태 완전 초기화
+        setState({ isDirty: false, dirtyNoteId: null });
+
+        // 현재 보고 있는 노트가 방금 저장한 노트와 같고, 저장 이후 추가 변경이 없었다면 '저장됨' UI 표시
         if (state.activeNoteId === noteIdToSave) {
             const hasChangedAgain = noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave;
             if (!hasChangedAgain) {
-                setState({ isDirty: false });
                 updateSaveStatus('saved');
+            } else {
+                // 저장 직후 바로 다시 변경된 경우, 즉시 dirty 상태로 전환
+                setState({ isDirty: true, dirtyNoteId: state.activeNoteId });
+                updateSaveStatus('dirty');
             }
         }
         wasSuccessful = true;

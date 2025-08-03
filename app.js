@@ -1286,11 +1286,11 @@ const setupGlobalEventListeners = () => {
                 favorites: Array.from(state.favorites) 
             }));
             
-            // 2. 현재 활성 노트에 대한 변경 사항을 백업 데이터에 직접, 동기적으로 반영합니다.
-            if (state.isDirty) {
+            // 2. [수정] isDirty가 true일 때, activeNoteId 대신 dirtyNoteId를 사용해 백업 데이터를 업데이트
+            if (state.isDirty && state.dirtyNoteId) {
                 const noteEntry = dataToBackup.folders
                     .flatMap(f => f.notes)
-                    .find(n => n.id === state.activeNoteId);
+                    .find(n => n.id === state.dirtyNoteId);
         
                 if (noteEntry) {
                     noteEntry.title = currentTitle;

@@ -27,7 +27,7 @@ export const confirmNavigation = async () => {
     if (ok) {
         const savedSuccessfully = await handleNoteUpdate(true); // 강제 저장 후 성공 여부 확인
         if (savedSuccessfully) {
-            setState({ isDirty: false });
+            // [수정] setState 호출 제거. handleNoteUpdate에서 상태를 올바르게 관리함.
             return true; // 저장 성공 시에만 이동 허용
         } else {
             // 저장 실패 시 사용자에게 알리고 이동을 취소

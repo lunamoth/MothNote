@@ -141,6 +141,7 @@ export let state = {
     noteSortOrder: 'updatedAt_desc',
     noteMap: new Map(),
     isDirty: false,
+    dirtyNoteId: null, // [수정] 데이터 유실 방지를 위해 변경된 노트의 ID를 저장
     totalNoteCount: 0,
     renamingItemId: null,
     lastActiveNotePerFolder: {},
