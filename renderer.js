@@ -36,11 +36,17 @@ const _updateFolderListItemElement = (li, item, isBeingRenamed) => {
     const countSpan = li.querySelector('.item-count');
 
     const isVirtual = Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === item.id);
-    const displayName = item.displayName || (isVirtual ? item.name : `📁 ${item.name}`);
-
-    if (!isBeingRenamed) {
+    
+    // [핵심 수정] 이름 변경 상태에 따라 표시되는 텍스트를 분기합니다.
+    if (isBeingRenamed) {
+        // 이름 변경 중일 때는 순수한 폴더 이름(item.name)만 표시합니다.
+        nameSpan.textContent = item.name;
+    } else {
+        // 평소에는 아이콘을 포함한 표시용 이름(displayName)을 표시합니다.
+        const displayName = item.displayName || (isVirtual ? item.name : `📁 ${item.name}`);
         highlightText(nameSpan, displayName, '');
     }
+    
     nameSpan.title = isVirtual ? (item.displayName || item.name) : item.name;
     
     let count = -1;
@@ -71,16 +77,22 @@ const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
     countSpan.style.display = 'none';
     
     const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
-    let itemName;
-    if (isTrashView && item.type === 'folder') {
-        itemName = `📁 ${item.name || '제목 없는 폴더'}`;
-    } else {
-        itemName = (item.title || '📝 제목 없음');
-    }
 
-    if (!isBeingRenamed) {
+    // [핵심 수정] 이름 변경 상태에 따라 표시되는 텍스트를 분기합니다.
+    if (isBeingRenamed) {
+        // 이름 변경 중일 때는 순수한 노트 제목(item.title)만 표시합니다.
+        nameSpan.textContent = item.title || '';
+    } else {
+        // 평소에는 아이콘 등을 포함한 표시용 이름을 설정합니다.
+        let itemName;
+        if (isTrashView && item.type === 'folder') {
+            itemName = `📁 ${item.name || '제목 없는 폴더'}`;
+        } else {
+            itemName = (item.title || '📝 제목 없음');
+        }
         highlightText(nameSpan, itemName, state.searchTerm);
     }
+
     nameSpan.title = (isTrashView && item.type === 'folder') ? (item.name || '제목 없는 폴더') : (item.title || '📝 제목 없음');
 
     const pinBtn = li.querySelector('.pin-btn');

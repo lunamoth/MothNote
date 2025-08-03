@@ -597,56 +597,67 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     await commitChanges({ renamingItemId: null });
 };
 
-// 이름 변경 시작 로직
+// [핵심 수정] 이름 변경 시작 로직
 export const startRename = (liElement, type) => {
     const id = liElement?.dataset.id;
     if (!id || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
     if (state.renamingItemId) return;
 
-    const nameSpan = liElement.querySelector('.item-name');
-    if (!nameSpan) return;
+    // 1. 상태를 먼저 설정하여 렌더러가 "이름 변경 모드"로 그리도록 유도합니다.
+    setState({ renamingItemId: id });
 
-    nameSpan.contentEditable = true;
-    nameSpan.focus();
+    // 2. setTimeout을 사용하여 렌더링이 완료된 후 DOM 조작을 실행합니다.
+    setTimeout(() => {
+        // 렌더링 후 새로 생성된 요소를 다시 찾습니다.
+        const newLiElement = document.querySelector(`.item-list-entry[data-id="${id}"]`);
+        if (!newLiElement) return;
 
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(nameSpan);
-    selection.removeAllRanges();
-    selection.addRange(range);
+        const nameSpan = newLiElement.querySelector('.item-name');
+        if (!nameSpan) return;
+        
+        // 이제 새로 그려진 요소를 편집 가능 상태로 만듭니다.
+        nameSpan.contentEditable = true;
+        nameSpan.focus();
 
-    let resolvePromise;
-    pendingRenamePromise = new Promise(resolve => { resolvePromise = resolve; });
+        // 텍스트 전체 선택
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(nameSpan);
+        selection.removeAllRanges();
+        selection.addRange(range);
 
-    const onBlur = async () => {
-        cleanup();
-        await _handleRenameEnd(id, type, nameSpan, true);
-        resolvePromise();
-        pendingRenamePromise = null;
-    };
+        // Promise와 이벤트 리스너 설정 (이전과 동일)
+        let resolvePromise;
+        pendingRenamePromise = new Promise(resolve => { resolvePromise = resolve; });
 
-    const onKeydown = async (ev) => {
-        if (ev.key === 'Enter') {
-            ev.preventDefault();
-            nameSpan.blur();
-        } else if (ev.key === 'Escape') {
-            ev.preventDefault();
+        const onBlur = async () => {
             cleanup();
-            await _handleRenameEnd(id, type, nameSpan, false);
+            await _handleRenameEnd(id, type, nameSpan, true);
             resolvePromise();
             pendingRenamePromise = null;
-        }
-    };
-    
-    const cleanup = () => {
-        nameSpan.removeEventListener('blur', onBlur);
-        nameSpan.removeEventListener('keydown', onKeydown);
-    };
+        };
 
-    nameSpan.addEventListener('blur', onBlur);
-    nameSpan.addEventListener('keydown', onKeydown);
+        const onKeydown = async (ev) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                nameSpan.blur();
+            } else if (ev.key === 'Escape') {
+                ev.preventDefault();
+                cleanup();
+                await _handleRenameEnd(id, type, nameSpan, false);
+                resolvePromise();
+                pendingRenamePromise = null;
+            }
+        };
+        
+        const cleanup = () => {
+            nameSpan.removeEventListener('blur', onBlur);
+            nameSpan.removeEventListener('keydown', onKeydown);
+        };
 
-    setState({ renamingItemId: id });
+        nameSpan.addEventListener('blur', onBlur);
+        nameSpan.addEventListener('keydown', onKeydown);
+    }, 0); // macrotask queue를 사용하여 렌더링 후에 실행되도록 보장합니다.
 };
 
 // --- '열쇠' 방식 저장 관리 로직 ---
