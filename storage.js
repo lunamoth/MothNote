@@ -28,6 +28,23 @@ export const saveSession = () => {
 
 export const loadData = async () => {
     try {
+        // [High 버그 수정] 앱 로딩 시, 비정상 종료로 저장되지 않은 데이터가 있는지 확인하고 복구합니다.
+        const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+        if (uncommittedDataStr) {
+            try {
+                console.warn("저장되지 않은 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
+                const uncommittedData = JSON.parse(uncommittedDataStr);
+                // chrome.storage에 비상 데이터를 저장 (복원)
+                await chrome.storage.local.set({ appState: uncommittedData });
+                // 복원이 완료되었으므로 localStorage의 백업은 제거
+                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+                console.log("데이터 복구 및 백업 삭제 완료.");
+            } catch (e) {
+                console.error("저장되지 않은 데이터 복구 실패:", e);
+                // 실패 시 백업 데이터를 남겨두어 다음 시도를 할 수 있게 함
+            }
+        }
+
         // [버그 수정] 앱 로딩 시 이름 변경 상태를 항상 초기화
         setState({ renamingItemId: null });
 
@@ -335,10 +352,10 @@ export const setupImportHandler = () => {
                 });
 
                 if (ok) {
-                    // [수정] Critical 버그 수정: 데이터 덮어쓰기 전 사용자 입력을 막기 위해 UI 차단 오버레이 표시
+                    // [Critical 버그 수정] 데이터 덮어쓰기 전 사용자 입력을 막기 위해 UI 차단 오버레이 표시
                     const overlay = document.createElement('div');
                     overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold;';
-                    overlay.textContent = '데이터를 적용하는 중입니다...';
+                    overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
                     document.body.appendChild(overlay);
 
                     const totalNoteCount = sanitizedContent.folders.reduce((sum, f) => sum + f.notes.length, 0);
@@ -367,10 +384,11 @@ export const setupImportHandler = () => {
                         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                     }
                     
-                    // [수정] Critical 버그 수정: 비동기 저장이 완료된 후 페이지를 새로고침하여 레이스 컨디션 방지
-                    await chrome.storage.local.set({ appState: { folders: newState.folders, trash: newState.trash, favorites: Array.from(newState.favorites) } });
+                    // [Critical 버그 수정] 비동기 저장이 완료된 후 페이지를 새로고침하여 레이스 컨디션 방지
+                    // 1. 비동기 저장 시작
+                    const savePromise = chrome.storage.local.set({ appState: { folders: newState.folders, trash: newState.trash, favorites: Array.from(newState.favorites) } });
                     
-                    // [수정] 세션 정보는 전역 state가 아닌, 방금 생성한 newState를 기준으로 직접 저장합니다.
+                    // 2. 세션 정보는 전역 state가 아닌, 방금 생성한 newState를 기준으로 직접 저장합니다.
                     localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
                         f: newState.activeFolderId,
                         n: newState.activeNoteId,
@@ -378,13 +396,16 @@ export const setupImportHandler = () => {
                         l: newState.lastActiveNotePerFolder
                     }));
                     
-                    // [수정] 모든 저장이 완료되었으므로 UI 차단을 해제하고, 사용자에게 알린 후 안전하게 새로고침합니다.
-                    overlay.remove(); // 오버레이 제거
+                    // 3. 비동기 저장이 완료될 때까지 기다립니다.
+                    await savePromise;
+
+                    // 4. 모든 저장이 완료되었으므로, 사용자에게 알린 후 안전하게 새로고침합니다.
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                     
+                    // 5. 짧은 지연 후 새로고침 (이때 UI는 계속 차단 상태)
                     setTimeout(() => {
                         location.reload();
-                    }, 1500); // 사용자에게 토스트 메시지를 보여줄 시간 + I/O 완료를 위한 약간의 버퍼
+                    }, 1500);
                 }
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);

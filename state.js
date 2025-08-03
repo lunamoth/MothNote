@@ -3,6 +3,7 @@ export const CONSTANTS = {
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
+    LS_KEY_UNCOMMITTED: 'mothnote_uncommitted_data_v1', // [High 버그 수정] 비상 백업 데이터 키 추가
     // --- 설정 관련 상수 ---
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',
     DEFAULT_SETTINGS: {

@@ -640,8 +640,8 @@ export const startRename = (liElement, type) => {
 let debounceTimer = null;
 let saveLock = Promise.resolve(); // '열쇠' 역할을 하는 Promise. 초기는 즉시 완료된 상태.
 
-// [버그 수정] _performSave는 이제 순수 저장 로직만 담당. UI 상태 변경은 handleNoteUpdate에서 처리.
-async function _performSave(noteId, titleToSave, contentToSave) {
+// [High 버그 수정] _performSave는 이제 순수 저장 로직만 담당. UI 상태 변경은 handleNoteUpdate에서 처리.
+async function _performSave(noteId, titleToSave, contentToSave, skipSave = false) {
     updateSaveStatus('saving');
 
     const { item: noteToSave } = findNote(noteId);
@@ -660,14 +660,17 @@ async function _performSave(noteId, titleToSave, contentToSave) {
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = Date.now();
 
-        await saveData();
+        // [High 버그 수정] skipSave 플래그에 따라 저장을 건너뛸 수 있도록 수정
+        if (!skipSave) {
+            await saveData();
+        }
 
         clearSortedNotesCache();
         state._virtualFolderCache.recent = null;
     }
 }
 
-export async function handleNoteUpdate(isForced = false) {
+export async function handleNoteUpdate(isForced = false, skipSave = false) {
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
         return;
@@ -723,7 +726,7 @@ export async function handleNoteUpdate(isForced = false) {
     });
 
     try {
-        await _performSave(noteIdToSave, titleToSave, contentToSave);
+        await _performSave(noteIdToSave, titleToSave, contentToSave, skipSave);
         
         // [버그 수정] 저장 후, 현재 UI와 저장된 내용을 비교하여 최종 상태 결정
         if (state.activeNoteId === noteIdToSave) {
