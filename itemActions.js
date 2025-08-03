@@ -9,12 +9,14 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
-// [추가] 날짜를 'YYYY-MM-DD' 형식으로 변환하는 유틸리티 함수
+// [BUG 1 FIX] 날짜를 'YYYY-MM-DD' 형식으로 변환하는 유틸리티 함수 수정
 export const toYYYYMMDD = (dateInput) => {
     if (!dateInput) return null;
+    // [수정] new Date()는 이미 로컬 시간대를 기준으로 동작합니다.
     const date = (dateInput instanceof Date) ? dateInput : new Date(dateInput);
     if (isNaN(date.getTime())) return null;
 
+    // [수정] toISOString() 대신 로컬 시간대의 년/월/일을 직접 가져옵니다.
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');

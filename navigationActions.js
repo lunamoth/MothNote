@@ -142,26 +142,26 @@ const handleSearch = (searchTerm) => {
         clearSortedNotesCache();
         const notesInCurrentView = getCurrentViewNotes();
 
-        // --- [버그 수정] 날짜 필터가 활성화된 경우, 해당 뷰의 첫 번째 노트를 우선적으로 활성화 ---
-        if (state.dateFilter) {
-            if (notesInCurrentView.length > 0) {
-                nextActiveNoteId = sortNotes(notesInCurrentView, state.noteSortOrder)[0]?.id ?? null;
-            }
+        // [BUG 2 FIX] 날짜 필터 여부와 관계 없이 preSearchActiveNoteId 복원을 최우선으로 시도
+        if (state.preSearchActiveNoteId && notesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
+            nextActiveNoteId = state.preSearchActiveNoteId;
         } 
-        // --- 날짜 필터가 없는 기존 로직 ---
+        // preSearchActiveNoteId가 없거나 유효하지 않은 경우, 다음 로직 수행
         else {
-            if (state.preSearchActiveNoteId && notesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
-                nextActiveNoteId = state.preSearchActiveNoteId;
-            } else {
+            // 날짜 필터가 없는 경우에만 폴더별 마지막 활성 노트를 확인
+            if (!state.dateFilter) {
                 const lastActiveNoteId = state.lastActiveNotePerFolder[state.activeFolderId];
                 if (lastActiveNoteId && notesInCurrentView.some(n => n.id === lastActiveNoteId)) {
                     nextActiveNoteId = lastActiveNoteId;
                 }
             }
-            if (nextActiveNoteId === null && notesInCurrentView.length > 0) {
-                nextActiveNoteId = sortNotes(notesInCurrentView, state.noteSortOrder)[0]?.id ?? null;
-            }
         }
+        
+        // 여전히 활성 노트가 결정되지 않았다면, 현재 뷰의 첫 번째 노트를 활성화
+        if (nextActiveNoteId === null && notesInCurrentView.length > 0) {
+            nextActiveNoteId = sortNotes(notesInCurrentView, state.noteSortOrder)[0]?.id ?? null;
+        }
+
         newState.preSearchActiveNoteId = null; // 상태 초기화
     }
 
