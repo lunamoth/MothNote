@@ -131,6 +131,7 @@ const handleSettingsSave = () => {
         },
         editor: {
             fontFamily: finalFontFamily,
+            // [버그 수정] parseInt 결과가 NaN일 경우 기본값으로 대체(fallback)
             fontSize: parseInt(settingsEditorFontSize.value, 10) || CONSTANTS.DEFAULT_SETTINGS.editor.fontSize,
         },
         weather: {
@@ -179,6 +180,7 @@ const handleSettingsReset = async () => {
         settingsWeatherLat.value = appSettings.weather.lat;
         settingsWeatherLon.value = appSettings.weather.lon;
         
+        // [버그 수정] UI에 즉시 반영하기 위해 applySettings 호출 추가
         applySettings(appSettings);
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
         settingsModal.close();
@@ -719,21 +721,58 @@ const setupRippleEffect = () => {
 };
 
 const handleTextareaKeyDown = (e) => {
+    // [버그 수정] 다중 라인 선택 시 Tab/Shift+Tab 동작 개선
     if (e.key === 'Tab') {
         e.preventDefault();
         const textarea = e.target;
-        const start = textarea.selectionStart, end = textarea.selectionEnd, text = textarea.value;
-        if (e.shiftKey) {
-            const lineStart = text.lastIndexOf('\n', start - 1) + 1;
-            if (text.substring(lineStart, lineStart + 1) === '\t') {
-                textarea.value = text.substring(0, lineStart) + text.substring(lineStart + 1);
-                textarea.selectionStart = Math.max(lineStart, start - 1);
-                textarea.selectionEnd = Math.max(lineStart, end - 1);
-            }
-        } else {
-            textarea.value = text.substring(0, start) + '\t' + text.substring(end);
-            textarea.selectionStart = textarea.selectionEnd = start + 1;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+
+        // 선택된 영역의 시작과 끝 라인을 찾음
+        const startLineIndex = text.lastIndexOf('\n', start - 1) + 1;
+        const endLineIndex = text.indexOf('\n', end - 1);
+        const endLineActualIndex = endLineIndex === -1 ? text.length : endLineIndex;
+        
+        const selectedLinesText = text.substring(startLineIndex, endLineActualIndex);
+        const lines = selectedLinesText.split('\n');
+        let newSelectionStart = start;
+        let newSelectionEnd = end;
+        let changeInLength = 0;
+
+        if (e.shiftKey) { // 내어쓰기
+            const modifiedLines = lines.map((line, index) => {
+                if (line.startsWith('\t')) {
+                    if (index === 0) newSelectionStart = Math.max(startLineIndex, newSelectionStart - 1);
+                    newSelectionEnd--;
+                    changeInLength--;
+                    return line.substring(1);
+                } else if (line.startsWith(' ')) {
+                    const spaceCount = line.match(/^ */)[0].length;
+                    const removeCount = Math.min(spaceCount, 4); // 예: 탭을 4칸 공백으로 간주
+                    if (index === 0) newSelectionStart = Math.max(startLineIndex, newSelectionStart - removeCount);
+                    newSelectionEnd -= removeCount;
+                    changeInLength -= removeCount;
+                    return line.substring(removeCount);
+                }
+                return line;
+            });
+            const modifiedText = modifiedLines.join('\n');
+            textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex);
+        } else { // 들여쓰기
+            const modifiedLines = lines.map((line, index) => {
+                if (index === 0) newSelectionStart++;
+                newSelectionEnd++;
+                changeInLength++;
+                return '\t' + line;
+            });
+            const modifiedText = modifiedLines.join('\n');
+            textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex);
         }
+        
+        textarea.selectionStart = newSelectionStart;
+        textarea.selectionEnd = newSelectionEnd + (changeInLength - (newSelectionEnd - end)); // 복잡한 계산 대신 전체 길이 변화량으로 조정
+
         handleNoteUpdate(false);
     }
 };

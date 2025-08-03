@@ -634,12 +634,12 @@ export const startRename = (liElement, type) => {
 let debounceTimer = null;
 let saveLock = Promise.resolve(); // '열쇠' 역할을 하는 Promise. 초기는 즉시 완료된 상태.
 
+// [버그 수정] _performSave는 이제 순수 저장 로직만 담당. UI 상태 변경은 handleNoteUpdate에서 처리.
 async function _performSave(noteId, titleToSave, contentToSave) {
     updateSaveStatus('saving');
 
     const { item: noteToSave } = findNote(noteId);
     if (noteToSave) {
-        // [수정] 노트 내용 기반 자동 제목 생성 규칙 개선
         let finalTitle = titleToSave;
         if (!finalTitle.trim() && contentToSave.trim()) {
             const firstLine = contentToSave.trim().split('\n')[0];
@@ -658,11 +658,6 @@ async function _performSave(noteId, titleToSave, contentToSave) {
 
         clearSortedNotesCache();
         state._virtualFolderCache.recent = null;
-
-        if (state.activeNoteId === noteId) {
-            setState({ isDirty: false });
-            updateSaveStatus('saved');
-        }
     }
 }
 
@@ -683,11 +678,9 @@ export async function handleNoteUpdate(isForced = false) {
         
         const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
         
-        // --- [BUG FIX START] ---
-        // 사용자가 입력할 때마다 변경사항을 감지합니다.
+        // [버그 수정] 저장 상태 표시 경쟁 상태 해결
         if (hasChanged) {
-            // isDirty 상태가 아니었다면, 상태를 변경하고 UI에 '변경됨'을 표시합니다.
-            // 이렇게 하면 불필요한 리렌더링을 방지할 수 있습니다.
+            // isDirty 상태가 아니었다면, 상태를 변경합니다.
             if (!state.isDirty) {
                 setState({ isDirty: true });
             }
@@ -699,7 +692,6 @@ export async function handleNoteUpdate(isForced = false) {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
         }
-        // --- [BUG FIX END] ---
         return;
     }
     
@@ -726,6 +718,17 @@ export async function handleNoteUpdate(isForced = false) {
 
     try {
         await _performSave(noteIdToSave, titleToSave, contentToSave);
+        
+        // [버그 수정] 저장 후, 현재 UI와 저장된 내용을 비교하여 최종 상태 결정
+        if (state.activeNoteId === noteIdToSave) {
+            const hasChangedAgain = noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave;
+            if (!hasChangedAgain) {
+                // 저장 중 추가 변경이 없었을 경우에만 'isDirty'를 false로, 상태를 'saved'로 변경
+                setState({ isDirty: false });
+                updateSaveStatus('saved');
+            }
+            // 추가 변경이 있었다면, isDirty는 이미 true이고 status는 dirty이므로 아무것도 하지 않음
+        }
     } catch (e) {
         console.error("Save failed:", e);
     } finally {
