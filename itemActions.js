@@ -361,7 +361,12 @@ const handleDeleteFolder = (id) => {
         folderToMove.notes.reverse().forEach(note => {
             moveItemToTrash(note, 'note', folderToMove.id);
         });
-        noteIdsInDeletedFolder.forEach(noteId => state.noteMap.delete(noteId));
+
+        // [BUG #1 FIX] 폴더 삭제 시, 해당 폴더에 있던 노트들의 즐겨찾기 상태도 함께 제거
+        noteIdsInDeletedFolder.forEach(noteId => {
+            state.noteMap.delete(noteId);
+            state.favorites.delete(noteId);
+        });
         
         delete state.lastActiveNotePerFolder[id];
         
@@ -388,13 +393,35 @@ const handleDeleteNote = (id) => {
         const wasActiveNoteDeleted = state.activeNoteId === id;
         const wasInDateFilteredView = !!state.dateFilter;
         
-        // [High 버그 수정] stale cache 대신 현재 렌더링된 뷰를 기준으로 다음 노트 결정
         if (wasActiveNoteDeleted) {
-            // sortedNotesCache.result는 현재 UI에 표시된 노트 목록이므로 가장 정확
-            const notesInCurrentView = sortedNotesCache.result; 
-            if (notesInCurrentView) {
-                nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, notesInCurrentView);
+            // [BUG #3 FIX] Stale cache를 사용하는 대신, 현재 state를 기준으로 즉시 노트 목록을 재생성합니다.
+            let sourceNotes;
+            if (state.dateFilter) {
+                const filterDateStr = toYYYYMMDD(state.dateFilter);
+                sourceNotes = Array.from(state.noteMap.values())
+                    .map(entry => entry.note)
+                    .filter(note => toYYYYMMDD(note.createdAt) === filterDateStr);
+            } else {
+                const { item: currentFolder } = findFolder(state.activeFolderId);
+                sourceNotes = currentFolder?.notes ?? [];
             }
+
+            const filteredNotes = sourceNotes.filter(n =>
+                (n.title ?? n.name ?? '').toLowerCase().includes(state.searchTerm.toLowerCase()) ||
+                (n.content ?? '').toLowerCase().includes(state.searchTerm.toLowerCase())
+            );
+
+            let notesInCurrentView;
+            const { item: folderData } = findFolder(state.activeFolderId);
+            if (folderData?.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+                notesInCurrentView = filteredNotes.sort((a,b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+            } else if (folderData?.isSortable !== false) {
+                notesInCurrentView = sortNotes(filteredNotes, state.noteSortOrder);
+            } else {
+                notesInCurrentView = filteredNotes;
+            }
+            
+            nextActiveNoteIdToSet = getNextActiveNoteAfterDeletion(id, notesInCurrentView);
         }
 
         state.favorites.delete(id);

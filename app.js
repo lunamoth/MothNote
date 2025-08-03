@@ -563,7 +563,7 @@ class Dashboard {
                 return;
             }
 
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t_weather=true&timezone=Asia/Seoul`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             const data = await response.json();
