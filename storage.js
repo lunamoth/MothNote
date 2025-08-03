@@ -12,8 +12,11 @@ export const saveData = async () => {
             favorites: Array.from(state.favorites) 
         };
         await chrome.storage.local.set({ appState: dataToSave });
+        return true; // [BUG 1 FIX] 저장 성공 시 true 반환
     } catch (e) {
         console.error("Error saving state:", e);
+        showToast('데이터 저장에 실패했습니다. 저장 공간을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false; // [BUG 1 FIX] 저장 실패 시 false 반환
     }
 };
 
@@ -30,6 +33,8 @@ export const loadData = async () => {
     try {
         // [Critical 버그 수정] 가져오기 중단 시 복구 로직
         const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+        
+        // [BUG 2 FIX] 두 복구 로직이 충돌하지 않도록 if...else if... 구조로 변경
         if (importInProgressData && Object.keys(importInProgressData).length > 0) {
             const recoveredData = importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS];
             console.warn("중단된 가져오기 발견. 데이터 복구를 시도합니다.");
@@ -45,23 +50,26 @@ export const loadData = async () => {
             // 3. 임시 데이터 삭제
             await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             console.log("가져오기 데이터 복구 완료.");
-        }
+            
+            // [BUG 2 FIX] 가져오기 복구가 성공했으므로, 더 이상 유효하지 않은 비정상 종료 데이터는 제거
+            localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
 
-
-        // [High 버그 수정] 앱 로딩 시, 비정상 종료로 저장되지 않은 데이터가 있는지 확인하고 복구합니다.
-        const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-        if (uncommittedDataStr) {
-            try {
-                console.warn("저장되지 않은 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
-                const uncommittedData = JSON.parse(uncommittedDataStr);
-                // chrome.storage에 비상 데이터를 저장 (복원)
-                await chrome.storage.local.set({ appState: uncommittedData });
-                // 복원이 완료되었으므로 localStorage의 백업은 제거
-                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-                console.log("데이터 복구 및 백업 삭제 완료.");
-            } catch (e) {
-                console.error("저장되지 않은 데이터 복구 실패:", e);
-                // 실패 시 백업 데이터를 남겨두어 다음 시도를 할 수 있게 함
+        } else {
+            // [High 버그 수정] 앱 로딩 시, 비정상 종료로 저장되지 않은 데이터가 있는지 확인하고 복구합니다.
+            const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+            if (uncommittedDataStr) {
+                try {
+                    console.warn("저장되지 않은 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
+                    const uncommittedData = JSON.parse(uncommittedDataStr);
+                    // chrome.storage에 비상 데이터를 저장 (복원)
+                    await chrome.storage.local.set({ appState: uncommittedData });
+                    // 복원이 완료되었으므로 localStorage의 백업은 제거
+                    localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+                    console.log("데이터 복구 및 백업 삭제 완료.");
+                } catch (e) {
+                    console.error("저장되지 않은 데이터 복구 실패:", e);
+                    // 실패 시 백업 데이터를 남겨두어 다음 시도를 할 수 있게 함
+                }
             }
         }
 

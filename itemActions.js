@@ -718,7 +718,7 @@ export const startRename = (liElement, type) => {
 let debounceTimer = null;
 let saveLock = Promise.resolve(); // '열쇠' 역할을 하는 Promise. 초기는 즉시 완료된 상태.
 
-// [High 버그 수정] _performSave는 이제 순수 저장 로직만 담당. UI 상태 변경은 handleNoteUpdate에서 처리.
+// [BUG 1 FIX] _performSave가 저장 성공 여부(boolean)를 반환하도록 수정
 async function _performSave(noteId, titleToSave, contentToSave, skipSave = false) {
     updateSaveStatus('saving');
 
@@ -738,87 +738,89 @@ async function _performSave(noteId, titleToSave, contentToSave, skipSave = false
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = Date.now();
 
-        // [High 버그 수정] skipSave 플래그에 따라 저장을 건너뛸 수 있도록 수정
         if (!skipSave) {
-            await saveData();
+            const success = await saveData();
+            if (!success) return false; // 저장 실패 시 즉시 false 반환
         }
 
         clearSortedNotesCache();
         state._virtualFolderCache.recent = null;
     }
+    return true; // 저장 성공 또는 건너뛴 경우 true 반환
 }
 
+// [BUG 1 FIX] handleNoteUpdate가 저장 성공 여부(boolean)를 반환하도록 수정
 export async function handleNoteUpdate(isForced = false, skipSave = false) {
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
-        return;
+        return true; // 저장할 것이 없으므로 성공으로 간주
     }
     
-    if (state.renamingItemId && isForced) return;
+    if (state.renamingItemId && isForced) return true;
     
     if (!isForced) {
         const noteId = state.activeNoteId;
-        if (!noteId) return;
+        if (!noteId) return true;
 
         const { item: activeNote } = findNote(noteId);
-        if (!activeNote) return;
+        if (!activeNote) return true;
         
         const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
         
-        // [버그 수정] 저장 상태 표시 경쟁 상태 해결
         if (hasChanged) {
-            // isDirty 상태가 아니었다면, 상태를 변경합니다.
             if (!state.isDirty) {
                 setState({ isDirty: true });
             }
-            // 하지만 UI 상태(저장 상태 인디케이터)는 항상 'dirty'로 업데이트하여
-            // 저장 직후의 입력도 시각적으로 즉시 반영되도록 합니다.
             updateSaveStatus('dirty');
             
-            // 디바운스 타이머는 변경이 있을 때마다 초기화합니다.
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
         }
-        return;
+        return true;
     }
     
     clearTimeout(debounceTimer);
 
     const noteIdToSave = state.activeNoteId;
-    if (!noteIdToSave) return;
+    if (!noteIdToSave) return true;
     const titleToSave = noteTitleInput.value;
     const contentToSave = noteContentTextarea.value;
     const { item: currentNote } = findNote(noteIdToSave);
-    if (!currentNote) return;
+    if (!currentNote) return true;
 
     const hasChanged = currentNote.title !== titleToSave || currentNote.content !== contentToSave;
     if (!hasChanged && !state.isDirty) {
-        return;
+        return true;
     }
 
     await saveLock;
 
     let releaseLock;
+    let wasSuccessful = false;
     saveLock = new Promise(resolve => {
         releaseLock = resolve;
     });
 
     try {
-        await _performSave(noteIdToSave, titleToSave, contentToSave, skipSave);
+        const success = await _performSave(noteIdToSave, titleToSave, contentToSave, skipSave);
+        if (!success) {
+            updateSaveStatus('dirty'); // 실패 시 '변경됨' 상태로 되돌림
+            return false; // 저장 실패 전파
+        }
         
-        // [버그 수정] 저장 후, 현재 UI와 저장된 내용을 비교하여 최종 상태 결정
         if (state.activeNoteId === noteIdToSave) {
             const hasChangedAgain = noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave;
             if (!hasChangedAgain) {
-                // 저장 중 추가 변경이 없었을 경우에만 'isDirty'를 false로, 상태를 'saved'로 변경
                 setState({ isDirty: false });
                 updateSaveStatus('saved');
             }
-            // 추가 변경이 있었다면, isDirty는 이미 true이고 status는 dirty이므로 아무것도 하지 않음
         }
+        wasSuccessful = true;
     } catch (e) {
         console.error("Save failed:", e);
+        wasSuccessful = false;
     } finally {
         releaseLock();
     }
+    return wasSuccessful;
 }

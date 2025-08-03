@@ -1,7 +1,7 @@
 import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
 import { saveSession } from './storage.js';
 import {
-    searchInput, showConfirm, sortNotes
+    searchInput, showConfirm, sortNotes, showToast // [BUG 1 FIX] showToast 추가
 } from './components.js';
 // [개선] finishPendingRename을 itemActions에서 가져와 중복 제거
 import { handleNoteUpdate, finishPendingRename } from './itemActions.js';
@@ -13,7 +13,7 @@ import { clearSortedNotesCache } from './renderer.js';
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
-// 저장되지 않은 변경이 있을 경우 사용자에게 확인을 요청하는 함수
+// [BUG 1 FIX] 저장 실패 시 내비게이션을 중단하도록 로직 수정
 export const confirmNavigation = async () => {
     if (!state.isDirty) return true;
 
@@ -25,11 +25,17 @@ export const confirmNavigation = async () => {
     });
 
     if (ok) {
-        await handleNoteUpdate(true); // 강제 저장
-        setState({ isDirty: false });
-        return true;
+        const savedSuccessfully = await handleNoteUpdate(true); // 강제 저장 후 성공 여부 확인
+        if (savedSuccessfully) {
+            setState({ isDirty: false });
+            return true; // 저장 성공 시에만 이동 허용
+        } else {
+            // 저장 실패 시 사용자에게 알리고 이동을 취소
+            showToast('저장에 실패하여 이동이 취소되었습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            return false;
+        }
     }
-    return false;
+    return false; // 사용자가 '취소'를 누른 경우
 };
 
 export const changeActiveNote = async (newNoteId) => {
