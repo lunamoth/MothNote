@@ -1273,11 +1273,8 @@ const setupGlobalEventListeners = () => {
             return;
         }
 
-        // [핵심 수정] beforeunload 핸들러의 조건을 isDirty 플래그만 확인하도록 단순화하여
-        // 앱 초기 로딩 시 발생하는 경쟁 조건을 근본적으로 해결합니다.
-        // isDirty 플래그는 사용자가 편집을 시작했을 때만 true로 설정되므로,
-        // 프로그램에 의한 초기 데이터 설정 시에는 이 핸들러가 더 이상 실행되지 않습니다.
-        if (state.isDirty) {
+        // [High 버그 수정] isDirty 플래그 또는 이름 변경 중('renamingItemId')일 때 핸들러를 실행
+        if (state.isDirty || state.renamingItemId) {
             // isDirty가 true일 때만 최신 DOM 값으로 백업 데이터를 생성합니다.
             const currentTitle = noteTitleInput?.value ?? '';
             const currentContent = noteContentTextarea?.value ?? '';
@@ -1290,17 +1287,51 @@ const setupGlobalEventListeners = () => {
             }));
             
             // 2. 현재 활성 노트에 대한 변경 사항을 백업 데이터에 직접, 동기적으로 반영합니다.
-            const noteEntry = dataToBackup.folders
-                .flatMap(f => f.notes)
-                .find(n => n.id === state.activeNoteId);
-    
-            if (noteEntry) {
-                // 3. input 필드의 최신 값으로 데이터를 업데이트합니다.
-                noteEntry.title = currentTitle;
-                noteEntry.content = currentContent;
-                noteEntry.updatedAt = Date.now();
+            if (state.isDirty) {
+                const noteEntry = dataToBackup.folders
+                    .flatMap(f => f.notes)
+                    .find(n => n.id === state.activeNoteId);
+        
+                if (noteEntry) {
+                    noteEntry.title = currentTitle;
+                    noteEntry.content = currentContent;
+                    noteEntry.updatedAt = Date.now();
+                }
             }
     
+            // [High 버그 수정] 이름 변경 중인 내용도 비상 백업에 포함
+            if (state.renamingItemId) {
+                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
+                if (renamingElement) {
+                    const newName = renamingElement.textContent;
+                    let itemFound = false;
+
+                    // 폴더에서 찾기
+                    for (const folder of dataToBackup.folders) {
+                        if (folder.id === state.renamingItemId) {
+                            folder.name = newName;
+                            itemFound = true;
+                            break;
+                        }
+                        // 노트에서 찾기
+                        const note = folder.notes.find(n => n.id === state.renamingItemId);
+                        if (note) {
+                            note.title = newName;
+                            itemFound = true;
+                            break;
+                        }
+                    }
+                    // 휴지통에서 찾기
+                    if (!itemFound) {
+                        const itemInTrash = dataToBackup.trash.find(item => item.id === state.renamingItemId);
+                        if (itemInTrash) {
+                            if (itemInTrash.type === 'folder') itemInTrash.name = newName;
+                            else if (itemInTrash.type === 'note') itemInTrash.title = newName;
+                        }
+                    }
+                }
+            }
+
             // 4. 동기적으로 처리된 최신 데이터를 localStorage에 저장합니다.
             try {
                 localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(dataToBackup));

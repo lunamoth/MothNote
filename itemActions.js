@@ -9,6 +9,37 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
+/**
+ * [Critical 버그 수정] 앱의 전체 상태(활성 노트, 휴지통)를 확인하여
+ * 충돌하지 않는 고유한 ID를 생성하고 반환합니다.
+ * 이 함수는 ID 충돌로 인한 데이터 유실을 방지합니다.
+ */
+const generateUniqueId = () => {
+    let id;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 10;
+
+    do {
+        // ID 생성 (기존 로직과 동일)
+        id = (typeof crypto?.randomUUID === 'function')
+            ? crypto.randomUUID()
+            : `${CONSTANTS.ID_PREFIX.NOTE}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        
+        if (attempts++ > MAX_ATTEMPTS) {
+            // 무한 루프 방지용 안전장치
+            console.error("고유 ID 생성에 실패했습니다. 매우 드문 경우입니다.");
+            // 최후의 수단으로 더 긴 랜덤 문자열 추가
+            id += `-${Math.random().toString(36).substring(2, 15)}`;
+            break; 
+        }
+
+        // 생성된 ID가 noteMap이나 trash에 이미 존재하는지 확인합니다.
+        // 존재한다면 루프를 다시 실행하여 새 ID를 생성합니다.
+    } while (state.noteMap.has(id) || state.trash.some(item => item.id === id));
+    
+    return id;
+};
+
 // [BUG 1 FIX] 날짜를 'YYYY-MM-DD' 형식으로 변환하는 유틸리티 함수 수정
 export const toYYYYMMDD = (dateInput) => {
     if (!dateInput) return null;
@@ -302,12 +333,8 @@ export const handleAddNote = () => {
                 newTitle = `${baseTitle} (${counter++})`;
             }
             
-            // [수정] crypto.randomUUID()의 안정성을 위해 대체(Fallback) ID 생성 로직 추가
-            const generateFallbackId = () => `${CONSTANTS.ID_PREFIX.NOTE}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-            
-            const uniqueId = (typeof crypto?.randomUUID === 'function')
-                ? crypto.randomUUID()
-                : generateFallbackId();
+            // [Critical 버그 수정] ID 충돌을 원천적으로 방지하기 위해 `generateUniqueId` 헬퍼 함수를 사용합니다.
+            const uniqueId = generateUniqueId();
 
             const newNote = { id: uniqueId, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             activeFolder.notes.unshift(newNote);
