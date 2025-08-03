@@ -414,13 +414,13 @@ export const setupImportHandler = () => {
                     // 5. 모든 저장이 성공했으므로 임시 데이터 삭제
                     await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
-                    // 6. 모든 저장이 완료되었으므로, 사용자에게 알린 후 안전하게 새로고침
-                    showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
+                    // [Critical 버그 수정] 새로고침 대신 커스텀 이벤트를 발생시켜 데이터 불일치 문제를 해결합니다.
+                    showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS, CONSTANTS.TOAST_TYPE.SUCCESS);
+                    window.dispatchEvent(new CustomEvent('app-data-imported'));
                     
-                    setTimeout(() => {
-                        window.isImporting = true;
-                        location.reload();
-                    }, 1500);
+                    if (overlay.parentElement) {
+                        overlay.remove();
+                    }
                 }
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);

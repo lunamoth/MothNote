@@ -735,42 +735,29 @@ const handleTextareaKeyDown = (e) => {
         
         const selectedLinesText = text.substring(startLineIndex, endLineActualIndex);
         const lines = selectedLinesText.split('\n');
-        let newSelectionStart = start;
-        let newSelectionEnd = end;
-        let changeInLength = 0;
-
+        
+        let modifiedLines;
         if (e.shiftKey) { // 내어쓰기
-            const modifiedLines = lines.map((line, index) => {
+            modifiedLines = lines.map(line => {
                 if (line.startsWith('\t')) {
-                    if (index === 0) newSelectionStart = Math.max(startLineIndex, newSelectionStart - 1);
-                    newSelectionEnd--;
-                    changeInLength--;
                     return line.substring(1);
                 } else if (line.startsWith(' ')) {
                     const spaceCount = line.match(/^ */)[0].length;
                     const removeCount = Math.min(spaceCount, 4); // 예: 탭을 4칸 공백으로 간주
-                    if (index === 0) newSelectionStart = Math.max(startLineIndex, newSelectionStart - removeCount);
-                    newSelectionEnd -= removeCount;
-                    changeInLength -= removeCount;
                     return line.substring(removeCount);
                 }
                 return line;
             });
-            const modifiedText = modifiedLines.join('\n');
-            textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex);
         } else { // 들여쓰기
-            const modifiedLines = lines.map((line, index) => {
-                if (index === 0) newSelectionStart++;
-                newSelectionEnd++;
-                changeInLength++;
-                return '\t' + line;
-            });
-            const modifiedText = modifiedLines.join('\n');
-            textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex);
+            modifiedLines = lines.map(line => '\t' + line);
         }
         
-        textarea.selectionStart = newSelectionStart;
-        textarea.selectionEnd = newSelectionEnd + (changeInLength - (newSelectionEnd - end)); // 복잡한 계산 대신 전체 길이 변화량으로 조정
+        const modifiedText = modifiedLines.join('\n');
+        textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex);
+
+        // [High 버그 수정] 수정된 텍스트 블록 전체를 선택하도록 하여 선택 영역 계산 오류를 해결합니다.
+        textarea.selectionStart = startLineIndex;
+        textarea.selectionEnd = startLineIndex + modifiedText.length;
 
         handleNoteUpdate(false);
     }
@@ -1286,16 +1273,15 @@ const setupGlobalEventListeners = () => {
             return;
         }
 
-        const activeNote = state.activeNoteId ? findNote(state.activeNoteId).item : null;
-        // input/textarea의 value가 undefined/null인 경우를 대비해 빈 문자열로 처리
-        const currentTitle = noteTitleInput?.value ?? '';
-        const currentContent = noteContentTextarea?.value ?? '';
+        // [핵심 수정] beforeunload 핸들러의 조건을 isDirty 플래그만 확인하도록 단순화하여
+        // 앱 초기 로딩 시 발생하는 경쟁 조건을 근본적으로 해결합니다.
+        // isDirty 플래그는 사용자가 편집을 시작했을 때만 true로 설정되므로,
+        // 프로그램에 의한 초기 데이터 설정 시에는 이 핸들러가 더 이상 실행되지 않습니다.
+        if (state.isDirty) {
+            // isDirty가 true일 때만 최신 DOM 값으로 백업 데이터를 생성합니다.
+            const currentTitle = noteTitleInput?.value ?? '';
+            const currentContent = noteContentTextarea?.value ?? '';
 
-        const titleChanged = activeNote && activeNote.title !== currentTitle;
-        const contentChanged = activeNote && activeNote.content !== currentContent;
-    
-        if (state.isDirty || titleChanged || contentChanged) {
-            // [수정] async 함수 호출을 제거하고, 동기적인 데이터 처리로 변경
             // 1. 현재 state를 기반으로 백업할 데이터의 깊은 복사본을 생성합니다.
             const dataToBackup = JSON.parse(JSON.stringify({
                 folders: state.folders, 
@@ -1354,6 +1340,19 @@ const init = async () => {
 
     await loadData();
     
+    // [Critical 버그 수정] 데이터 가져오기 후 새로고침 없이 상태를 갱신합니다.
+    window.addEventListener('app-data-imported', async () => {
+        // 저장소에서 새로 가져온 데이터를 읽어 앱 상태를 재설정합니다.
+        await loadData();
+        // 새로 가져온 설정을 읽어 UI에 적용합니다.
+        loadAndApplySettings();
+        // 대시보드(달력 등)도 새 데이터로 갱신합니다.
+        if (dashboard) {
+            dashboard.init(); // 대시보드를 완전히 재초기화하여 모든 위젯을 새로 그림
+        }
+        showToast('✅ 가져온 데이터와 설정이 모두 적용되었습니다!');
+    });
+
     dashboard = new Dashboard();
     dashboard.init();
 
