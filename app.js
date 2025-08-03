@@ -563,7 +563,7 @@ class Dashboard {
                 return;
             }
 
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             const data = await response.json();
@@ -1278,19 +1278,15 @@ const initializeDragAndDrop = () => {
 const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
 
-    // [High 버그 수정] 탭/브라우저 종료 시 데이터 유실을 방지하기 위한 핸들러
+    // [CRITICAL BUG FIX] 다중 탭 환경에서의 데이터 유실을 방지하기 위해 else 블록을 제거
     window.addEventListener('beforeunload', (e) => {
-        // debounce 타이머 등으로 아직 반영되지 않은 최신 UI 변경사항이 있는지 확인
         const activeNote = state.activeNoteId ? findNote(state.activeNoteId).item : null;
         const titleChanged = activeNote && noteTitleInput.value && activeNote.title !== noteTitleInput.value;
         const contentChanged = activeNote && noteContentTextarea.value && activeNote.content !== noteContentTextarea.value;
 
-        // isDirty 플래그 또는 UI와 state 간의 불일치가 존재할 경우
         if (state.isDirty || titleChanged || contentChanged) {
-            // 강제로 노트 업데이트 로직을 실행하되, 비동기 저장은 건너뛰고 state만 업데이트
             handleNoteUpdate(true, true); 
 
-            // 이제 최신 상태(state)를 동기적으로 localStorage에 백업
             try {
                 const dataToSave = { 
                     folders: state.folders, 
@@ -1302,14 +1298,8 @@ const setupGlobalEventListeners = () => {
                 console.error("비상 데이터 저장 실패(localStorage):", err);
             }
 
-            // 브라우저에 "변경사항이 저장되지 않을 수 있습니다" 경고를 띄우기 위한 표준 절차
             e.preventDefault();
             e.returnValue = '';
-        } else {
-             // 저장되지 않은 데이터가 없다면, 비상 백업이 남아있는 경우 삭제
-            if (localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED)) {
-                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-            }
         }
     });
     

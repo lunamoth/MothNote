@@ -78,13 +78,16 @@ const commitChanges = async (newState = {}) => {
 
 // --- 공통 후처리 로직 추상화 ---
 const finalizeItemChange = async (newState = {}, successMessage = '') => {
-    // [수정] 상태 변경 후 날짜 데이터를 다시 계산하고 달력을 렌더링합니다.
+    // [HIGH BUG FIX] 상태 변경을 먼저 실행하고, 그 후에 파생 데이터를 계산하도록 순서 변경
+    await commitChanges(newState);
+    
+    // 이제 새로운 state를 기반으로 날짜 데이터를 다시 계산하고 달력을 렌더링합니다.
     updateNoteCreationDates();
     calendarRenderer(true);
+
     if (successMessage) {
         showToast(successMessage);
     }
-    await commitChanges(newState);
 };
 
 // --- 노트 관련 액션을 위한 고차 함수 ---
@@ -302,12 +305,9 @@ export const handleAddNote = () => {
             state.lastActiveNotePerFolder[state.activeFolderId] = newNote.id;
             state.noteMap.set(newNote.id, { note: newNote, folderId: state.activeFolderId });
             
-            // [수정] finalizeItemChange에서 날짜 데이터 갱신을 처리하므로, 여기서는 commit만 호출합니다.
-            await commitChanges({ activeNoteId: newNote.id, searchTerm: '' });
-            
             // 공통 후처리 로직 호출
-            updateNoteCreationDates();
-            calendarRenderer(true);
+            await finalizeItemChange({ activeNoteId: newNote.id, searchTerm: '' });
+            
             saveSession();
             
             setTimeout(() => {
@@ -603,7 +603,8 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         }
         isDuplicate = state.folders.some(f => f.id !== id && f.name.toLowerCase() === newNameLower);
     } else {
-        isDuplicate = folder.notes.some(n => n.id !== id && n.title.toLowerCase() === newNameLower);
+        // [사용자 요청] 노트 이름 변경 시 중복 검사를 하지 않습니다.
+        // isDuplicate는 false로 유지됩니다.
     }
 
     if (isDuplicate) {
