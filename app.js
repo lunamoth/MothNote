@@ -9,7 +9,8 @@ import {
     settingsEditorFontFamily, settingsEditorFontSize,
     settingsWeatherLat, settingsWeatherLon,
     settingsExportBtn, settingsImportBtn, settingsResetBtn, settingsSaveBtn,
-    settingsWeatherCitySearch, settingsWeatherCitySearchBtn, settingsWeatherCityResults
+    settingsWeatherCitySearch, settingsWeatherCitySearchBtn, settingsWeatherCityResults,
+    editorContainer // [수정] editorContainer 가져오기
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
 import { 
@@ -1102,7 +1103,6 @@ const initializeDragAndDrop = () => {
 };
 
 async function handleStorageSync(changes) {
-    // [수정] 트랜잭션 ID를 확인하여 자신의 변경사항은 무시
     const { newValue } = changes.appState;
     if (newValue.transactionId && newValue.transactionId === state.currentTransactionId) {
         return;
@@ -1120,11 +1120,33 @@ async function handleStorageSync(changes) {
         }
     }
 
+    // [CRITICAL BUG #1 FIX] 데이터 충돌 시 UI 잠금 및 새로고침 강제
     if (state.isDirty) {
-        console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes.");
-        localStorage.setItem(CONSTANTS.LS_KEY_DATA_CONFLICT, 'true');
-        showToast("⚠️ 데이터 충돌: 다른 탭에서 노트가 수정되었습니다. 데이터 유실을 막으려면 현재 변경 내용을 복사한 후, 탭을 새로고침 하세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
-        return;
+        console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes. Locking UI and forcing a reload to ensure data integrity.");
+
+        // 1. 추가적인 데이터 변경을 막기 위해 UI를 즉시 잠급니다.
+        editorContainer.classList.add(CONSTANTS.CLASSES.READONLY);
+        noteTitleInput.readOnly = true;
+        noteContentTextarea.readOnly = true;
+        addFolderBtn.disabled = true;
+        addNoteBtn.disabled = true;
+        settingsBtn.disabled = true;
+        
+        // 2. 사용자에게 상황을 알리고, 새로고침 외에 다른 선택지를 주지 않는 모달을 띄웁니다.
+        // 이 모달이 닫히면 페이지는 새로고침됩니다.
+        await showConfirmModal({
+            title: '⚠️ 데이터 동기화 충돌',
+            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업됩니다.</strong>',
+            isHtml: true,
+            confirmText: '🔄 지금 새로고침',
+            hideCancelButton: true
+        });
+
+        // 3. 사용자가 확인 버튼을 누르면, 페이지를 새로고침합니다.
+        // beforeunload 핸들러가 dirty state를 감지하고 현재 내용을 백업할 것입니다.
+        window.location.reload();
+        
+        return; // UI 잠금 후, 이후의 상태 업데이트 로직은 실행하지 않습니다.
     }
 
     console.log("Received data from another tab. Updating local state...");
@@ -1157,15 +1179,6 @@ const setupGlobalEventListeners = () => {
 
     window.addEventListener('beforeunload', (e) => {
         if (window.isSavingInProgress || window.isImporting) return;
-
-        // [Critical 버그 수정] 데이터 충돌 시 백업 로직을 건너뛰는 결함 수정
-        // 아래의 충돌 감지 및 즉시 반환 로직을 제거하여, 충돌 상황에서도
-        // 현재 탭의 저장되지 않은 변경사항이 비상 백업되도록 보장합니다.
-        // if (localStorage.getItem(CONSTANTS.LS_KEY_DATA_CONFLICT)) {
-        //     localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
-        //     return;
-        // }
-
         const isRenaming = !!state.renamingItemId;
         const needsProtection = state.isDirty || isRenaming || state.isPerformingOperation;
         
@@ -1193,7 +1206,6 @@ const setupGlobalEventListeners = () => {
 
             if (patches.length > 0) {
                 try {
-                    // [Critical 버그 수정] 각 탭의 고유 ID를 사용하여 비상 백업 키 생성
                     const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
                     localStorage.setItem(backupKey, JSON.stringify(patches));
                     console.log(`[BeforeUnload] ${patches.length}개의 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
