@@ -405,85 +405,101 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
     };
 });
 
+// [CRITICAL BUG FIX] 트랜잭션 내 비동기 사용자 입력 로직 해결
 export const handleRestoreItem = async (id) => {
     await finishPendingRename();
 
-    const updateLogic = async (latestData) => {
-        const { folders, trash } = latestData;
-        const itemIndex = trash.findIndex(item => item.id === id);
-        if (itemIndex === -1) return null;
+    const itemIndex = state.trash.findIndex(item => item.id === id);
+    if (itemIndex === -1) return;
+    const itemToRestore = state.trash[itemIndex];
 
-        const itemToRestore = trash.splice(itemIndex, 1)[0];
-        
-        // 폴더 복원
-        if (itemToRestore.type === 'folder') {
-            let finalFolderName = itemToRestore.name;
+    let finalFolderName = itemToRestore.name;
+    let targetFolderId = null;
+
+    // --- 트랜잭션 시작 전, 필요한 모든 사용자 입력 수집 ---
+    if (itemToRestore.type === 'folder') {
+        if (state.folders.some(f => f.name === itemToRestore.name)) {
+            const newName = await showPrompt({
+                title: '📁 폴더 이름 중복',
+                message: `'${itemToRestore.name}' 폴더가 이미 존재합니다. 복원할 폴더의 새 이름을 입력해주세요.`,
+                initialValue: `${itemToRestore.name} (복사본)`,
+                validationFn: (value) => {
+                    const trimmedValue = value.trim();
+                    if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
+                    if (state.folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+                    return { isValid: true };
+                }
+            });
+            if (!newName) return; // 사용자가 취소
+            finalFolderName = newName.trim();
+        }
+    } else if (itemToRestore.type === 'note') {
+        const originalFolder = state.folders.find(f => f.id === itemToRestore.originalFolderId);
+        if (!originalFolder) {
+            const newFolderId = await showFolderSelectPrompt({
+                title: '🤔 원본 폴더를 찾을 수 없음',
+                message: '이 노트의 원본 폴더가 없거나 휴지통에 있습니다. 복원할 폴더를 선택해주세요.'
+            });
+            if (!newFolderId) return; // 사용자가 취소
+            targetFolderId = newFolderId;
+        } else {
+            targetFolderId = originalFolder.id;
+        }
+    }
+    // --- 사용자 입력 수집 완료 ---
+
+    const updateLogic = (latestData) => {
+        const { folders, trash } = latestData;
+        const itemIndexInTx = trash.findIndex(item => item.id === id);
+        if (itemIndexInTx === -1) return null; // 다른 탭에서 이미 복원/삭제됨
+
+        const [itemToRestoreInTx] = trash.splice(itemIndexInTx, 1);
+
+        if (itemToRestoreInTx.type === 'folder') {
+            // 트랜잭션 내에서 최종 유효성 검사
+            if (folders.some(f => f.name === finalFolderName)) {
+                showAlert({ title: '오류', message: `'${finalFolderName}' 폴더가 방금 다른 곳에서 생성되었습니다. 다른 이름으로 다시 시도해주세요.`});
+                return null;
+            }
+            itemToRestoreInTx.name = finalFolderName;
+            
             const allFolderIds = new Set(folders.map(f => f.id));
             const allNoteIdsInLiveFolders = new Set(folders.flatMap(f => f.notes.map(n => n.id)));
-
-            if (allFolderIds.has(itemToRestore.id)) {
-                itemToRestore.id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
+            if (allFolderIds.has(itemToRestoreInTx.id)) {
+                itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
             }
-            if (folders.some(f => f.name === itemToRestore.name)) {
-                const newName = await showPrompt({
-                    title: '📁 폴더 이름 중복',
-                    message: `'${itemToRestore.name}' 폴더가 이미 존재합니다. 복원할 폴더의 새 이름을 입력해주세요.`,
-                    initialValue: `${itemToRestore.name} (복사본)`,
-                    validationFn: (value) => {
-                        const trimmedValue = value.trim();
-                        if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
-                        if (folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
-                        return { isValid: true };
-                    }
-                });
-                if (!newName) return null;
-                finalFolderName = newName.trim();
-            }
-            itemToRestore.name = finalFolderName;
-            
-            itemToRestore.notes.forEach(note => {
+            itemToRestoreInTx.notes.forEach(note => {
                 if (allNoteIdsInLiveFolders.has(note.id)) {
                     note.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIdsInLiveFolders);
                 }
                 delete note.deletedAt; delete note.type; delete note.originalFolderId;
             });
+            delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
+            folders.unshift(itemToRestoreInTx);
+            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name), postUpdateState: {} };
 
-            delete itemToRestore.deletedAt; delete itemToRestore.type;
-            folders.unshift(itemToRestore);
-            
-            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestore.name), postUpdateState: {} };
-        } 
-        // 노트 복원
-        else if (itemToRestore.type === 'note') {
-            const originalFolder = folders.find(f => f.id === itemToRestore.originalFolderId);
-            let targetFolder = originalFolder;
-
-            if (!targetFolder) {
-                const newFolderId = await showFolderSelectPrompt({
-                    title: '🤔 원본 폴더를 찾을 수 없음',
-                    message: '이 노트의 원본 폴더가 없거나 휴지통에 있습니다. 복원할 폴더를 선택해주세요.'
-                });
-                if (!newFolderId) return null;
-                targetFolder = folders.find(f => f.id === newFolderId);
+        } else if (itemToRestoreInTx.type === 'note') {
+            const targetFolderInTx = folders.find(f => f.id === targetFolderId);
+            if (!targetFolderInTx) {
+                 showAlert({ title: '오류', message: '노트를 복원하려던 폴더가 방금 삭제되었습니다.'});
+                 return null;
             }
-            if (!targetFolder) return null;
 
             const allNoteIds = new Set(folders.flatMap(f => f.notes.map(n => n.id)));
-            if (allNoteIds.has(itemToRestore.id)) {
-                itemToRestore.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+            if (allNoteIds.has(itemToRestoreInTx.id)) {
+                itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
             }
-
-            delete itemToRestore.deletedAt; delete itemToRestore.type; delete itemToRestore.originalFolderId;
-            targetFolder.notes.unshift(itemToRestore);
-            
-            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestore.title), postUpdateState: {} };
+            delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type; delete itemToRestoreInTx.originalFolderId;
+            targetFolderInTx.notes.unshift(itemToRestoreInTx);
+            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title), postUpdateState: {} };
         }
         return null;
     };
-    
+
     await performTransactionalUpdate(updateLogic);
     saveSession();
 };
+
 
 export const handleDelete = async (id, type) => {
     if (!(await confirmNavigation())) return;

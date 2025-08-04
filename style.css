@@ -112,7 +112,7 @@
 @layer layout {
     .container {
         display: grid;
-        grid-template-columns: minmax(280px, var(--column-folders-width, 10%)) 8px minmax(350px, var(--column-notes-width, 10%)) 8px 1fr;
+        grid-template-columns: minmax(300px, var(--column-folders-width, 10%)) 8px minmax(350px, var(--column-notes-width, 10%)) 8px 1fr;
         height: 100vh;
         padding: var(--spacing-lg);
         gap: 0;
