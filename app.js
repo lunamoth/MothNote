@@ -18,7 +18,8 @@ import {
     startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
     finishPendingRename,
     toYYYYMMDD,
-    commitChanges // [CRITICAL BUG FIX] 전역 잠금이 적용된 commitChanges 함수 임포트
+    commitChanges,
+    updateNoteCreationDates // [CRITICAL BUG FIX] 정적 임포트로 변경
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -1269,6 +1270,67 @@ const initializeDragAndDrop = () => {
     setupNoteToFolderDrop();
 };
 
+// [CRITICAL BUG FIX] 다중 탭 동기화 로직을 별도 함수로 분리
+async function handleStorageSync(changes) {
+    const { newValue } = changes.appState;
+
+    // 1. 이 탭에서 직접 발생시킨 변경사항은 무시합니다.
+    if (newValue.lastSavedTimestamp === state.lastSavedTimestamp) {
+        return;
+    }
+
+    // 2. 현재 탭에 저장되지 않은 변경사항이 있을 경우 데이터 충돌이 발생합니다.
+    if (state.isDirty) {
+        console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes.");
+        // 사용자에게 충돌 사실을 알리고 수동 조치를 유도합니다.
+        // 0을 전달하여 닫기 전까지 사라지지 않는 토스트를 표시합니다.
+        showToast(
+            "⚠️ 데이터 충돌: 다른 탭에서 노트가 수정되었습니다. 데이터 유실을 막으려면 현재 변경 내용을 복사한 후, 탭을 새로고침 하세요.",
+            CONSTANTS.TOAST_TYPE.ERROR,
+            0 // 0 = 지속형 토스트
+        );
+        // 자동으로 상태를 덮어쓰지 않고 사용자가 직접 해결하도록 합니다.
+        return;
+    }
+
+    // 3. 충돌이 없을 경우, 다른 탭의 최신 데이터를 안전하게 현재 탭에 반영합니다.
+    console.log("Received data from another tab. Updating local state...");
+
+    // 현재 탭의 세션 관련 상태(UI 상태)는 보존합니다.
+    const sessionState = {
+        activeFolderId: state.activeFolderId,
+        activeNoteId: state.activeNoteId,
+        noteSortOrder: state.noteSortOrder,
+        lastActiveNotePerFolder: state.lastActiveNotePerFolder,
+        searchTerm: state.searchTerm,
+        preSearchActiveNoteId: state.preSearchActiveNoteId,
+        dateFilter: state.dateFilter,
+        renamingItemId: null, // 동기화 시 이름 변경 상태는 초기화
+        isDirty: false,
+        dirtyNoteId: null,
+    };
+
+    // 영구 데이터(newValue)와 세션 데이터(sessionState)를 합쳐 새로운 상태를 만듭니다.
+    const updatedState = {
+        ...newValue,
+        favorites: new Set(newValue.favorites || []),
+        totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
+        ...sessionState
+    };
+
+    setState(updatedState);
+    buildNoteMap();
+    updateNoteCreationDates();
+
+    // 캘린더가 있는 경우 UI를 강제로 다시 렌더링합니다.
+    if (dashboard) {
+        dashboard.renderCalendar(true);
+    }
+
+    showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
+}
+
+
 const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
 
@@ -1356,6 +1418,14 @@ const setupGlobalEventListeners = () => {
     });
     
     window.addEventListener('keydown', handleGlobalKeyDown);
+
+    // [Critical 버그 수정] 다중 탭 데이터 동기화를 위한 이벤트 리스너 추가
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes.appState) {
+            // async 함수를 호출하되, await하지 않음으로써 리스너 자체는 동기적으로 즉시 반환되도록 함.
+            handleStorageSync(changes);
+        }
+    });
 };
 
 const init = async () => {

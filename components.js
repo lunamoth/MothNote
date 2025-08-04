@@ -63,12 +63,27 @@ export const formatDate = d => {
     return `${year}. ${month}. ${day}. ${timePart}`;
 };
 
-export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS) => {
+export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration = CONSTANTS.TOAST_DURATION) => {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.textContent = message;
+    
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+    toast.appendChild(messageSpan);
+    
+    // [Critical 버그 수정] 지속 시간이 0이면, 닫기 버튼이 있는 영구 토스트를 생성
+    if (duration === 0) {
+        toast.classList.add('persistent');
+        const closeButton = document.createElement('button');
+        closeButton.className = 'toast-close-btn';
+        closeButton.innerHTML = '×';
+        closeButton.onclick = () => toast.remove();
+        toast.appendChild(closeButton);
+    } else {
+        setTimeout(() => toast.remove(), duration);
+    }
+
     toastContainer.appendChild(toast);
-    setTimeout(() => toast.remove(), CONSTANTS.TOAST_DURATION);
 };
 
 const _showModalInternal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
