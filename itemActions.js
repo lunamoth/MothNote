@@ -82,14 +82,32 @@ const animateAndRemove = (itemId, onAfterAnimate) => {
 
 // --- Promise 기반 이름 변경 동기화 ---
 let pendingRenamePromise = null;
+// [CRITICAL BUG 2 FIX] 외부에서 이름 변경 Promise를 제어하기 위한 변수 추가
+let resolvePendingRename = null;
+
+// [CRITICAL BUG 2 FIX] 다중 탭 교착 상태를 해결하기 위해 Promise를 강제로 완료하는 함수
+export const forceResolvePendingRename = () => {
+    if (resolvePendingRename) {
+        console.warn("Force resolving a pending rename operation due to external changes.");
+        // 이름 변경 상태를 즉시 초기화하여 추가적인 문제를 방지합니다.
+        setState({ renamingItemId: null });
+        resolvePendingRename(); // 대기 중인 모든 함수를 즉시 해제합니다.
+        // 제어 변수들을 정리합니다.
+        resolvePendingRename = null;
+        pendingRenamePromise = null;
+    }
+};
 
 // [개선] 다른 파일에서 재사용할 수 있도록 export 추가
 export const finishPendingRename = async () => {
     if (state.renamingItemId && pendingRenamePromise) {
         const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
         if (renamingElement) {
-            renamingElement.blur();
-            await pendingRenamePromise;
+            renamingElement.blur(); // blur 이벤트가 _handleRenameEnd를 트리거하고 promise를 resolve합니다.
+            await pendingRenamePromise; // resolve될 때까지 기다립니다.
+        } else {
+            // DOM 요소가 이미 사라진 경우 (예: 다른 탭에서 삭제됨) 교착 상태에 빠질 수 있으므로 강제 해결
+            forceResolvePendingRename();
         }
     }
 };
@@ -707,6 +725,10 @@ export const handleEmptyTrash = async () => {
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     nameSpan.contentEditable = false;
 
+    // [CRITICAL BUG 2 FIX] 함수가 호출될 때 promise 제어 변수를 정리합니다.
+    pendingRenamePromise = null;
+    resolvePendingRename = null;
+
     if (!nameSpan.isConnected) {
         setState({ renamingItemId: null });
         return;
@@ -804,15 +826,15 @@ export const startRename = (liElement, type) => {
         selection.removeAllRanges();
         selection.addRange(range);
 
-        // Promise와 이벤트 리스너 설정 (이전과 동일)
-        let resolvePromise;
-        pendingRenamePromise = new Promise(resolve => { resolvePromise = resolve; });
+        // [CRITICAL BUG 2 FIX] Promise와 resolver를 설정하여 외부 제어를 가능하게 합니다.
+        pendingRenamePromise = new Promise(resolve => {
+            resolvePendingRename = resolve;
+        });
 
         const onBlur = async () => {
             cleanup();
             await _handleRenameEnd(id, type, nameSpan, true);
-            resolvePromise();
-            pendingRenamePromise = null;
+            if (resolvePendingRename) resolvePendingRename(); // Promise 해결
         };
 
         const onKeydown = async (ev) => {
@@ -823,8 +845,7 @@ export const startRename = (liElement, type) => {
                 ev.preventDefault();
                 cleanup();
                 await _handleRenameEnd(id, type, nameSpan, false);
-                resolvePromise();
-                pendingRenamePromise = null;
+                if (resolvePendingRename) resolvePendingRename(); // Promise 해결
             }
         };
         

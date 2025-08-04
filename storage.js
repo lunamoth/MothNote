@@ -3,8 +3,12 @@ import { showToast, showConfirm, importFileInput, sortNotes } from './components
 // [수정] itemActions.js에서 updateNoteCreationDates 함수를 추가로 가져옵니다.
 import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemActions.js';
 
+// [추가] 현재 탭에서 저장 중인지 여부를 나타내는 플래그. export하여 다른 모듈에서 참조할 수 있게 합니다.
+export let isSavingLocally = false;
 
 export const saveData = async () => {
+    // [수정] 저장 작업을 시작하기 전에 동기적으로 플래그를 설정합니다.
+    isSavingLocally = true;
     try {
         // [CRITICAL BUG 2 FIX] 저장 시점의 타임스탬프를 함께 기록합니다.
         const timestamp = Date.now();
@@ -25,6 +29,9 @@ export const saveData = async () => {
         console.error("Error saving state:", e);
         showToast('데이터 저장에 실패했습니다. 저장 공간을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
         return false; // [BUG 1 FIX] 저장 실패 시 false 반환
+    } finally {
+        // [수정] 작업이 성공하든 실패하든, 항상 플래그를 해제하여 다음 동기화가 정상적으로 이루어지게 합니다.
+        isSavingLocally = false;
     }
 };
 
@@ -441,15 +448,16 @@ export const setupImportHandler = () => {
                     });
                     await chrome.storage.local.set({ appState: appStateToSave });
                     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                    
+                    // [CRITICAL BUG 1 FIX] 세션 불일치 방지를 위해 이전 세션 정보를 삭제합니다.
                     localStorage.removeItem(CONSTANTS.LS_KEY);
                     await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
-                    showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS, CONSTANTS.TOAST_TYPE.SUCCESS);
-                    window.dispatchEvent(new CustomEvent('app-data-imported'));
-                    
-                    if (overlay.parentElement) {
-                        overlay.remove();
-                    }
+                    // [CRITICAL BUG 1 FIX] 페이지를 새로고침하여 깨끗한 상태에서 데이터를 다시 로드합니다.
+                    showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
                 }
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);

@@ -1,5 +1,6 @@
 import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
+// [수정] isSavingLocally 플래그를 import 합니다.
+import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings, isSavingLocally } from './storage.js';
 import {
     folderList, noteList, addFolderBtn, addNoteBtn, emptyTrashBtn, searchInput, clearSearchBtn, noteSortSelect,
     noteTitleInput, noteContentTextarea, shortcutGuideBtn, settingsBtn,
@@ -19,7 +20,8 @@ import {
     finishPendingRename,
     toYYYYMMDD,
     commitChanges,
-    updateNoteCreationDates // [CRITICAL BUG FIX] 정적 임포트로 변경
+    updateNoteCreationDates, // [CRITICAL BUG FIX] 정적 임포트로 변경
+    forceResolvePendingRename // [CRITICAL BUG 2 FIX] 교착 상태 해결을 위한 함수 임포트
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -1270,13 +1272,30 @@ const initializeDragAndDrop = () => {
     setupNoteToFolderDrop();
 };
 
-// [CRITICAL BUG FIX] 다중 탭 동기화 로직을 별도 함수로 분리
+// [수정] 다중 탭 동기화 로직 전면 수정
 async function handleStorageSync(changes) {
+    // 1. [수정] isSavingLocally 플래그를 확인하여 현재 탭에서 발생한 변경사항은 즉시 무시합니다.
+    if (isSavingLocally) {
+        return;
+    }
+
     const { newValue } = changes.appState;
 
-    // 1. 이 탭에서 직접 발생시킨 변경사항은 무시합니다.
-    if (newValue.lastSavedTimestamp === state.lastSavedTimestamp) {
-        return;
+    // [CRITICAL BUG 2 FIX] 이름 변경 중 삭제로 인한 교착 상태 방지
+    if (state.renamingItemId) {
+        // 새 데이터의 모든 아이템 ID를 Set으로 만듭니다. (폴더 + 노트 + 휴지통)
+        const newAllItemIds = new Set();
+        newValue.folders.forEach(f => {
+            newAllItemIds.add(f.id);
+            f.notes.forEach(n => newAllItemIds.add(n.id));
+        });
+        newValue.trash.forEach(t => newAllItemIds.add(t.id));
+
+        // 만약 이름 변경 중이던 아이템이 새 데이터에 없다면 (즉, 다른 탭에서 삭제되었다면)
+        if (!newAllItemIds.has(state.renamingItemId)) {
+            // 교착 상태를 풀기 위해 이름 변경 Promise를 강제로 완료시킵니다.
+            forceResolvePendingRename();
+        }
     }
 
     // 2. 현재 탭에 저장되지 않은 변경사항이 있을 경우 데이터 충돌이 발생합니다.
@@ -1415,14 +1434,12 @@ const init = async () => {
     await loadData();
     
     // [Critical 버그 수정] 데이터 가져오기 후 새로고침 없이 상태를 갱신합니다.
+    // 이 이벤트는 이제 사용되지 않지만, 만약을 위해 남겨둡니다. (새로고침 로직으로 대체됨)
     window.addEventListener('app-data-imported', async () => {
-        // 저장소에서 새로 가져온 데이터를 읽어 앱 상태를 재설정합니다.
         await loadData();
-        // 새로 가져온 설정을 읽어 UI에 적용합니다.
         loadAndApplySettings();
-        // 대시보드(달력 등)도 새 데이터로 갱신합니다.
         if (dashboard) {
-            dashboard.init(); // 대시보드를 완전히 재초기화하여 모든 위젯을 새로 그림
+            dashboard.init();
         }
         showToast('✅ 가져온 데이터와 설정이 모두 적용되었습니다!');
     });
