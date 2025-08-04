@@ -97,16 +97,22 @@ export const setCalendarRenderer = (renderer) => {
 };
 
 // --- 상태 변경 및 저장을 위한 헬퍼 함수 ---
+// [Critical 버그 수정] commitChanges가 트랜잭션으로 동작하도록 수정
 const commitChanges = async (newState = {}) => {
-    clearSortedNotesCache();
-    state._virtualFolderCache.recent = null;
-    state._virtualFolderCache.favorites = null;
-    state._virtualFolderCache.all = null;
-    // [버그 수정] 휴지통 캐시도 함께 초기화하여 삭제 후 UI가 즉시 갱신되도록 합니다.
-    state._virtualFolderCache.trash = null;
+    setState({ isPerformingOperation: true }); // 트랜잭션 시작 플래그
+    try {
+        clearSortedNotesCache();
+        state._virtualFolderCache.recent = null;
+        state._virtualFolderCache.favorites = null;
+        state._virtualFolderCache.all = null;
+        // [버그 수정] 휴지통 캐시도 함께 초기화하여 삭제 후 UI가 즉시 갱신되도록 합니다.
+        state._virtualFolderCache.trash = null;
 
-    setState(newState);
-    await saveData();
+        setState(newState); // 메모리 상태 변경
+        await saveData(); // 영구 저장
+    } finally {
+        setState({ isPerformingOperation: false }); // 트랜잭션 종료 플래그
+    }
 };
 
 // --- 공통 후처리 로직 추상화 ---
@@ -283,7 +289,14 @@ export const handleAddFolder = async () => {
         const newFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}`, name: name.trim(), notes: [] };
         state.folders.push(newFolder);
         await changeActiveFolder(newFolder.id, { force: true });
-        await saveData();
+        
+        // [Critical 버그 수정] saveData를 트랜잭션 플래그로 감싸 데이터 손실 방지
+        setState({ isPerformingOperation: true });
+        try {
+            await saveData();
+        } finally {
+            setState({ isPerformingOperation: false });
+        }
         
         setTimeout(() => {
             const newFolderEl = folderList.querySelector(`[data-id="${newFolder.id}"]`);
@@ -384,10 +397,27 @@ const handleDeleteFolder = (id) => {
     const deletionLogic = async () => {
         const { item: folder, index } = findFolder(id);
         if (!folder) return;
+        
+        // [Critical 버그 수정] 이름 변경 '좀비 상태' 방지
+        if (state.renamingItemId === id) {
+            setState({ renamingItemId: null });
+        }
 
-        state.totalNoteCount -= folder.notes.length;
+        // [CRITICAL BUG FIX] 폴더 삭제 시, 포함된 노트 중 'dirty' 상태인 노트가 있는지 확인
         const folderToMove = state.folders.splice(index, 1)[0];
         const noteIdsInDeletedFolder = new Set(folderToMove.notes.map(n => n.id));
+
+        // 만약 'dirty' 상태인 노트가 삭제되는 폴더에 포함되어 있다면,
+        // isDirty 플래그를 즉시 초기화하여 연쇄적인 데이터 유실을 방지한다.
+        if (state.isDirty && noteIdsInDeletedFolder.has(state.dirtyNoteId)) {
+            clearTimeout(debounceTimer); // 예약된 저장을 취소
+            setState({ isDirty: false, dirtyNoteId: null });
+            updateSaveStatus('saved'); // 시각적으로 저장 완료/취소됨을 알림
+        }
+
+        state.totalNoteCount -= folder.notes.length;
+        // const folderToMove = state.folders.splice(index, 1)[0]; // 위로 이동됨
+        // const noteIdsInDeletedFolder = new Set(folderToMove.notes.map(n => n.id)); // 위로 이동됨
         for (const folderId in state.lastActiveNotePerFolder) {
             if (noteIdsInDeletedFolder.has(state.lastActiveNotePerFolder[folderId])) {
                 delete state.lastActiveNotePerFolder[folderId];
@@ -422,6 +452,20 @@ const handleDeleteNote = (id) => {
     const deletionLogic = async () => {
         const { item, folder } = findNote(id);
         if (!item) return;
+        
+        // [Critical 버그 수정] 이름 변경 '좀비 상태' 방지
+        if (state.renamingItemId === id) {
+            setState({ renamingItemId: null });
+        }
+
+        // [CRITICAL BUG FIX] 노트 삭제 시, 해당 노트가 'dirty' 상태인지 확인
+        // 만약 삭제하려는 노트가 바로 'dirty' 상태인 노트라면,
+        // isDirty 플래그를 즉시 초기화하여 데이터 유실 및 상태 오염을 방지한다.
+        if (state.isDirty && state.dirtyNoteId === id) {
+            clearTimeout(debounceTimer); // 예약된 저장을 취소
+            setState({ isDirty: false, dirtyNoteId: null });
+            updateSaveStatus('saved'); // 시각적으로 저장 완료/취소됨을 알림
+        }
 
         let nextActiveNoteIdToSet = null;
         const wasActiveNoteDeleted = state.activeNoteId === id;
@@ -541,6 +585,11 @@ export const handlePermanentlyDeleteItem = async (id) => {
     const message = CONSTANTS.MESSAGES.CONFIRM.PERM_DELETE(itemName);
 
     const deletionLogic = async () => {
+        // [Critical 버그 수정] 이름 변경 '좀비 상태' 방지
+        if (state.renamingItemId === id) {
+            setState({ renamingItemId: null });
+        }
+        
         let nextActiveNoteIdToSet = null;
         const wasActiveItemDeleted = state.activeNoteId === id;
 
@@ -598,6 +647,11 @@ export const handleEmptyTrash = async () => {
             if (wasInTrashView) {
                 newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 newState.activeNoteId = null;
+            }
+
+            // [Critical 버그 수정] 이름 변경 중인 아이템이 휴지통에 있었다면 상태를 초기화합니다.
+            if (state.renamingItemId && state.trash.some(item => item.id === state.renamingItemId)) {
+                newState.renamingItemId = null;
             }
 
             await finalizeItemChange(newState, CONSTANTS.MESSAGES.SUCCESS.EMPTY_TRASH_SUCCESS);
@@ -676,6 +730,12 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 // [핵심 수정] 이름 변경 시작 로직
 export const startRename = (liElement, type) => {
     const id = liElement?.dataset.id;
+
+    // [버그 수정] 휴지통에 있는 항목은 이름을 변경할 수 없습니다.
+    if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+        return;
+    }
+    
     if (!id || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
     if (state.renamingItemId) return;
 

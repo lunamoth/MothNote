@@ -867,7 +867,15 @@ const setupDragAndDrop = (listElement, type) => {
         }
         
         buildNoteMap();
-        await saveData();
+        
+        // [Critical 버그 수정] saveData를 트랜잭션 플래그로 감싸 데이터 손실 방지
+        setState({ isPerformingOperation: true });
+        try {
+            await saveData();
+        } finally {
+            setState({ isPerformingOperation: false });
+        }
+        
         setState({});
     });
     listElement.addEventListener('dragend', () => {
@@ -949,7 +957,15 @@ const setupNoteToFolderDrop = () => {
                 clearSortedNotesCache();
                 buildNoteMap();
                 if (dashboard) dashboard.renderCalendar(true);
-                await saveData();
+                
+                // [Critical 버그 수정] saveData를 트랜잭션 플래그로 감싸 데이터 손실 방지
+                setState({ isPerformingOperation: true });
+                try {
+                    await saveData();
+                } finally {
+                    setState({ isPerformingOperation: false });
+                }
+
                 setState({}); 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name));
             }
@@ -1273,8 +1289,8 @@ const setupGlobalEventListeners = () => {
             return;
         }
 
-        // [High 버그 수정] isDirty 플래그 또는 이름 변경 중('renamingItemId')일 때 핸들러를 실행
-        if (state.isDirty || state.renamingItemId) {
+        // [Critical 버그 수정] isDirty, renamingItemId, 또는 중요한 작업 수행 중에 핸들러를 실행
+        if (state.isDirty || state.renamingItemId || state.isPerformingOperation) {
             // isDirty가 true일 때만 최신 DOM 값으로 백업 데이터를 생성합니다.
             const currentTitle = noteTitleInput?.value ?? '';
             const currentContent = noteContentTextarea?.value ?? '';

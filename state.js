@@ -142,6 +142,7 @@ export let state = {
     noteMap: new Map(),
     isDirty: false,
     dirtyNoteId: null, // [수정] 데이터 유실 방지를 위해 변경된 노트의 ID를 저장
+    isPerformingOperation: false, // [Critical 버그 수정] 데이터 손실 방지를 위한 트랜잭션 플래그
     totalNoteCount: 0,
     renamingItemId: null,
     lastActiveNotePerFolder: {},
