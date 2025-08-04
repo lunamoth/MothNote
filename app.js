@@ -1143,12 +1143,16 @@ async function handleStorageSync(changes) {
         try {
             const patches = [];
             
-            // [아키텍처 수정] 백업 시 state.pendingChanges를 신뢰 소스로 사용
-            if (state.isDirty && state.dirtyNoteId && state.pendingChanges) {
+            // [버그 수정] 데이터 유실 방지를 위해 state.pendingChanges 대신 UI에서 직접 최신 데이터를 읽어옵니다.
+            if (state.isDirty && state.dirtyNoteId) {
                 patches.push({
                     type: 'note_patch',
                     noteId: state.dirtyNoteId,
-                    data: state.pendingChanges
+                    data: {
+                        title: noteTitleInput.value,
+                        content: noteContentTextarea.value,
+                        updatedAt: Date.now()
+                    }
                 });
             }
 
@@ -1188,9 +1192,9 @@ async function handleStorageSync(changes) {
             });
         } else {
             const backupFailureMessage = document.createElement('div');
-            // [아키텍처 수정] UI가 아닌 state.pendingChanges에서 값을 가져옴
-            const currentTitle = state.pendingChanges?.title ?? noteTitleInput.value;
-            const currentContent = state.pendingChanges?.content ?? noteContentTextarea.value;
+            // [버그 수정] UI가 아닌 state.pendingChanges에서 값을 가져오던 문제를 수정합니다. 항상 UI에서 직접 읽습니다.
+            const currentTitle = noteTitleInput.value;
+            const currentContent = noteContentTextarea.value;
             backupFailureMessage.innerHTML = `
                 <p>다른 탭에서 노트가 변경되어 동기화가 필요하지만, <strong>비상 백업에 실패했습니다.</strong> (저장 공간 부족 가능성)</p>
                 <p style="margin-top: 15px; font-weight: bold; color: var(--danger-color);">새로고침하면 현재 편집 중인 내용이 유실될 수 있습니다.</p>
@@ -1279,12 +1283,16 @@ const setupGlobalEventListeners = () => {
                         updatedAt: Date.now() // 백업 시점의 시간 기록
                     }
                 });
-            } else if (state.isDirty && state.dirtyNoteId && state.pendingChanges) {
-                // 일반적인 'dirty' 상태의 변경사항 백업
+            } else if (state.isDirty && state.dirtyNoteId) {
+                // [버그 수정] 데이터 유실 방지를 위해 state.pendingChanges 대신 UI에서 직접 최신 데이터를 읽어옵니다.
                 patches.push({
                     type: 'note_patch',
                     noteId: state.dirtyNoteId,
-                    data: state.pendingChanges
+                    data: {
+                        title: noteTitleInput.value,
+                        content: noteContentTextarea.value,
+                        updatedAt: Date.now() // 백업 시점의 시간 기록
+                    }
                 });
             }
 
