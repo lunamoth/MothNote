@@ -282,15 +282,52 @@ export const loadData = async () => {
                         return false;
                     };
                     if(findAndRename(authoritativeData.folders) || findAndRename(authoritativeData.trash)) {
-                        if (itemFound) { // itemFound가 true로 설정되었지만, 실제 변경은 없었을 수 있습니다(무시된 경우).
-                             // 이 경우에는 메시지를 표시하지 않거나, "무시됨" 메시지를 표시할 수 있습니다.
-                        } else {
+                        if (!itemFound) {
                             dataWasPatched = true;
                             recoveryMessage = `이름이 변경되지 않았던 '${patch.newName}' 항목을 복구했습니다.`;
                             console.log(`이름 변경 패치 완료. (ID: ${patch.itemId})`);
                         }
                     } else {
-                        console.warn(`이름을 변경할 아이템을 찾지 못했습니다. (ID: ${patch.itemId})`);
+                        // --- [CRITICAL BUG FIXED] ---
+                        // 이름 변경 패치 대상을 찾지 못하면 데이터 유실이 발생하므로, note_patch처럼 항목을 복원합니다.
+                        console.warn(`이름 변경 패치를 적용할 아이템(ID: ${patch.itemId})을 찾지 못했습니다. 영구 손실을 방지하기 위해 항목을 복원합니다.`);
+
+                        const RECOVERY_FOLDER_NAME = '복구된 항목';
+                        let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                        if (!recoveryFolder) {
+                            const now = Date.now();
+                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered-item`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
+                            authoritativeData.folders.unshift(recoveryFolder);
+                        }
+                        
+                        const now = Date.now();
+                        if (patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
+                            const resurrectedFolder = {
+                                id: patch.itemId,
+                                name: patch.newName,
+                                notes: [],
+                                createdAt: patch.timestamp || now,
+                                updatedAt: patch.timestamp || now
+                            };
+                            // 폴더는 최상위 레벨에 바로 복원합니다.
+                            authoritativeData.folders.unshift(resurrectedFolder);
+                            recoveryMessage = `저장되지 않았던 폴더 '${patch.newName}'을(를) 복원했습니다.`;
+                        } else { // NOTE
+                            const resurrectedNote = {
+                                id: patch.itemId,
+                                title: patch.newName,
+                                content: `(이 노트는 비정상 종료로부터 복구되었으며, 내용은 비어있을 수 있습니다.)`,
+                                createdAt: patch.timestamp || now,
+                                updatedAt: patch.timestamp || now,
+                                isPinned: false,
+                                isFavorite: false
+                            };
+                            // 노트는 "복구된 항목" 폴더에 넣어 복원합니다.
+                            recoveryFolder.notes.unshift(resurrectedNote);
+                            recoveryMessage = `저장되지 않았던 노트 '${patch.newName}'을(를) '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
+                        }
+                        dataWasPatched = true;
+                        // --- 수정 완료 ---
                     }
                 }
             }
