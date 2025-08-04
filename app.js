@@ -1120,7 +1120,7 @@ async function handleStorageSync(changes) {
     }
 
     // [CRITICAL BUG #1 FIX] 데이터 충돌 시 UI 잠금 및 새로고침 강제, 백업 실패에 대한 안전장치 추가
-    if (state.isDirty) {
+    if (state.isDirty || state.renamingItemId) { // **[수정] 이름 변경 중일 때도 충돌로 간주**
         console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes. Locking UI and forcing a reload to ensure data integrity.");
 
         // UI를 먼저 잠급니다. 어떤 경우든 추가 편집은 막아야 합니다.
@@ -1132,28 +1132,48 @@ async function handleStorageSync(changes) {
         settingsBtn.disabled = true;
 
         let backupSucceeded = false;
-        const currentTitle = noteTitleInput?.value ?? '';
-        const currentContent = noteContentTextarea?.value ?? '';
-
+        
         try {
-            if (state.dirtyNoteId) {
-                const backupPatch = [{
+            // --- 수정된 포괄적 백업 로직 ---
+            const patches = [];
+            
+            // 1. 노트 변경사항 백업
+            if (state.isDirty && state.dirtyNoteId) {
+                patches.push({
                     type: 'note_patch',
                     noteId: state.dirtyNoteId,
                     data: {
-                        title: currentTitle,
-                        content: currentContent,
+                        title: noteTitleInput?.value ?? '',
+                        content: noteContentTextarea?.value ?? '',
                         updatedAt: Date.now()
                     }
-                }];
+                });
+            }
+
+            // 2. 이름 변경사항 백업 (누락되었던 로직 추가)
+            if (state.renamingItemId) {
+                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
+                if (renamingElement) {
+                    patches.push({
+                        type: 'rename_patch',
+                        itemId: state.renamingItemId,
+                        itemType: renamingElement.closest('.item-list-entry').dataset.type,
+                        newName: renamingElement.textContent,
+                        timestamp: Date.now()
+                    });
+                }
+            }
+            
+            if (patches.length > 0) {
                 const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
-                localStorage.setItem(backupKey, JSON.stringify(backupPatch));
-                console.log(`[Critical Backup] Conflict detected. Unsaved data for note ${state.dirtyNoteId} has been backed up to '${backupKey}'.`);
+                localStorage.setItem(backupKey, JSON.stringify(patches));
+                console.log(`[Critical Backup] Conflict detected. ${patches.length} unsaved item(s) have been backed up to '${backupKey}'.`);
                 backupSucceeded = true;
             } else {
-                // dirtyNoteId가 없는 경우는 거의 없지만, 방어적으로 처리
-                backupSucceeded = true;
+                 // 백업할 내용이 없는 경우도 성공으로 간주
+                 backupSucceeded = true;
             }
+            // --- 수정 끝 ---
         } catch (err) {
             console.error("Critical backup failed during conflict handling:", err);
             backupSucceeded = false;
@@ -1171,6 +1191,8 @@ async function handleStorageSync(changes) {
         } else {
             // 백업 실패 시의 모달 (안전장치)
             const backupFailureMessage = document.createElement('div');
+            const currentTitle = noteTitleInput?.value ?? '';
+            const currentContent = noteContentTextarea?.value ?? '';
             backupFailureMessage.innerHTML = `
                 <p>다른 탭에서 노트가 변경되어 동기화가 필요하지만, <strong>비상 백업에 실패했습니다.</strong> (저장 공간 부족 가능성)</p>
                 <p style="margin-top: 15px; font-weight: bold; color: var(--danger-color);">새로고침하면 현재 편집 중인 내용이 유실될 수 있습니다.</p>
