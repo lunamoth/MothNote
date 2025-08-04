@@ -94,13 +94,30 @@ export const loadData = async () => {
                         const noteToPatch = folder.notes.find(n => n.id === patch.noteId);
                         if (noteToPatch) {
                             noteFound = true;
+                            // [CRITICAL BUG FIX] 타임스탬프가 단순히 최신인지만 보지 않고,
+                            // 패치의 updatedAt과 스토리지 데이터의 updatedAt이 다른 경우 '충돌'로 간주합니다.
+                            // 이는 다른 탭에서 유의미한 변경이 있었음을 의미합니다.
                             if ((patch.data.updatedAt || 0) >= (noteToPatch.updatedAt || 0)) {
-                                Object.assign(noteToPatch, patch.data);
-                                dataWasPatched = true;
-                                recoveryMessage = `저장되지 않았던 노트 '${patch.data.title}'의 변경사항을 복구했습니다.`;
-                                console.log(`노트 데이터 패치 완료. (ID: ${patch.noteId})`);
+                                // 타임스탬프가 다르다면, 덮어쓰지 않고 충돌된 노트를 새로 생성합니다.
+                                if (patch.data.updatedAt !== noteToPatch.updatedAt) {
+                                    console.warn(`데이터 충돌 감지 (ID: ${patch.noteId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
+                                    const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
+                                    let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                                    if (!recoveryFolder) {
+                                        recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [] };
+                                        authoritativeData.folders.unshift(recoveryFolder);
+                                    }
+                                    const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[충돌] ${patch.data.title}`, isPinned: false, isFavorite: false };
+                                    recoveryFolder.notes.unshift(conflictedNote);
+                                    recoveryMessage = `'${patch.data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
+                                } else {
+                                    // 타임스탬프가 같다면, 정상적인 복구로 간주하고 덮어씁니다.
+                                    Object.assign(noteToPatch, patch.data);
+                                    recoveryMessage = `저장되지 않았던 노트 '${patch.data.title}'의 변경사항을 복구했습니다.`;
+                                }
+                                 dataWasPatched = true;
                             } else {
-                                console.warn(`패치 데이터가 이미 저장된 노트 데이터보다 오래되어 무시합니다. (ID: ${patch.noteId})`);
+                                 console.warn(`패치 데이터가 이미 저장된 노트 데이터보다 오래되어 무시합니다. (ID: ${patch.noteId})`);
                             }
                             break;
                         }
