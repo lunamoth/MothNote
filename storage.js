@@ -107,10 +107,12 @@ export const loadData = async () => {
         // --- 2. 가장 최신인 '기준' 데이터 결정 ---
         let authoritativeData = mainData || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
         
-        if (inFlightData && inFlightData.lastSavedTimestamp > authoritativeData.lastSavedTimestamp) {
+        // [CRITICAL BUG FIX] 타임스탬프와 관계없이, 진행 중이던 트랜잭션(저널)이 존재하면
+        // 항상 최신 데이터로 간주하여 시스템 시간 오류로 인한 데이터 유실을 방지합니다.
+        if (inFlightData) {
             authoritativeData = inFlightData;
             recoveryMessage = "이전에 완료되지 않은 작업이 복구되었습니다.";
-            console.warn("저널링 데이터가 메인 데이터보다 최신이므로, 저널링 데이터를 기준으로 복구를 시작합니다.");
+            console.warn("완료되지 않은 트랜잭션(저널)을 발견하여, 해당 데이터를 기준으로 복구를 시작합니다.");
         }
 
         // --- 3. 기준 데이터에 '패치' 병합 ---
