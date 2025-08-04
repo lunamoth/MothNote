@@ -7,6 +7,7 @@ export const CONSTANTS = {
     LS_KEY_UNCOMMITTED_PREFIX: 'mothnote_uncommitted_prefix_v1', 
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1', // [Critical 버그 수정] 가져오기 임시 데이터 키 추가
     LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // [Critical 버그 수정] 데이터 충돌 감지 플래그
+    LS_KEY_IN_FLIGHT_TX: 'mothnote_inflight_transaction_v1', // [수정] 진행 중인 트랜잭션을 위한 저널링 키 추가
     // --- 설정 관련 상수 ---
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',
     DEFAULT_SETTINGS: {

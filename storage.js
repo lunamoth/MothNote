@@ -49,6 +49,26 @@ export const loadData = async () => {
     let recoveryMessage = null;
 
     try {
+        // --- [수정] 저널링 데이터 복구 로직 추가 ---
+        const inFlightTxData = localStorage.getItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
+
+        if (inFlightTxData) {
+            console.warn("In-flight transaction data found. Attempting recovery.");
+            try {
+                const recoveredData = JSON.parse(inFlightTxData);
+                // 중단된 트랜잭션 데이터를 최종본으로 간주하고 스토리지에 저장
+                await chrome.storage.local.set({ appState: recoveredData });
+                recoveryMessage = "이전에 완료되지 않은 작업이 복구되었습니다.";
+            } catch (e) {
+                console.error("Failed to recover in-flight transaction data:", e);
+                recoveryMessage = "이전 작업 복구에 실패했습니다. 데이터가 유실되었을 수 있습니다.";
+            } finally {
+                // 성공 여부와 관계없이 저널 삭제
+                localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
+            }
+        }
+        // --- 수정 끝 ---
+
         // [CRITICAL BUG 수정] 데이터 로드 로직 재구성
         // 1. 모든 비상 백업 데이터와 충돌 플래그를 먼저 수집합니다.
         const allPatches = [];

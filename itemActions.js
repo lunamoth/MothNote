@@ -141,6 +141,19 @@ export const performTransactionalUpdate = async (updateFn) => {
         }
         // --- 수정 끝 ---
         
+        // --- [수정] 저널링 로직 추가 ---
+        try {
+            // 1. 진행 중인 트랜잭션 데이터를 localStorage에 먼저 기록 (저널링)
+            localStorage.setItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX, JSON.stringify(newData));
+        } catch (e) {
+            // localStorage 기록 실패 시 트랜잭션 중단
+            console.error("In-flight transaction journaling failed. Aborting.", e);
+            showToast("데이터 임시 저장에 실패하여 작업을 중단합니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            // releaseLock() 및 상태 복원은 finally 블록에서 처리됨
+            return false;
+        }
+        // --- 수정 끝 ---
+        
         // 트랜잭션 ID 생성 및 주입
         const transactionId = Date.now() + Math.random();
         newData.transactionId = transactionId;
@@ -151,6 +164,11 @@ export const performTransactionalUpdate = async (updateFn) => {
         // 저장 전에 현재 탭의 트랜잭션 ID를 먼저 설정
         setState({ currentTransactionId: transactionId });
         await chrome.storage.local.set({ appState: newData });
+        
+        // --- [수정] 저널링 데이터 삭제 ---
+        // 2. chrome.storage.local에 성공적으로 저장된 후, 저널을 삭제
+        localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
+        // --- 수정 끝 ---
         
         // 상태 업데이트
         setState({
