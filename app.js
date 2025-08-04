@@ -1,6 +1,5 @@
 import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-// [수정] isSavingLocally 플래그를 import 합니다.
-import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings, isSavingLocally } from './storage.js';
+import { loadData, saveData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {
     folderList, noteList, addFolderBtn, addNoteBtn, emptyTrashBtn, searchInput, clearSearchBtn, noteSortSelect,
     noteTitleInput, noteContentTextarea, shortcutGuideBtn, settingsBtn,
@@ -19,9 +18,8 @@ import {
     startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
     finishPendingRename,
     toYYYYMMDD,
-    commitChanges,
-    updateNoteCreationDates, // [CRITICAL BUG FIX] 정적 임포트로 변경
-    forceResolvePendingRename // [CRITICAL BUG 2 FIX] 교착 상태 해결을 위한 함수 임포트
+    updateNoteCreationDates,
+    forceResolvePendingRename
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -33,7 +31,6 @@ import {
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
 
-// [수정] 숫자 입력 필드 DOM 요소 캐싱 추가
 const settingsCol1Input = document.getElementById('settings-col1-input');
 const settingsCol2Input = document.getElementById('settings-col2-input');
 const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
@@ -71,7 +68,6 @@ const loadAndApplySettings = () => {
 const openSettingsModal = async () => {
     await handleNoteUpdate(true);
 
-    // [수정] 슬라이더와 숫자 입력 필드 모두에 값 설정
     settingsCol1Width.value = appSettings.layout.col1;
     settingsCol1Input.value = appSettings.layout.col1;
     settingsCol2Width.value = appSettings.layout.col2;
@@ -101,7 +97,7 @@ const handleSettingsSave = () => {
     } else if (newFontFamily) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_FONT_NAME, CONSTANTS.TOAST_TYPE.ERROR);
         settingsEditorFontFamily.value = finalFontFamily;
-        isSavingSettings = false; // [버그 수정] 플래그 초기화
+        isSavingSettings = false;
         return;
     } else {
         finalFontFamily = CONSTANTS.DEFAULT_SETTINGS.editor.fontFamily;
@@ -114,17 +110,16 @@ const handleSettingsSave = () => {
     if (isNaN(lat) || lat < -90 || lat > 90) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLat.focus();
-        isSavingSettings = false; // [버그 수정] 플래그 초기화
+        isSavingSettings = false;
         return;
     }
     if (isNaN(lon) || lon < -180 || lon > 180) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR);
         settingsWeatherLon.focus();
-        isSavingSettings = false; // [버그 수정] 플래그 초기화
+        isSavingSettings = false;
         return;
     }
 
-    // [수정] 숫자 입력 필드에서 값을 읽어옴
     const newSettings = {
         layout: {
             col1: parseInt(settingsCol1Input.value, 10),
@@ -135,7 +130,6 @@ const handleSettingsSave = () => {
         },
         editor: {
             fontFamily: finalFontFamily,
-            // [버그 수정] parseInt 결과가 NaN일 경우 기본값으로 대체(fallback)
             fontSize: parseInt(settingsEditorFontSize.value, 10) || CONSTANTS.DEFAULT_SETTINGS.editor.fontSize,
         },
         weather: {
@@ -160,7 +154,6 @@ const handleSettingsSave = () => {
     }, 100);
 };
 
-
 const handleSettingsReset = async () => {
     const ok = await showConfirmModal({
         title: '⚙️ 설정 초기화',
@@ -172,7 +165,6 @@ const handleSettingsReset = async () => {
         appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
         
-        // [수정] 모달의 값들을 리셋된 값으로 업데이트
         settingsCol1Width.value = appSettings.layout.col1;
         settingsCol1Input.value = appSettings.layout.col1;
         settingsCol2Width.value = appSettings.layout.col2;
@@ -184,7 +176,6 @@ const handleSettingsReset = async () => {
         settingsWeatherLat.value = appSettings.weather.lat;
         settingsWeatherLon.value = appSettings.weather.lon;
         
-        // [High 버그 수정] UI에 즉시 반영하기 위해 applySettings 호출 추가
         applySettings(appSettings);
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
         settingsModal.close();
@@ -243,7 +234,6 @@ const setupSettingsModal = () => {
     settingsImportBtn.addEventListener('click', handleImport);
 
     settingsModal.addEventListener('close', () => {
-        // [수정] 저장하지 않고 닫을 경우, 원래 설정으로 복원
         if (!isSavingSettings) {
             applySettings(appSettings);
         }
@@ -261,46 +251,33 @@ const setupSettingsModal = () => {
         document.getElementById(`settings-tab-${target.dataset.tab}`).classList.add('active');
     });
     
-    // [추가] 슬라이더와 숫자 입력을 양방향으로 동기화하고 실시간으로 스타일을 적용하는 헬퍼 함수
-    const bindSliderAndInput = (slider, input, cssVar, unit) => {
+    const bindSliderAndInput = (slider, input, cssVarName, unit) => {
         const updateStyle = (value) => {
-            document.documentElement.style.setProperty(cssVar, `${value}${unit}`);
+            document.documentElement.style.setProperty(cssVarName, `${value}${unit}`);
         };
 
-        // 슬라이더 변경 -> 숫자 입력 및 스타일 업데이트
         slider.addEventListener('input', () => {
             const value = slider.value;
             input.value = value;
             updateStyle(value);
         });
 
-        // 숫자 입력 -> 슬라이더 및 스타일 업데이트
         input.addEventListener('input', () => {
             let value = parseInt(input.value, 10);
             const min = parseInt(input.min, 10);
             const max = parseInt(input.max, 10);
-
-            if (isNaN(value)) {
-                // 입력 중일 때는 아무것도 하지 않음 (예: "1"만 입력한 상태)
-                return; 
-            }
-            
-            // 입력 값이 min/max를 벗어나도 일단 스타일은 적용하여 실시간 피드백 제공
+            if (isNaN(value)) return; 
             slider.value = Math.max(min, Math.min(value, max));
             updateStyle(value);
         });
         
-        // 숫자 입력 필드에서 포커스를 잃었을 때 값 보정
         input.addEventListener('blur', () => {
             let value = parseInt(input.value, 10);
             const min = parseInt(input.min, 10);
             const max = parseInt(input.max, 10);
 
-            if (isNaN(value) || value < min) {
-                value = min;
-            } else if (value > max) {
-                value = max;
-            }
+            if (isNaN(value) || value < min) value = min;
+            else if (value > max) value = max;
             
             input.value = value;
             slider.value = value;
@@ -308,7 +285,6 @@ const setupSettingsModal = () => {
         });
     };
 
-    // [수정] 각 설정에 대해 바인딩 함수 호출
     bindSliderAndInput(settingsCol1Width, settingsCol1Input, '--column-folders-width', '%');
     bindSliderAndInput(settingsCol2Width, settingsCol2Input, '--column-notes-width', '%');
     bindSliderAndInput(settingsZenMaxWidth, settingsZenMaxInput, '--zen-max-width', 'px');
@@ -354,7 +330,7 @@ class Dashboard {
             digitalClockIntervalId: null,
             weatherFetchController: null,
             displayedMonth: null,
-            clockFaceCache: null, // [성능 개선] 아날로그 시계 배경 캐시
+            clockFaceCache: null,
         };
         this.observer = null;
     }
@@ -378,11 +354,8 @@ class Dashboard {
         if (!this.dom.panel) return;
         this.observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    this._startClocks();
-                } else {
-                    this._stopClocks();
-                }
+                if (entry.isIntersecting) this._startClocks();
+                else this._stopClocks();
             });
         });
         this.observer.observe(this.dom.panel);
@@ -393,9 +366,7 @@ class Dashboard {
             this._updateDigitalClock();
             this.internalState.digitalClockIntervalId = setInterval(this._updateDigitalClock.bind(this), 1000);
         }
-        if (!this.internalState.analogClockAnimationId) {
-            this._animateAnalogClock();
-        }
+        if (!this.internalState.analogClockAnimationId) this._animateAnalogClock();
     }
 
     _stopClocks() {
@@ -423,7 +394,6 @@ class Dashboard {
         this.dom.digitalClock.textContent = new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true });
     }
 
-    // [성능 개선] 아날로그 시계 초기화 로직
     _initAnalogClock(forceRedraw = false) {
         if (!this.dom.analogClockCanvas) return;
         
@@ -431,11 +401,7 @@ class Dashboard {
             cancelAnimationFrame(this.internalState.analogClockAnimationId);
             this.internalState.analogClockAnimationId = null;
         }
-        
-        // 테마 변경 등으로 강제 다시 그리기가 필요할 때 캐시 재생성
-        if (forceRedraw || !this.internalState.clockFaceCache) {
-            this._drawStaticClockFace();
-        }
+        if (forceRedraw || !this.internalState.clockFaceCache) this._drawStaticClockFace();
 
         const ctx = this.dom.analogClockCanvas.getContext('2d');
         const radius = this.dom.analogClockCanvas.height / 2;
@@ -445,7 +411,6 @@ class Dashboard {
         this._animateAnalogClock();
     }
     
-    // [성능 개선] 정적 배경을 그려서 캐시하는 함수
     _drawStaticClockFace() {
         if (!this.dom.analogClockCanvas) return;
         
@@ -454,7 +419,6 @@ class Dashboard {
         cacheCanvas.height = this.dom.analogClockCanvas.height;
         const ctx = cacheCanvas.getContext('2d');
         const radius = cacheCanvas.height / 2;
-        
         ctx.translate(radius, radius);
         
         const drawNumbers = (context, r) => {
@@ -466,31 +430,24 @@ class Dashboard {
             context.textBaseline = 'middle';
             for (let num = 1; num <= 12; num++) {
                 const angle = num * Math.PI / 6;
-                const x = r * 0.85 * Math.cos(angle - Math.PI / 2);
-                const y = r * 0.85 * Math.sin(angle - Math.PI / 2);
-                context.fillText(num.toString(), x, y);
+                context.fillText(num.toString(), r * 0.85 * Math.cos(angle - Math.PI / 2), r * 0.85 * Math.sin(angle - Math.PI / 2));
             }
         };
 
         const style = getComputedStyle(document.documentElement);
-        
         ctx.beginPath(); 
         ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); 
         ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); 
         ctx.lineWidth = 2; 
         ctx.stroke();
-
         drawNumbers(ctx, radius);
-
         ctx.beginPath(); 
         ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); 
         ctx.fillStyle = style.getPropertyValue('--accent-color').trim(); 
         ctx.fill();
-
         this.internalState.clockFaceCache = cacheCanvas;
     }
 
-    // [성능 개선] 캐시된 배경 위에 시계 바늘만 그리는 함수
     _drawHandsOnTop() {
         if (!this.dom.analogClockCanvas) return;
         const ctx = this.dom.analogClockCanvas.getContext('2d');
@@ -508,15 +465,9 @@ class Dashboard {
             ctx.rotate(-pos);
         };
         
-        // 1. 캔버스 전체 지우기
         ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
-        
-        // 2. 캐시된 배경 그리기
-        if (this.internalState.clockFaceCache) {
-            ctx.drawImage(this.internalState.clockFaceCache, -radius, -radius);
-        }
+        if (this.internalState.clockFaceCache) ctx.drawImage(this.internalState.clockFaceCache, -radius, -radius);
 
-        // 3. 시침, 분침 그리기
         const style = getComputedStyle(document.documentElement);
         const accentColor = style.getPropertyValue('--accent-color').trim();
         const now = new Date(), h = now.getHours(), m = now.getMinutes();
@@ -525,19 +476,17 @@ class Dashboard {
         drawHand(m * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor);
     }
     
-    // [성능 개선] 애니메이션 루프 수정
     _animateAnalogClock() {
         let lastMinute = -1;
         const animate = () => {
             const now = new Date();
             const currentMinute = now.getMinutes();
             if (currentMinute !== lastMinute) {
-                this._drawHandsOnTop(); // 바늘만 다시 그림
+                this._drawHandsOnTop();
                 lastMinute = currentMinute;
             }
             this.internalState.analogClockAnimationId = requestAnimationFrame(animate);
         };
-        // 애니메이션 시작 전 즉시 한 번 그려주기
         this._drawHandsOnTop();
         animate();
     }
@@ -560,29 +509,25 @@ class Dashboard {
         this.dom.weatherContainer.innerHTML = `<span>⏳</span>`;
         try {
             const { lat, lon } = appSettings.weather;
-            
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
                 this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
                 showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
                 return;
             }
-
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             const data = await response.json();
             if (!data?.current_weather) throw new Error("API 응답에서 current_weather 객체를 찾을 수 없습니다.");
             const { temperature, weathercode, is_day } = data.current_weather;
-            const currentWmoCode = weathercode ?? data.current_weather.weather_code;
-            const weather = this._getWeatherInfo(currentWmoCode, is_day === 1);
+            const weather = this._getWeatherInfo(weathercode ?? data.current_weather.weather_code, is_day === 1);
             const temp = Math.round(temperature);
             this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="${weather.text}">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
             try {
                 localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ timestamp: new Date().getTime(), data: { weather, temp } }));
             } catch (e) { console.warn("Could not save weather cache.", e); }
         } catch (error) {
-            if (error.name === 'AbortError') return;
-            this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
+            if (error.name !== 'AbortError') this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`;
         }
     }
     
@@ -604,11 +549,12 @@ class Dashboard {
         this.dom.calendarGrid.innerHTML = '';
         const year = this.internalState.currentDate.getFullYear(), month = this.internalState.currentDate.getMonth();
         this.dom.calendarMonthYear.textContent = `🗓️ ${year}년 ${month + 1}월`;
-        const days = ['일', '월', '화', '수', '목', '금', '토'];
-        days.forEach(day => { const el = document.createElement('div'); el.className = 'calendar-day day-name'; el.textContent = day; this.dom.calendarGrid.appendChild(el); });
+        ['일', '월', '화', '수', '목', '금', '토'].forEach(day => { 
+            const el = document.createElement('div'); el.className = 'calendar-day day-name'; el.textContent = day; this.dom.calendarGrid.appendChild(el); 
+        });
         const firstDay = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-        for (let i = 0; i < firstDay; i++) { const el = document.createElement('div'); el.className = 'calendar-day'; this.dom.calendarGrid.appendChild(el); }
+        for (let i = 0; i < firstDay; i++) this.dom.calendarGrid.appendChild(document.createElement('div'));
         const today = new Date(), todayYear = today.getFullYear(), todayMonth = today.getMonth(), todayDate = today.getDate();
         for (let i = 1; i <= daysInMonth; i++) {
             const el = document.createElement('div');
@@ -643,34 +589,22 @@ class Dashboard {
             }
         };
         
-        // [High 버그 수정] 날짜 필터 전환 교착 상태 해결
         this.dom.calendarGrid.onclick = async e => {
             const target = e.target.closest('.date-cell.has-notes');
             if (target) {
-                // 어떤 경우든 항상 저장 여부를 먼저 확인
                 if (!(await confirmNavigation())) return;
 
                 const newFilterDate = new Date(target.dataset.date);
                 const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime();
-                
                 searchInput.value = '';
                 
                 if (isSameDate) {
-                    // 같은 날짜를 다시 클릭하면 필터 해제
                     setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
                 } else {
-                    // 다른 날짜를 클릭하면 해당 날짜로 필터 전환
                     this.internalState.currentDate = newFilterDate;
-                    
-                    const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
-                        return toYYYYMMDD(note.createdAt) === target.dataset.date;
-                    });
-
+                    const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date);
                     const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
-                    const nextActiveNoteId = sortedNotes[0]?.id ?? null;
-                    
-                    setState({ dateFilter: newFilterDate, activeNoteId: nextActiveNoteId, activeFolderId: null, searchTerm: '' });
-                    
+                    setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' });
                     this.renderCalendar();
                 }
             }
@@ -678,10 +612,7 @@ class Dashboard {
         this.dom.calendarGrid.addEventListener('mouseover', e => {
             const target = e.target.closest('.date-cell.has-notes');
             if (target) {
-                const dateStr = target.dataset.date;
-                const notesOnDate = Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => {
-                    return toYYYYMMDD(note.createdAt) === dateStr;
-                }).map(note => note.title || '📝 제목 없음');
+                const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음');
                 if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`;
             }
         });
@@ -692,82 +623,49 @@ class Dashboard {
 // --- 전역 변수 ---
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
-// [개선] 미세 상호작용 - 리플 효과 설정
 const setupRippleEffect = () => {
     document.body.addEventListener('click', (e) => {
         const button = e.target.closest('.ripple-effect');
         if (!button) return;
 
-        const rect = button.getBoundingClientRect();
         const ripple = document.createElement('span');
         const diameter = Math.max(button.clientWidth, button.clientHeight);
-        const radius = diameter / 2;
-
         ripple.style.width = ripple.style.height = `${diameter}px`;
-        ripple.style.left = `${e.clientX - rect.left - radius}px`;
-        ripple.style.top = `${e.clientY - rect.top - radius}px`;
+        ripple.style.left = `${e.clientX - button.getBoundingClientRect().left - diameter / 2}px`;
+        ripple.style.top = `${e.clientY - button.getBoundingClientRect().top - diameter / 2}px`;
         ripple.classList.add('ripple');
         
         const existingRipple = button.querySelector('.ripple');
-        if (existingRipple) {
-            existingRipple.remove();
-        }
-
+        if (existingRipple) existingRipple.remove();
         button.appendChild(ripple);
-
-        setTimeout(() => {
-            if (ripple.parentElement) {
-                ripple.remove();
-            }
-        }, 600); // CSS 애니메이션 시간과 일치
+        setTimeout(() => { if (ripple.parentElement) ripple.remove(); }, 600);
     });
 };
 
 const handleTextareaKeyDown = (e) => {
-    // [버그 수정] 다중 라인 선택 시 Tab/Shift+Tab 동작 개선
     if (e.key === 'Tab') {
         e.preventDefault();
-        const textarea = e.target;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const text = textarea.value;
-
-        // 선택된 영역의 시작과 끝 라인을 찾음
+        const textarea = e.target, start = textarea.selectionStart, end = textarea.selectionEnd, text = textarea.value;
         const startLineIndex = text.lastIndexOf('\n', start - 1) + 1;
-        const endLineIndex = text.indexOf('\n', end - 1);
-        const endLineActualIndex = endLineIndex === -1 ? text.length : endLineIndex;
-        
-        const selectedLinesText = text.substring(startLineIndex, endLineActualIndex);
-        const lines = selectedLinesText.split('\n');
+        const endLineActualIndex = text.indexOf('\n', end - 1) === -1 ? text.length : text.indexOf('\n', end - 1);
+        const lines = text.substring(startLineIndex, endLineActualIndex).split('\n');
         
         let modifiedLines;
-        if (e.shiftKey) { // 내어쓰기
-            modifiedLines = lines.map(line => {
-                if (line.startsWith('\t')) {
-                    return line.substring(1);
-                } else if (line.startsWith(' ')) {
-                    const spaceCount = line.match(/^ */)[0].length;
-                    const removeCount = Math.min(spaceCount, 4); // 예: 탭을 4칸 공백으로 간주
-                    return line.substring(removeCount);
-                }
-                return line;
-            });
-        } else { // 들여쓰기
+        if (e.shiftKey) { // un-indent
+            modifiedLines = lines.map(line => line.startsWith('\t') ? line.substring(1) : (line.startsWith(' ') ? line.substring(Math.min(line.match(/^ */)[0].length, 4)) : line));
+        } else { // indent
             modifiedLines = lines.map(line => '\t' + line);
         }
         
         const modifiedText = modifiedLines.join('\n');
         textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex);
-
-        // [High 버그 수정] 수정된 텍스트 블록 전체를 선택하도록 하여 선택 영역 계산 오류를 해결합니다.
         textarea.selectionStart = startLineIndex;
         textarea.selectionEnd = startLineIndex + modifiedText.length;
-
         handleNoteUpdate(false);
     }
 };
 
-const handleItemActionClick = async (button, id, type) => {
+const handleItemActionClick = (button, id, type) => {
     if (button.classList.contains('pin-btn')) handlePinNote(id);
     else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id);
     else if (button.classList.contains('delete-item-btn')) handleDelete(id, type);
@@ -836,55 +734,47 @@ const setupDragAndDrop = (listElement, type) => {
     });
     listElement.addEventListener('drop', async e => {
         e.preventDefault();
-        if (listElement !== folderList) return;
+        if (listElement !== folderList || !draggedItemInfo.id) return;
         
-        const draggedId = draggedItemInfo.id;
-        if (!draggedId) return;
-        
-        const list = state.folders;
-        const fromIndex = list.findIndex(item => item.id === draggedId);
-        if (fromIndex === -1) return;
-
         const indicator = getDragOverIndicator();
         if(!indicator.parentElement) return;
 
-        // [수정] 위치 변경이 없는 경우 저장을 방지하는 로직 추가
-        const originalNextElId = list[fromIndex + 1]?.id;
+        const draggedId = draggedItemInfo.id;
+        const fromIndex = state.folders.findIndex(item => item.id === draggedId);
+        if (fromIndex === -1) return;
+
+        const originalNextElId = state.folders[fromIndex + 1]?.id;
         const dropNextElId = indicator.nextElementSibling?.dataset.id;
 
+        indicator.remove();
+
         if (originalNextElId === dropNextElId) {
-            indicator.remove();
-            // 위치 변경이 없어도 드래그 스타일은 제거해야 하므로 상태를 한번 더 업데이트하여 리렌더링.
-            setState({}); 
+            setState({}); // Just force a re-render to remove dragging style
             return;
         }
         
-        const [draggedItem] = list.splice(fromIndex, 1);
-        const targetEl = indicator.previousElementSibling;
-        indicator.remove();
+        const updateLogic = (latestData) => {
+            const { folders } = latestData;
+            const fromIdx = folders.findIndex(item => item.id === draggedId);
+            if (fromIdx === -1) return null;
 
-        if (!targetEl) {
-            list.unshift(draggedItem);
-        } else {
-            const toIndex = list.findIndex(item => item.id === targetEl.dataset.id);
-            list.splice(toIndex + 1, 0, draggedItem);
-        }
-        
-        buildNoteMap();
-        
-        // [Critical 버그 수정] 직접 saveData 호출 대신, 전역 잠금이 적용된 commitChanges 사용
-        await commitChanges();
-        
+            const [draggedItem] = folders.splice(fromIdx, 1);
+            let toIdx = folders.findIndex(item => item.id === dropNextElId);
+            if (toIdx === -1) folders.push(draggedItem);
+            else folders.splice(toIdx, 0, draggedItem);
+
+            return { newData: latestData, successMessage: null, postUpdateState: {} };
+        };
+
+        const { performTransactionalUpdate } = await import('./itemActions.js');
+        await performTransactionalUpdate(updateLogic);
         setState({});
     });
     listElement.addEventListener('dragend', () => {
         const li = listElement.querySelector(`.${CONSTANTS.CLASSES.DRAGGING}`);
         if (li) li.classList.remove(CONSTANTS.CLASSES.DRAGGING);
         getDragOverIndicator().remove();
-        if (folderList) {
-            const currentDropTarget = folderList.querySelector(`.${CONSTANTS.CLASSES.DROP_TARGET}`);
-            if (currentDropTarget) currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
-        }
+        if (folderList) folderList.querySelector(`.${CONSTANTS.CLASSES.DROP_TARGET}`)?.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
         draggedItemInfo = { id: null, type: null, sourceFolderId: null };
     });
 };
@@ -910,7 +800,6 @@ const setupNoteToFolderDrop = () => {
         }
     });
     folderList.addEventListener('dragleave', e => {
-        if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return;
         if (currentDropTarget && !e.currentTarget.contains(e.relatedTarget)) {
             currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
             currentDropTarget = null;
@@ -929,42 +818,43 @@ const setupNoteToFolderDrop = () => {
         }
         const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id;
         currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
+        currentDropTarget = null;
 
-        const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
-        if ([ALL.id, RECENT.id].includes(targetFolderId)) {
-            currentDropTarget = null;
-            return;
-        }
-
-        if (targetFolderId === TRASH.id) await handleDelete(noteId, CONSTANTS.ITEM_TYPE.NOTE, true);
-        else if (targetFolderId === FAVORITES.id) {
+        const { TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
+        if (targetFolderId === TRASH.id) {
+            const { handleDelete } = await import('./itemActions.js');
+            await handleDelete(noteId, CONSTANTS.ITEM_TYPE.NOTE);
+        } else if (targetFolderId === FAVORITES.id) {
             const { item: note } = findNote(noteId);
             if (note && !note.isFavorite) await handleToggleFavorite(noteId);
         } else {
-            const { folder: sourceFolder } = findNote(noteId);
-            const { item: targetFolder } = findFolder(targetFolderId);
-            if (sourceFolder && targetFolder && sourceFolder.id !== targetFolder.id) {
-                const noteIndex = sourceFolder.notes.findIndex(n => n.id === noteId);
-                const [noteToMove] = sourceFolder.notes.splice(noteIndex, 1);
-                
-                if (state.lastActiveNotePerFolder[sourceFolder.id] === noteId) {
-                    delete state.lastActiveNotePerFolder[sourceFolder.id];
+             const updateLogic = (latestData) => {
+                const { folders } = latestData;
+                let noteToMove, sourceFolder;
+                for (const folder of folders) {
+                    const noteIndex = folder.notes.findIndex(n => n.id === noteId);
+                    if (noteIndex > -1) {
+                        [noteToMove] = folder.notes.splice(noteIndex, 1);
+                        sourceFolder = folder;
+                        break;
+                    }
                 }
+                const targetFolder = folders.find(f => f.id === targetFolderId);
+                if (!noteToMove || !targetFolder || sourceFolder.id === targetFolder.id) return null;
 
-                targetFolder.notes.unshift(noteToMove);
                 noteToMove.updatedAt = Date.now();
-                clearSortedNotesCache();
-                buildNoteMap();
-                if (dashboard) dashboard.renderCalendar(true);
-                
-                // [Critical 버그 수정] 직접 saveData 호출 대신, 전역 잠금이 적용된 commitChanges 사용
-                await commitChanges();
+                targetFolder.notes.unshift(noteToMove);
 
-                setState({}); 
-                showToast(CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name));
-            }
+                return {
+                    newData: latestData,
+                    successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name),
+                    postUpdateState: {}
+                };
+            };
+            const { performTransactionalUpdate } = await import('./itemActions.js');
+            await performTransactionalUpdate(updateLogic);
+            setState({});
         }
-        currentDropTarget = null;
     });
 };
 
@@ -978,11 +868,9 @@ const _focusAndScrollToListItem = (listElement, itemId) => {
 
 const _navigateList = async (type, direction) => {
     if (isListNavigating) return;
-    
     isListNavigating = true;
     try {
         await finishPendingRename();
-
         const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
         if (!list) return;
 
@@ -992,52 +880,34 @@ const _navigateList = async (type, direction) => {
         const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId;
         const currentIndex = items.findIndex(item => item.dataset.id === activeId);
         const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : items.length - 1) : (currentIndex + direction + items.length) % items.length;
-        const nextItemEl = items[nextIndex];
-        if (!nextItemEl) return;
+        const nextId = items[nextIndex]?.dataset.id;
+        if (!nextId) return;
 
-        const nextId = nextItemEl.dataset.id;
-        if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-            if (state.activeFolderId !== nextId) await changeActiveFolder(nextId);
-        } else {
-            if (state.activeNoteId !== nextId) await changeActiveNote(nextId);
-        }
+        if (type === CONSTANTS.ITEM_TYPE.FOLDER) await changeActiveFolder(nextId);
+        else await changeActiveNote(nextId);
         
         setTimeout(() => _focusAndScrollToListItem(list, nextId), 50);
     } finally {
         clearTimeout(keyboardNavDebounceTimer);
         keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV);
-        
-        setTimeout(() => {
-            isListNavigating = false;
-        }, 50);
+        setTimeout(() => { isListNavigating = false; }, 50);
     }
 };
 
 const handleListKeyDown = async (e, type) => {
-    if (state.renamingItemId) {
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-            e.preventDefault();
-            return;
-        }
+    if (state.renamingItemId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        return;
     }
-
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
         await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1);
     } else if (e.key === 'Enter') {
         e.preventDefault();
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-            const firstNoteItem = noteList.querySelector('.item-list-entry');
-            if (firstNoteItem) {
-                firstNoteItem.focus();
-            } else if (searchInput) {
-                searchInput.focus();
-            }
-        // [개선] 노트 목록에서 Enter키를 누르면 편집기로 포커스 이동
+            noteList.querySelector('.item-list-entry')?.focus() || searchInput?.focus();
         } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) {
-            if (noteTitleInput) {
-                noteTitleInput.focus();
-            }
+            noteTitleInput?.focus();
         }
     } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) {
         if (state.activeNoteId && noteContentTextarea) {
@@ -1048,27 +918,23 @@ const handleListKeyDown = async (e, type) => {
 };
 
 const handleGlobalKeyDown = (e) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (e.key.toLowerCase() === 'n') {
-            e.preventDefault();
-            e.shiftKey ? handleAddFolder() : handleAddNote();
-            return;
-        }
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        e.shiftKey ? handleAddFolder() : handleAddNote();
+        return;
     }
     if (e.key.toLowerCase() === 'f2') {
         e.preventDefault();
-        const activeEl = document.activeElement;
-        const activeListItem = activeEl.closest('.item-list-entry');
-        if (activeListItem && activeListItem.dataset.id && activeListItem.dataset.type) {
+        const activeListItem = document.activeElement.closest('.item-list-entry');
+        if (activeListItem?.dataset.id && activeListItem.dataset.type) {
             startRename(activeListItem, activeListItem.dataset.type);
         }
         return;
     }
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         const activeEl = document.activeElement;
-        const isInputAreaFocused = ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl.tagName) || activeEl.isContentEditable;
-        const isListFocused = activeEl.closest('.item-list');
-        if (state.activeNoteId && !isInputAreaFocused && !isListFocused) {
+        const isInputArea = ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl.tagName) || activeEl.isContentEditable;
+        if (state.activeNoteId && !isInputArea && !activeEl.closest('.item-list')) {
             e.preventDefault();
             handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE);
         }
@@ -1077,12 +943,10 @@ const handleGlobalKeyDown = (e) => {
 
 const handleRename = (e, type) => {
     const li = e.target.closest('.item-list-entry');
-    if (li) {
-        startRename(li, type);
-    }
+    if (li) startRename(li, type);
 };
 
-const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, sliderElement, inputElement) => {
+const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => {
     const splitter = document.getElementById(splitterId);
     if (!splitter) return;
 
@@ -1091,27 +955,17 @@ const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, 
         const container = document.querySelector('.container');
         const containerRect = container.getBoundingClientRect();
         
-        let newPanelWidth;
-        if (splitterId === 'splitter-1') {
-            newPanelWidth = e.clientX - containerRect.left;
-        } else { // splitter-2
-            const panel1 = document.getElementById(panel1Id);
-            newPanelWidth = e.clientX - panel1.getBoundingClientRect().right;
-        }
+        let newPanelWidth = (splitterId === 'splitter-1') 
+            ? e.clientX - containerRect.left 
+            : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right;
 
-        let newPanelPercentage = (newPanelWidth / containerRect.width) * 100;
-
-        const minWidth = 10;
-        const maxWidth = 50;
-        newPanelPercentage = Math.max(minWidth, Math.min(newPanelPercentage, maxWidth));
+        let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50));
         
         document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`);
         
-        if (sliderElement && inputElement) {
-            const roundedValue = Math.round(newPanelPercentage);
-            sliderElement.value = roundedValue;
-            inputElement.value = roundedValue;
-        }
+        const roundedValue = Math.round(newPanelPercentage);
+        if (sliderElement) sliderElement.value = roundedValue;
+        if (inputElement) inputElement.value = roundedValue;
     };
 
     const onMouseUp = () => {
@@ -1120,9 +974,10 @@ const setupSplitter = (splitterId, panel1Id, panel2Id, cssVarName, settingsKey, 
         document.body.style.userSelect = 'auto';
         window.removeEventListener('mousemove', onMouseMove);
         
-        const finalPercentage = parseInt(sliderElement.value, 10);
-        appSettings.layout[settingsKey] = finalPercentage;
-        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
+        if (sliderElement) {
+            appSettings.layout[settingsKey] = parseInt(sliderElement.value, 10);
+            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
+        }
     };
 
     splitter.addEventListener('mousedown', (e) => {
@@ -1144,42 +999,26 @@ const setupZenModeResize = () => {
     const initResize = (handle) => {
         handle.addEventListener('mousedown', (e) => {
             e.preventDefault();
-            const startX = e.clientX;
-            const startWidth = mainContent.offsetWidth;
-
+            const startX = e.clientX, startWidth = mainContent.offsetWidth;
             const onMouseMove = (moveEvent) => {
                 const deltaX = moveEvent.clientX - startX;
-                let newWidth;
-
-                if (handle.id === 'zen-resize-handle-right') {
-                    newWidth = startWidth + deltaX * 2;
-                } else {
-                    newWidth = startWidth - deltaX * 2;
-                }
-
-                const min = parseInt(settingsZenMaxWidth.min, 10);
-                const max = parseInt(settingsZenMaxWidth.max, 10);
-                newWidth = Math.max(min, Math.min(newWidth, max));
+                let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2);
+                newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10)));
                 const roundedWidth = Math.round(newWidth);
 
                 document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`);
                 settingsZenMaxWidth.value = roundedWidth;
                 settingsZenMaxInput.value = roundedWidth;
             };
-
             const onMouseUp = () => {
                 window.removeEventListener('mousemove', onMouseMove);
-                
-                const finalWidth = parseInt(settingsZenMaxWidth.value, 10);
-                appSettings.zenMode.maxWidth = finalWidth;
+                appSettings.zenMode.maxWidth = parseInt(settingsZenMaxWidth.value, 10);
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
             };
-
             window.addEventListener('mousemove', onMouseMove);
             window.addEventListener('mouseup', onMouseUp, { once: true });
         });
     };
-
     initResize(leftHandle);
     initResize(rightHandle);
 };
@@ -1214,8 +1053,8 @@ const setupEventListeners = () => {
     
     setupSettingsModal();
 
-    setupSplitter('splitter-1', 'folders-panel', 'notes-panel', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input);
-    setupSplitter('splitter-2', 'folders-panel', 'notes-panel', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input);
+    setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input);
+    setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input);
     setupZenModeResize();
 };
 
@@ -1224,22 +1063,15 @@ const setupFeatureToggles = () => {
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
     
     if (zenModeToggleBtn) {
-        const ZEN_MODE_KEY = 'mothnote-zen-mode';
-        const zenModeActive = localStorage.getItem(ZEN_MODE_KEY) === 'true';
-
-        if (zenModeActive) {
-            document.body.classList.add('zen-mode');
-        }
+        const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true';
+        if (zenModeActive) document.body.classList.add('zen-mode');
         zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘';
         zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
 
         zenModeToggleBtn.addEventListener('click', async () => {
-            if (!(await confirmNavigation())) {
-                return;
-            }
-
+            if (!(await confirmNavigation())) return;
             const isActive = document.body.classList.toggle('zen-mode');
-            localStorage.setItem(ZEN_MODE_KEY, isActive);
+            localStorage.setItem('mothnote-zen-mode', isActive);
             zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘';
             zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
         });
@@ -1250,18 +1082,13 @@ const setupFeatureToggles = () => {
         if (currentTheme === 'dark') {
             document.body.classList.add('dark-mode');
             themeToggleBtn.textContent = '☀️';
-        } else {
-            themeToggleBtn.textContent = '🌙';
         }
         themeToggleBtn.addEventListener('click', () => {
             document.body.classList.toggle('dark-mode');
-            let theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+            const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
             themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
             localStorage.setItem('theme', theme);
-            
-            if (dashboard && typeof dashboard._initAnalogClock === 'function') {
-                dashboard._initAnalogClock(true); // 테마 변경 시 시계 강제 다시 그리기
-            }
+            if (dashboard) dashboard._initAnalogClock(true);
         });
     }
 };
@@ -1273,9 +1100,11 @@ const initializeDragAndDrop = () => {
 };
 
 async function handleStorageSync(changes) {
-    if (isSavingLocally) return;
-
+    // [수정] 트랜잭션 ID를 확인하여 자신의 변경사항은 무시
     const { newValue } = changes.appState;
+    if (newValue.transactionId && newValue.transactionId === state.currentTransactionId) {
+        return;
+    }
 
     if (state.renamingItemId) {
         const newAllItemIds = new Set();
@@ -1289,21 +1118,19 @@ async function handleStorageSync(changes) {
         }
     }
 
-    // [Critical 버그 수정] 데이터 충돌 시, 사용자에게 알리고 비상 백업 생성을 막기 위한 플래그 설정
     if (state.isDirty) {
         console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes.");
         localStorage.setItem(CONSTANTS.LS_KEY_DATA_CONFLICT, 'true');
-        showToast(
-            "⚠️ 데이터 충돌: 다른 탭에서 노트가 수정되었습니다. 데이터 유실을 막으려면 현재 변경 내용을 복사한 후, 탭을 새로고침 하세요.",
-            CONSTANTS.TOAST_TYPE.ERROR,
-            0
-        );
+        showToast("⚠️ 데이터 충돌: 다른 탭에서 노트가 수정되었습니다. 데이터 유실을 막으려면 현재 변경 내용을 복사한 후, 탭을 새로고침 하세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
         return;
     }
 
     console.log("Received data from another tab. Updating local state...");
 
-    const sessionState = {
+    setState({
+        ...newValue,
+        favorites: new Set(newValue.favorites || []),
+        totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
         activeFolderId: state.activeFolderId,
         activeNoteId: state.activeNoteId,
         noteSortOrder: state.noteSortOrder,
@@ -1314,39 +1141,22 @@ async function handleStorageSync(changes) {
         renamingItemId: null,
         isDirty: false,
         dirtyNoteId: null,
-    };
-
-    const updatedState = {
-        ...newValue,
-        favorites: new Set(newValue.favorites || []),
-        totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
-        ...sessionState
-    };
-
-    setState(updatedState);
+    });
+    
     buildNoteMap();
     updateNoteCreationDates();
 
-    if (dashboard) {
-        dashboard.renderCalendar(true);
-    }
-
+    if (dashboard) dashboard.renderCalendar(true);
     showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
 }
-
 
 const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
 
-    // [Critical 버그 수정] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 전면 수정
     window.addEventListener('beforeunload', (e) => {
-        if (window.isSavingInProgress || window.isImporting) {
-            return;
-        }
-
-        // [Critical 버그 수정] 다른 탭과의 데이터 충돌이 감지된 경우, 오염된 데이터를 백업하지 않음
+        if (window.isSavingInProgress || window.isImporting) return;
         if (localStorage.getItem(CONSTANTS.LS_KEY_DATA_CONFLICT)) {
-            localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT); // 플래그만 제거하고 종료
+            localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
             return;
         }
 
@@ -1354,23 +1164,14 @@ const setupGlobalEventListeners = () => {
         const needsProtection = state.isDirty || isRenaming || state.isPerformingOperation;
         
         if (needsProtection) {
-            // [Critical 버그 수정] 복합 상태를 모두 저장하기 위해 배열 사용
             const patches = [];
-
-            // 1. 노트 내용 변경 백업
             if (state.isDirty && state.dirtyNoteId) {
                 patches.push({
                     type: 'note_patch',
                     noteId: state.dirtyNoteId,
-                    data: {
-                        title: noteTitleInput?.value ?? '',
-                        content: noteContentTextarea?.value ?? '',
-                        updatedAt: Date.now()
-                    }
+                    data: { title: noteTitleInput?.value ?? '', content: noteContentTextarea?.value ?? '', updatedAt: Date.now() }
                 });
             }
-
-            // 2. 이름 변경 백업 (else if가 아닌 독립적인 if)
             if (isRenaming) {
                 const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
                 if (renamingElement) {
@@ -1392,7 +1193,6 @@ const setupGlobalEventListeners = () => {
                     console.error("비상 데이터(패치) 저장 실패:", err);
                 }
             }
-    
             e.preventDefault();
             e.returnValue = '';
         }
@@ -1415,7 +1215,7 @@ const init = async () => {
     initializeDragAndDrop();
     setupImportHandler();
     setupGlobalEventListeners();
-    setupRippleEffect(); // [개선] 리플 효과 초기화
+    setupRippleEffect();
 
     subscribe(renderAll);
     
@@ -1433,18 +1233,8 @@ const init = async () => {
         showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
     }
     
-    window.addEventListener('app-data-imported', async () => {
-        await loadData();
-        loadAndApplySettings();
-        if (dashboard) {
-            dashboard.init();
-        }
-        showToast('✅ 가져온 데이터와 설정이 모두 적용되었습니다!');
-    });
-
     dashboard = new Dashboard();
     dashboard.init();
-
     setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
 };
 

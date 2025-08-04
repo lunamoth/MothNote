@@ -142,8 +142,8 @@ export let state = {
     noteSortOrder: 'updatedAt_desc',
     noteMap: new Map(),
     isDirty: false,
-    dirtyNoteId: null, // [수정] 데이터 유실 방지를 위해 변경된 노트의 ID를 저장
-    isPerformingOperation: false, // [Critical 버그 수정] 데이터 손실 방지를 위한 트랜잭션 플래그
+    dirtyNoteId: null,
+    isPerformingOperation: false,
     totalNoteCount: 0,
     renamingItemId: null,
     lastActiveNotePerFolder: {},
@@ -151,8 +151,9 @@ export let state = {
     _virtualFolderCache: { all: null, recent: null, favorites: null, trash: null },
     noteCreationDates: new Set(),
     dateFilter: null,
-    // [CRITICAL BUG 2 FIX] 데이터 덮어쓰기 방지를 위한 마지막 저장 시점 타임스탬프
-    lastSavedTimestamp: null
+    lastSavedTimestamp: null,
+    // [추가] 자기 자신의 변경사항을 식별하기 위한 트랜잭션 ID
+    currentTransactionId: null
 };
 
 const subscribers = new Set();
@@ -161,9 +162,6 @@ export const subscribe = (callback) => {
     return () => subscribers.delete(callback);
 };
 const notify = () => subscribers.forEach(callback => callback());
-
-// [수정] 이 함수는 itemActions.js로 이동했습니다.
-// export const updateNoteCreationDates = () => { ... };
 
 export const buildNoteMap = () => {
     state._virtualFolderCache.all = null;
@@ -177,8 +175,6 @@ export const buildNoteMap = () => {
             state.noteMap.set(note.id, { note, folderId: folder.id });
         }
     }
-    // [수정] 이 함수 호출은 이제 itemActions.js에서 관리합니다.
-    // updateNoteCreationDates();
 };
 
 export const setState = (newState) => {
