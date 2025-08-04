@@ -77,7 +77,7 @@ export const loadData = async () => {
         
         const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
 
-        // [CRITICAL BUG FIX] 전체 덮어쓰기 대신 '패치' 방식으로 복구 로직 변경
+        // [CRITICAL BUG FIX] 데이터 유실 방지: 패치 적용 전 타임스탬프 비교
         if (uncommittedDataStr) {
             try {
                 const patchData = JSON.parse(uncommittedDataStr);
@@ -85,25 +85,35 @@ export const loadData = async () => {
                 // 메인 데이터가 존재하고, 패치가 유효한 노트 패치일 경우에만 진행
                 if (mainStorageData && patchData.type === 'note_patch') {
                     console.warn("저장되지 않은 노트 변경분(Patch) 발견. 데이터 병합을 시도합니다.");
-                    let noteFoundAndPatched = false;
-
-                    // 메인 데이터에서 패치할 노트를 찾습니다.
+                    
+                    let noteFound = false;
                     for (const folder of mainStorageData.folders) {
                         const noteToPatch = folder.notes.find(n => n.id === patchData.noteId);
                         if (noteToPatch) {
-                            // 패치 데이터를 노트에 병합합니다.
-                            Object.assign(noteToPatch, patchData.data);
-                            noteFoundAndPatched = true;
-                            break;
+                            noteFound = true;
+                            
+                            // [CRITICAL BUG FIX] 타임스탬프 비교 로직 추가
+                            // 패치 데이터가 주 저장소 데이터보다 최신일 경우에만 적용합니다.
+                            const mainNoteTimestamp = noteToPatch.updatedAt || 0;
+                            const patchTimestamp = patchData.data.updatedAt || 0;
+
+                            if (patchTimestamp > mainNoteTimestamp) {
+                                console.log(`패치 데이터가 더 최신이므로 적용합니다. (Patch: ${new Date(patchTimestamp).toISOString()}, Main: ${new Date(mainNoteTimestamp).toISOString()})`);
+                                Object.assign(noteToPatch, patchData.data);
+                                
+                                // 패치가 적용된 데이터를 새로운 타임스탬프와 함께 저장합니다.
+                                mainStorageData.lastSavedTimestamp = Date.now();
+                                await chrome.storage.local.set({ appState: mainStorageData });
+                                console.log("노트 데이터 패치 완료.");
+
+                            } else {
+                                console.warn(`저장되지 않은 변경사항(Patch)이 이미 저장된 데이터보다 오래되었거나 동일하므로 무시합니다. (Patch: ${new Date(patchTimestamp).toISOString()}, Main: ${new Date(mainNoteTimestamp).toISOString()})`);
+                            }
+                            break; // 해당 노트를 찾았으므로 루프 종료
                         }
                     }
 
-                    if (noteFoundAndPatched) {
-                        // 패치가 적용된 데이터를 새로운 타임스탬프와 함께 저장합니다.
-                        mainStorageData.lastSavedTimestamp = Date.now();
-                        await chrome.storage.local.set({ appState: mainStorageData });
-                        console.log("노트 데이터 패치 완료.");
-                    } else {
+                    if (!noteFound) {
                         console.warn(`패치할 노트를 찾지 못했습니다 (ID: ${patchData.noteId}). 다른 탭에서 삭제되었을 수 있습니다.`);
                     }
                 }
