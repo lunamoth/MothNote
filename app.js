@@ -1274,12 +1274,11 @@ const setupGlobalEventListeners = () => {
 
     // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 수정
     window.addEventListener('beforeunload', (e) => {
-        // [BUG 2 FIX] 데이터 가져오기 중이거나, 저장되지 않은 변경사항이 있거나,
+        // 데이터 가져오기 중이거나, 저장되지 않은 변경사항이 있거나,
         // 중요한 작업이 진행 중일 때 브라우저에 탭 종료 확인을 요청합니다.
         const needsProtection = window.isImporting || state.isDirty || state.renamingItemId || state.isPerformingOperation;
 
         if (needsProtection) {
-            // [CRITICAL BUG 1 & 2 FIX] `isDirty` 조건 제거. 보호가 필요하다면 항상 백업을 시도합니다.
             const currentTitle = noteTitleInput?.value ?? '';
             const currentContent = noteContentTextarea?.value ?? '';
 
@@ -1288,11 +1287,16 @@ const setupGlobalEventListeners = () => {
                 folders: state.folders, 
                 trash: state.trash,
                 favorites: Array.from(state.favorites),
-                // [CRITICAL BUG 2 FIX] 현재 메모리의 마지막 저장 시점을 백업에 포함합니다.
                 lastSavedTimestamp: state.lastSavedTimestamp
             }));
+
+            // ========================= [BUG FIX START] =========================
+            // [CRITICAL BUG FIX] 비상 백업 시, 현재 시점의 타임스탬프를 새로 부여합니다.
+            // 이를 통해 loadData에서 다른 탭의 저장 여부와 관계없이 이 백업을 최신으로 인식하게 됩니다.
+            dataToBackup.lastSavedTimestamp = Date.now();
+            // ========================== [BUG FIX END] ==========================
             
-            // 2. [수정] isDirty가 true일 때, activeNoteId 대신 dirtyNoteId를 사용해 백업 데이터를 업데이트
+            // 2. isDirty가 true일 때, activeNoteId 대신 dirtyNoteId를 사용해 백업 데이터를 업데이트
             if (state.isDirty && state.dirtyNoteId) {
                 const noteEntry = dataToBackup.folders
                     .flatMap(f => f.notes)
@@ -1305,7 +1309,7 @@ const setupGlobalEventListeners = () => {
                 }
             }
     
-            // [CRITICAL BUG 1 FIX] 이름 변경 중인 내용도 비상 백업에 포함
+            // 3. 이름 변경 중인 내용도 비상 백업에 포함
             if (state.renamingItemId) {
                 const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
                 if (renamingElement) {
