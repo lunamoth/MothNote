@@ -33,8 +33,9 @@ export const loadData = async () => {
     try {
         // [Critical 버그 수정] 가져오기 중단 시 복구 로직
         const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+        const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
         
-        // [BUG 2 FIX] 두 복구 로직이 충돌하지 않도록 if...else if... 구조로 변경
+        // [BUG 1 FIX] 가져오기 복구를 우선적으로 처리하고, 성공 시 비정상 종료 데이터를 무효화합니다.
         if (importInProgressData && Object.keys(importInProgressData).length > 0 && importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]) {
             const recoveredData = importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS];
             console.warn("중단된 가져오기 발견. 데이터 복구를 시도합니다.");
@@ -51,25 +52,23 @@ export const loadData = async () => {
             await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             console.log("가져오기 데이터 복구 완료.");
             
-            // [BUG 2 FIX] 가져오기 복구가 성공했으므로, 더 이상 유효하지 않은 비정상 종료 데이터는 제거
+            // 4. [핵심 수정] 가져오기 복구가 성공했으므로, 더 이상 유효하지 않은 비정상 종료 데이터는 제거합니다.
+            // 이렇게 하지 않으면, 가져오기 이전의 미저장 데이터가 가져온 데이터를 덮어쓰는 문제가 발생할 수 있습니다.
             localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
 
-        } else {
+        } else if (uncommittedDataStr) {
             // [High 버그 수정] 앱 로딩 시, 비정상 종료로 저장되지 않은 데이터가 있는지 확인하고 복구합니다.
-            const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-            if (uncommittedDataStr) {
-                try {
-                    console.warn("저장되지 않은 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
-                    const uncommittedData = JSON.parse(uncommittedDataStr);
-                    // chrome.storage에 비상 데이터를 저장 (복원)
-                    await chrome.storage.local.set({ appState: uncommittedData });
-                    // 복원이 완료되었으므로 localStorage의 백업은 제거
-                    localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-                    console.log("데이터 복구 및 백업 삭제 완료.");
-                } catch (e) {
-                    console.error("저장되지 않은 데이터 복구 실패:", e);
-                    // 실패 시 백업 데이터를 남겨두어 다음 시도를 할 수 있게 함
-                }
+            try {
+                console.warn("저장되지 않은 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
+                const uncommittedData = JSON.parse(uncommittedDataStr);
+                // chrome.storage에 비상 데이터를 저장 (복원)
+                await chrome.storage.local.set({ appState: uncommittedData });
+                // 복원이 완료되었으므로 localStorage의 백업은 제거
+                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+                console.log("데이터 복구 및 백업 삭제 완료.");
+            } catch (e) {
+                console.error("저장되지 않은 데이터 복구 실패:", e);
+                // 실패 시 백업 데이터를 남겨두어 다음 시도를 할 수 있게 함
             }
         }
 
@@ -361,13 +360,12 @@ export const setupImportHandler = () => {
         reader.onload = async event => {
             const overlay = document.createElement('div'); // 오버레이를 미리 생성
             overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold;';
-
+            
+            // [BUG 2 FIX] finally 블록을 사용하여 어떤 경우에도 isImporting 플래그가 초기화되도록 보장
             try {
                 const importedData = JSON.parse(event.target.result);
                 const sanitizedContent = sanitizeContentData(importedData);
                 
-                // [BUG #1 FIX] 파일에 설정이 없으면 기본 설정으로 덮어쓰도록 수정하여,
-                // "모든 설정을 덮어쓴다"는 경고 메시지와 동작을 일치시킵니다.
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
                 const sanitizedSettings = hasSettingsInFile 
                     ? sanitizeSettings(importedData.settings) 
@@ -382,6 +380,9 @@ export const setupImportHandler = () => {
                 });
 
                 if (ok) {
+                    // [BUG 2 FIX] 데이터 교체라는 민감한 작업이 시작됨을 알립니다.
+                    window.isImporting = true;
+                    
                     overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
                     document.body.appendChild(overlay);
 
@@ -393,28 +394,17 @@ export const setupImportHandler = () => {
                         favorites: Array.from(rebuiltFavorites)
                     };
 
-                    // [Critical 버그 수정] 가져오기 프로세스를 트랜잭션화하여 데이터 유실 방지
-                    // 1. 가져올 데이터를 임시 키에 저장
                     await chrome.storage.local.set({ 
                         [CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]: { 
                             appState: appStateToSave,
                             settings: sanitizedSettings
                         } 
                     });
-
-                    // 2. 메인 데이터 저장
                     await chrome.storage.local.set({ appState: appStateToSave });
-
-                    // 3. 설정 저장
                     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-
-                    // 4. [High 버그 수정] 이전 세션 정보를 완전히 제거하여, 새로고침 후 안전한 초기 상태로 시작하도록 합니다.
                     localStorage.removeItem(CONSTANTS.LS_KEY);
-                    
-                    // 5. 모든 저장이 성공했으므로 임시 데이터 삭제
                     await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
-                    // [Critical 버그 수정] 새로고침 대신 커스텀 이벤트를 발생시켜 데이터 불일치 문제를 해결합니다.
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS, CONSTANTS.TOAST_TYPE.SUCCESS);
                     window.dispatchEvent(new CustomEvent('app-data-imported'));
                     
@@ -427,6 +417,10 @@ export const setupImportHandler = () => {
                 if (overlay.parentElement) {
                     overlay.remove();
                 }
+            } finally {
+                // [BUG 2 FIX] 작업이 성공하든 실패하든, isImporting 상태를 해제하여
+                // beforeunload 핸들러가 정상적으로 동작하도록 복원합니다.
+                window.isImporting = false;
             }
         };
         reader.readAsText(file);

@@ -1274,76 +1274,76 @@ const setupGlobalEventListeners = () => {
 
     // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 수정
     window.addEventListener('beforeunload', (e) => {
-        // [수정] 데이터 가져오기 후 새로고침 시, 경고창이 뜨지 않도록 예외 처리
-        if (window.isImporting) {
-            // 의도된 새로고침이므로 데이터 유실 방지 로직을 건너뜁니다.
-            return;
-        }
+        // [BUG 2 FIX] 데이터 가져오기 중이거나, 저장되지 않은 변경사항이 있거나,
+        // 중요한 작업이 진행 중일 때 브라우저에 탭 종료 확인을 요청합니다.
+        const needsProtection = window.isImporting || state.isDirty || state.renamingItemId || state.isPerformingOperation;
 
-        // [Critical 버그 수정] isDirty, renamingItemId, 또는 중요한 작업 수행 중에 핸들러를 실행
-        if (state.isDirty || state.renamingItemId || state.isPerformingOperation) {
+        if (needsProtection) {
             // isDirty가 true일 때만 최신 DOM 값으로 백업 데이터를 생성합니다.
-            const currentTitle = noteTitleInput?.value ?? '';
-            const currentContent = noteContentTextarea?.value ?? '';
+            // (가져오기 중일 때는 isDirty가 아닐 수 있으므로 분리)
+            if (state.isDirty) {
+                const currentTitle = noteTitleInput?.value ?? '';
+                const currentContent = noteContentTextarea?.value ?? '';
 
-            // 1. 현재 state를 기반으로 백업할 데이터의 깊은 복사본을 생성합니다.
-            const dataToBackup = JSON.parse(JSON.stringify({
-                folders: state.folders, 
-                trash: state.trash,
-                favorites: Array.from(state.favorites) 
-            }));
+                // 1. 현재 state를 기반으로 백업할 데이터의 깊은 복사본을 생성합니다.
+                const dataToBackup = JSON.parse(JSON.stringify({
+                    folders: state.folders, 
+                    trash: state.trash,
+                    favorites: Array.from(state.favorites) 
+                }));
+                
+                // 2. [수정] isDirty가 true일 때, activeNoteId 대신 dirtyNoteId를 사용해 백업 데이터를 업데이트
+                if (state.isDirty && state.dirtyNoteId) {
+                    const noteEntry = dataToBackup.folders
+                        .flatMap(f => f.notes)
+                        .find(n => n.id === state.dirtyNoteId);
             
-            // 2. [수정] isDirty가 true일 때, activeNoteId 대신 dirtyNoteId를 사용해 백업 데이터를 업데이트
-            if (state.isDirty && state.dirtyNoteId) {
-                const noteEntry = dataToBackup.folders
-                    .flatMap(f => f.notes)
-                    .find(n => n.id === state.dirtyNoteId);
+                    if (noteEntry) {
+                        noteEntry.title = currentTitle;
+                        noteEntry.content = currentContent;
+                        noteEntry.updatedAt = Date.now();
+                    }
+                }
         
-                if (noteEntry) {
-                    noteEntry.title = currentTitle;
-                    noteEntry.content = currentContent;
-                    noteEntry.updatedAt = Date.now();
-                }
-            }
-    
-            // [High 버그 수정] 이름 변경 중인 내용도 비상 백업에 포함
-            if (state.renamingItemId) {
-                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-                if (renamingElement) {
-                    const newName = renamingElement.textContent;
-                    let itemFound = false;
+                // [High 버그 수정] 이름 변경 중인 내용도 비상 백업에 포함
+                if (state.renamingItemId) {
+                    const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
+                    if (renamingElement) {
+                        const newName = renamingElement.textContent;
+                        let itemFound = false;
 
-                    // 폴더에서 찾기
-                    for (const folder of dataToBackup.folders) {
-                        if (folder.id === state.renamingItemId) {
-                            folder.name = newName;
-                            itemFound = true;
-                            break;
+                        // 폴더에서 찾기
+                        for (const folder of dataToBackup.folders) {
+                            if (folder.id === state.renamingItemId) {
+                                folder.name = newName;
+                                itemFound = true;
+                                break;
+                            }
+                            // 노트에서 찾기
+                            const note = folder.notes.find(n => n.id === state.renamingItemId);
+                            if (note) {
+                                note.title = newName;
+                                itemFound = true;
+                                break;
+                            }
                         }
-                        // 노트에서 찾기
-                        const note = folder.notes.find(n => n.id === state.renamingItemId);
-                        if (note) {
-                            note.title = newName;
-                            itemFound = true;
-                            break;
-                        }
-                    }
-                    // 휴지통에서 찾기
-                    if (!itemFound) {
-                        const itemInTrash = dataToBackup.trash.find(item => item.id === state.renamingItemId);
-                        if (itemInTrash) {
-                            if (itemInTrash.type === 'folder') itemInTrash.name = newName;
-                            else if (itemInTrash.type === 'note') itemInTrash.title = newName;
+                        // 휴지통에서 찾기
+                        if (!itemFound) {
+                            const itemInTrash = dataToBackup.trash.find(item => item.id === state.renamingItemId);
+                            if (itemInTrash) {
+                                if (itemInTrash.type === 'folder') itemInTrash.name = newName;
+                                else if (itemInTrash.type === 'note') itemInTrash.title = newName;
+                            }
                         }
                     }
                 }
-            }
 
-            // 4. 동기적으로 처리된 최신 데이터를 localStorage에 저장합니다.
-            try {
-                localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(dataToBackup));
-            } catch (err) {
-                console.error("비상 데이터 저장 실패(localStorage):", err);
+                // 4. 동기적으로 처리된 최신 데이터를 localStorage에 저장합니다.
+                try {
+                    localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(dataToBackup));
+                } catch (err) {
+                    console.error("비상 데이터 저장 실패(localStorage):", err);
+                }
             }
     
             // 5. 브라우저에게 페이지를 떠나지 말라고 알립니다.
