@@ -763,6 +763,13 @@ async function _performSave(noteId, titleToSave, contentToSave) {
 }
 
 export async function handleNoteUpdate(isForced = false, skipUiUpdate = false, forceData = null) {
+    // [CRITICAL BUG FIX] 충돌로 인해 UI가 잠겼을 경우, 어떠한 저장 시도도 해서는 안됩니다.
+    // 예약된 타이머를 즉시 취소하고 함수를 종료하여 데이터 덮어쓰기를 방지합니다.
+    if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY)) {
+        clearTimeout(debounceTimer);
+        return true; // 저장이 필요 없으므로 성공으로 간주하고 종료
+    }
+
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
         return true;
