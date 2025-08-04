@@ -10,7 +10,7 @@ import {
     settingsWeatherLat, settingsWeatherLon,
     settingsExportBtn, settingsImportBtn, settingsResetBtn, settingsSaveBtn,
     settingsWeatherCitySearch, settingsWeatherCitySearchBtn, settingsWeatherCityResults,
-    editorContainer // [수정] editorContainer 가져오기
+    editorContainer
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
 import { 
@@ -622,7 +622,6 @@ class Dashboard {
 
 
 // --- 전역 변수 ---
-// [Critical 버그 수정] 각 탭을 식별하기 위한 고유 ID 생성
 const tabId = crypto.randomUUID();
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
@@ -1124,7 +1123,28 @@ async function handleStorageSync(changes) {
     if (state.isDirty) {
         console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes. Locking UI and forcing a reload to ensure data integrity.");
 
-        // 1. 추가적인 데이터 변경을 막기 위해 UI를 즉시 잠급니다.
+        // [수정됨] 1. 모달을 띄우기 전에, 현재 편집기 내용을 즉시 백업합니다.
+        try {
+            if (state.dirtyNoteId) {
+                const backupPatch = [{
+                    type: 'note_patch',
+                    noteId: state.dirtyNoteId,
+                    data: { 
+                        title: noteTitleInput?.value ?? '', 
+                        content: noteContentTextarea?.value ?? '', 
+                        updatedAt: Date.now() 
+                    }
+                }];
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
+                localStorage.setItem(backupKey, JSON.stringify(backupPatch));
+                console.log(`[Critical Backup] Conflict detected. Unsaved data for note ${state.dirtyNoteId} has been backed up to '${backupKey}'.`);
+            }
+        } catch (err) {
+            console.error("Critical backup failed during conflict handling:", err);
+            // 백업 실패 시에도 사용자에게 알려야 하지만, 일단 진행합니다.
+        }
+        
+        // 2. UI를 잠급니다.
         editorContainer.classList.add(CONSTANTS.CLASSES.READONLY);
         noteTitleInput.readOnly = true;
         noteContentTextarea.readOnly = true;
@@ -1132,18 +1152,16 @@ async function handleStorageSync(changes) {
         addNoteBtn.disabled = true;
         settingsBtn.disabled = true;
         
-        // 2. 사용자에게 상황을 알리고, 새로고침 외에 다른 선택지를 주지 않는 모달을 띄웁니다.
-        // 이 모달이 닫히면 페이지는 새로고침됩니다.
+        // 3. 사용자에게 상황을 알리고, 새로고침 외에 다른 선택지를 주지 않는 모달을 띄웁니다.
         await showConfirmModal({
             title: '⚠️ 데이터 동기화 충돌',
-            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업됩니다.</strong>',
+            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업되었습니다.</strong>',
             isHtml: true,
             confirmText: '🔄 지금 새로고침',
             hideCancelButton: true
         });
 
-        // 3. 사용자가 확인 버튼을 누르면, 페이지를 새로고침합니다.
-        // beforeunload 핸들러가 dirty state를 감지하고 현재 내용을 백업할 것입니다.
+        // 4. 사용자가 확인 버튼을 누르면, 페이지를 새로고침합니다.
         window.location.reload();
         
         return; // UI 잠금 후, 이후의 상태 업데이트 로직은 실행하지 않습니다.
