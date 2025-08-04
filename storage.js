@@ -6,6 +6,63 @@ import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemAct
 // [추가] 현재 탭에서 저장 중인지 여부를 나타내는 플래그. export하여 다른 모듈에서 참조할 수 있게 합니다.
 export let isSavingLocally = false;
 
+// --- [Critical Bug Fix] 탭 간 쓰기 충돌 방지를 위한 분산 락(Distributed Lock) 구현 ---
+
+/**
+ * 모든 탭에 걸쳐 공유되는 쓰기 락을 획득하려고 시도합니다.
+ * @param {string} tabId 락을 획득하려는 현재 탭의 고유 ID
+ * @returns {Promise<boolean>} 락 획득 성공 여부
+ */
+export async function acquireWriteLock(tabId) {
+    const { SS_KEY_WRITE_LOCK, LOCK_TIMEOUT_MS } = CONSTANTS;
+    const newLock = { tabId, timestamp: Date.now() };
+
+    try {
+        const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
+        let currentLock = result[SS_KEY_WRITE_LOCK];
+
+        // 다른 탭이 소유한 락이 만료되었는지 확인
+        if (currentLock && (Date.now() - currentLock.timestamp > LOCK_TIMEOUT_MS)) {
+            console.warn(`만료된 쓰기 락을 발견했습니다 (소유자: ${currentLock.tabId}). 락을 강제로 해제합니다.`);
+            currentLock = null;
+        }
+
+        // 락이 없거나 만료되었다면, 락 획득 시도
+        if (!currentLock || currentLock.tabId === tabId) {
+            await chrome.storage.session.set({ [SS_KEY_WRITE_LOCK]: newLock });
+            
+            // 원자성을 보장하기 위해, 잠시 후 다시 읽어서 내가 설정한 락이 맞는지 최종 확인
+            const verificationResult = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
+            if (verificationResult[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
+                return true; // 락 획득 성공
+            }
+        }
+    } catch (e) {
+        console.error("쓰기 락 획득 중 오류 발생:", e);
+    }
+
+    return false; // 락 획득 실패
+}
+
+/**
+ * 현재 탭이 소유한 쓰기 락을 해제합니다.
+ * @param {string} tabId 락을 해제하려는 현재 탭의 고유 ID
+ */
+export async function releaseWriteLock(tabId) {
+    const { SS_KEY_WRITE_LOCK } = CONSTANTS;
+    try {
+        const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
+        // 내가 소유한 락일 경우에만 해제
+        if (result[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
+            await chrome.storage.session.remove(SS_KEY_WRITE_LOCK);
+        }
+    } catch (e) {
+        console.error("쓰기 락 해제 중 오류 발생:", e);
+    }
+}
+// --- 락 구현 끝 ---
+
+
 export const saveData = async () => {
     // [수정] 저장 작업을 시작하기 전에 동기적으로 플래그를 설정합니다.
     isSavingLocally = true;

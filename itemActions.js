@@ -1,5 +1,6 @@
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-import { saveData, saveSession } from './storage.js';
+// [Critical Bug Fix] 분산 락 관련 함수를 storage.js에서 가져옵니다.
+import { saveData, saveSession, acquireWriteLock, releaseWriteLock } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
@@ -97,6 +98,24 @@ export const setCalendarRenderer = (renderer) => {
 
 // [핵심 수정] 데이터 무결성을 위한 원자적 업데이트 함수 (모든 데이터 수정의 진입점)
 export const performTransactionalUpdate = async (updateFn) => {
+    // --- [Critical Bug Fix] 1. 분산 락 획득 시도 ---
+    // 락을 획득할 때까지 여러 번 재시도하여 안정성을 높입니다.
+    let lockAcquired = false;
+    for (let i = 0; i < 5; i++) {
+        if (await acquireWriteLock(window.tabId)) {
+            lockAcquired = true;
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 200)); // 랜덤 백오프
+    }
+
+    if (!lockAcquired) {
+        console.error("데이터 저장 실패: 다른 탭에서 작업을 처리 중입니다.");
+        showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+    // --- 락 획득 완료 ---
+
     await globalSaveLock;
     let releaseLock;
     globalSaveLock = new Promise(resolve => { releaseLock = resolve; });
@@ -105,72 +124,44 @@ export const performTransactionalUpdate = async (updateFn) => {
     try {
         setState({ isPerformingOperation: true });
 
-        // 1. 트랜잭션 시작 시점의 데이터와 타임스탬프(버전)를 읽어옵니다.
+        // 1. 트랜잭션 시작 시점의 데이터 읽기 (락을 획득했으므로 최신 데이터임)
         const storageResult = await chrome.storage.local.get('appState');
         const latestData = storageResult.appState || { folders: [], trash: [], favorites: [] };
-        const readTimestamp = latestData.lastSavedTimestamp || null; // 시작 버전
         const dataCopy = JSON.parse(JSON.stringify(latestData));
 
         const result = await updateFn(dataCopy);
         
         if (result === null) {
-            // 조기 종료 시에도 잠금을 해제하고 상태를 복원해야 합니다.
             setState({ isPerformingOperation: false });
-            releaseLock();
+            // releaseLock()와 releaseWriteLock()은 finally 블록에서 처리
             return false;
         }
 
         const { newData, successMessage, postUpdateState } = result;
         
-        // --- CRITICAL BUG FIX: 저장 직전 데이터 버전 확인 (낙관적 잠금) ---
-        // 2. 실제 저장을 실행하기 직전에, 스토리지의 타임스탬프를 다시 확인합니다.
-        const currentStorageState = await chrome.storage.local.get('appState');
-        const currentTimestamp = currentStorageState.appState?.lastSavedTimestamp || null;
-
-        // 3. 트랜잭션을 시작할 때 읽었던 타임스탬프와 현재 스토리지의 타임스탬프가 다르면,
-        //    그 사이에 다른 탭에서 데이터 변경이 있었다는 의미이므로, 현재 트랜잭션을 중단합니다.
-        if (readTimestamp !== currentTimestamp) {
-            console.error("Data conflict detected during transaction! Aborting save operation.");
-            showToast("다른 탭에서 변경사항이 감지되어 저장이 중단되었습니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
-            
-            // storage.onChanged 이벤트가 이어서 상태를 업데이트할 것이므로, 현재 탭의 변경은 버려져야 합니다.
-            // 사용자가 다시 시도할 수 있도록 isPerformingOperation 상태만 해제합니다.
-            setState({ isPerformingOperation: false });
-            releaseLock();
-            return false; // 저장 실패
-        }
-        // --- 수정 끝 ---
+        // --- [Critical Bug Fix] 기존의 낙관적 잠금 로직은 이제 분산 락으로 대체되었으므로 제거합니다. ---
         
-        // --- [수정] 저널링 로직 추가 ---
+        // --- 저널링 로직 (데이터 손실 방지) ---
         try {
-            // 1. 진행 중인 트랜잭션 데이터를 localStorage에 먼저 기록 (저널링)
             localStorage.setItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX, JSON.stringify(newData));
         } catch (e) {
-            // localStorage 기록 실패 시 트랜잭션 중단
             console.error("In-flight transaction journaling failed. Aborting.", e);
             showToast("데이터 임시 저장에 실패하여 작업을 중단합니다.", CONSTANTS.TOAST_TYPE.ERROR);
-            // releaseLock() 및 상태 복원은 finally 블록에서 처리됨
+            // releaseLock() 등은 finally 블록에서 처리
             return false;
         }
-        // --- 수정 끝 ---
         
-        // 트랜잭션 ID 생성 및 주입
         const transactionId = Date.now() + Math.random();
         newData.transactionId = transactionId;
         
         const timestamp = Date.now();
-        newData.lastSavedTimestamp = timestamp; // 새로운 타임스탬프(버전) 설정
+        newData.lastSavedTimestamp = timestamp;
         
-        // 저장 전에 현재 탭의 트랜잭션 ID를 먼저 설정
         setState({ currentTransactionId: transactionId });
         await chrome.storage.local.set({ appState: newData });
         
-        // --- [수정] 저널링 데이터 삭제 ---
-        // 2. chrome.storage.local에 성공적으로 저장된 후, 저널을 삭제
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
-        // --- 수정 끝 ---
         
-        // 상태 업데이트
         setState({
             ...state,
             folders: newData.folders,
@@ -180,7 +171,6 @@ export const performTransactionalUpdate = async (updateFn) => {
             ...postUpdateState
         });
         
-        // 파생 데이터 및 UI 갱신
         buildNoteMap();
         updateNoteCreationDates();
         clearSortedNotesCache();
@@ -200,7 +190,10 @@ export const performTransactionalUpdate = async (updateFn) => {
         showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         success = false;
     } finally {
-        // 성공/실패 여부와 관계없이 항상 상태를 복원하고 잠금을 해제합니다.
+        // --- [Critical Bug Fix] 2. 작업 성공/실패 여부와 관계없이 반드시 락을 해제합니다. ---
+        await releaseWriteLock(window.tabId);
+        // --- 락 해제 완료 ---
+        
         setState({ isPerformingOperation: false });
         releaseLock();
     }
