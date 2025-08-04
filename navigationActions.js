@@ -1,7 +1,7 @@
 import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
 import { saveSession } from './storage.js';
 import {
-    searchInput, showConfirm, sortNotes, showToast // [BUG 1 FIX] showToast 추가
+    searchInput, showConfirm, sortNotes, showToast, noteTitleInput, noteContentTextarea
 } from './components.js';
 // [개선] finishPendingRename을 itemActions에서 가져와 중복 제거
 import { handleNoteUpdate, finishPendingRename } from './itemActions.js';
@@ -13,9 +13,16 @@ import { clearSortedNotesCache } from './renderer.js';
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
-// [BUG 1 FIX] 저장 실패 시 내비게이션을 중단하도록 로직 수정
+// [CRITICAL BUG FIX] 저장되지 않은 노트 전환 시 데이터 손실 버그 수정
 export const confirmNavigation = async () => {
     if (!state.isDirty) return true;
+
+    // [CRITICAL BUG FIX] 저장 모달을 띄우기 전, 현재 "dirty" 상태의 편집기 값을 먼저 캡처합니다.
+    // 이는 노트 전환 시 발생하는 데이터 오염(Race Condition)을 방지합니다.
+    const dirtyData = {
+        title: noteTitleInput.value,
+        content: noteContentTextarea.value
+    };
 
     const ok = await showConfirm({
         title: CONSTANTS.MODAL_TITLES.UNSAVED_CHANGES,
@@ -25,9 +32,9 @@ export const confirmNavigation = async () => {
     });
 
     if (ok) {
-        const savedSuccessfully = await handleNoteUpdate(true); // 강제 저장 후 성공 여부 확인
+        // [CRITICAL BUG FIX] 캡처한 'dirtyData'를 handleNoteUpdate에 전달하여 저장을 요청합니다.
+        const savedSuccessfully = await handleNoteUpdate(true, false, dirtyData);
         if (savedSuccessfully) {
-            // [수정] setState 호출 제거. handleNoteUpdate에서 상태를 올바르게 관리함.
             return true; // 저장 성공 시에만 이동 허용
         } else {
             // 저장 실패 시 사용자에게 알리고 이동을 취소

@@ -876,8 +876,8 @@ async function _performSave(noteId, titleToSave, contentToSave, skipSave = false
     return true; // 저장 성공 또는 건너뛴 경우 true 반환
 }
 
-// [BUG 1 FIX & CRITICAL BUG FIX] handleNoteUpdate가 전역 잠금을 사용하고 저장 성공 여부(boolean)를 반환하도록 수정
-export async function handleNoteUpdate(isForced = false, skipSave = false) {
+// [CRITICAL BUG FIX] 데이터 손실/오염을 방지하기 위해 handleNoteUpdate 함수 수정
+export async function handleNoteUpdate(isForced = false, skipSave = false, forceData = null) {
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
         return true;
@@ -911,19 +911,21 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
     // 강제 저장 실행 로직 (isForced = true)
     clearTimeout(debounceTimer);
 
-    if (!state.isDirty) {
+    if (!state.isDirty && !forceData) {
         return true; // 저장할 변경사항이 없음
     }
 
     const noteIdToSave = state.dirtyNoteId;
     if (!noteIdToSave) {
-        // 비정상적인 상태. isDirty는 true인데 ID가 없는 경우. 상태를 안전하게 리셋.
+        // isDirty는 true인데 ID가 없는 비정상적인 상태. 안전하게 리셋.
         setState({ isDirty: false, dirtyNoteId: null });
         return true;
     }
     
-    const titleToSave = noteTitleInput.value;
-    const contentToSave = noteContentTextarea.value;
+    // [CRITICAL BUG FIX] forceData가 있으면 DOM 대신 그 값을 사용하고, 없으면 DOM 값을 사용합니다.
+    // 이는 노트 전환 시 발생하는 데이터 오염(Race Condition)을 방지합니다.
+    const titleToSave = forceData ? forceData.title : noteTitleInput.value;
+    const contentToSave = forceData ? forceData.content : noteContentTextarea.value;
     
     // 저장하려는 노트가 여전히 존재하는지 확인
     const { item: noteToModify } = findNote(noteIdToSave);
@@ -952,7 +954,7 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
         setState({ isDirty: false, dirtyNoteId: null });
 
         // 현재 보고 있는 노트가 방금 저장한 노트와 같고, 저장 이후 추가 변경이 없었다면 '저장됨' UI 표시
-        if (state.activeNoteId === noteIdToSave) {
+        if (state.activeNoteId === noteIdToSave && !forceData) {
             const hasChangedAgain = noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave;
             if (!hasChangedAgain) {
                 updateSaveStatus('saved');
@@ -961,6 +963,9 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
                 setState({ isDirty: true, dirtyNoteId: state.activeNoteId });
                 updateSaveStatus('dirty');
             }
+        } else if (forceData) {
+            // 다른 노트로 전환하면서 저장한 경우, UI는 그냥 둔다.
+            updateSaveStatus('saved');
         }
         wasSuccessful = true;
     } catch (e) {
