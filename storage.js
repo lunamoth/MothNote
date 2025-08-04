@@ -184,32 +184,32 @@ export const loadData = async () => {
                         const noteToPatch = folder.notes.find(n => n.id === patch.noteId);
                         if (noteToPatch) {
                             noteFound = true;
-                            // [CRITICAL BUG FIX] 타임스탬프가 단순히 최신인지만 보지 않고,
-                            // 패치의 updatedAt과 스토리지 데이터의 updatedAt이 다른 경우 '충돌'로 간주합니다.
-                            // 이는 다른 탭에서 유의미한 변경이 있었음을 의미합니다.
-                            if ((patch.data.updatedAt || 0) >= (noteToPatch.updatedAt || 0)) {
-                                // 타임스탬프가 다르다면, 덮어쓰지 않고 충돌된 노트를 새로 생성합니다.
-                                if (patch.data.updatedAt !== noteToPatch.updatedAt) {
-                                    console.warn(`데이터 충돌 감지 (ID: ${patch.noteId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
-                                    const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
-                                    let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                                    if (!recoveryFolder) {
-                                        const now = Date.now();
-                                        recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                                        authoritativeData.folders.unshift(recoveryFolder);
-                                    }
-                                    const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[충돌] ${patch.data.title}`, isPinned: false, isFavorite: false };
-                                    recoveryFolder.notes.unshift(conflictedNote);
-                                    recoveryMessage = `'${patch.data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
-                                } else {
-                                    // 타임스탬프가 같다면, 정상적인 복구로 간주하고 덮어씁니다.
-                                    Object.assign(noteToPatch, patch.data);
-                                    recoveryMessage = `저장되지 않았던 노트 '${patch.data.title}'의 변경사항을 복구했습니다.`;
+                            // [CRITICAL BUG FIX] 데이터 유실 방지를 위해 타임스탬프 검사 로직을 수정합니다.
+                            // 기존 로직은 패치의 타임스탬프가 저장된 데이터보다 오래되면 패치를 무시하여,
+                            // 동기화 충돌 시 생성된 비상 백업 데이터가 유실되는 치명적 결함이 있었습니다.
+                            // 이제 패치가 존재하면 항상 내용의 타임스탬프를 비교하여 충돌 여부를 판단합니다.
+                            
+                            // 타임스탬프가 다르다면, 다른 탭에서 변경이 있었다는 의미이므로 '충돌'입니다.
+                            // 덮어쓰기를 방지하기 위해, 패치 내용을 별도의 복구 노트로 생성합니다.
+                            if (patch.data.updatedAt !== noteToPatch.updatedAt) {
+                                console.warn(`데이터 충돌 감지 (ID: ${patch.noteId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
+                                const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
+                                let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                                if (!recoveryFolder) {
+                                    const now = Date.now();
+                                    recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
+                                    authoritativeData.folders.unshift(recoveryFolder);
                                 }
-                                 dataWasPatched = true;
+                                const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[충돌] ${patch.data.title}`, isPinned: false, isFavorite: false };
+                                recoveryFolder.notes.unshift(conflictedNote);
+                                recoveryMessage = `'${patch.data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
                             } else {
-                                 console.warn(`패치 데이터가 이미 저장된 노트 데이터보다 오래되어 무시합니다. (ID: ${patch.noteId})`);
+                                // 타임스탬프가 같다면, 브라우저 비정상 종료 등으로 인한 정상적인 복구 상황입니다.
+                                // 이 경우 데이터를 안전하게 덮어씁니다.
+                                Object.assign(noteToPatch, patch.data);
+                                recoveryMessage = `저장되지 않았던 노트 '${patch.data.title}'의 변경사항을 복구했습니다.`;
                             }
+                            dataWasPatched = true;
                             break;
                         }
                     }
@@ -571,8 +571,8 @@ export const setupImportHandler = () => {
 
         const reader = new FileReader();
         reader.onload = async event => {
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold;';
+            // [개선] 로딩 인디케이터를 위한 변수 선언
+            let overlay = null;
             
             try {
                 const importedData = JSON.parse(event.target.result);
@@ -620,7 +620,15 @@ export const setupImportHandler = () => {
 
                 window.isImporting = true;
                 
-                overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
+                // [개선] 세련된 로딩 인디케이터 생성
+                overlay = document.createElement('div');
+                overlay.className = 'import-overlay';
+                overlay.innerHTML = `
+                    <div class="import-indicator-box">
+                        <div class="import-spinner"></div>
+                        <p class="import-message">데이터를 적용하는 중입니다... 잠시만 기다려주세요.</p>
+                    </div>
+                `;
                 document.body.appendChild(overlay);
 
                 const rebuiltFavorites = new Set(sanitizedContent.favorites);
@@ -654,7 +662,8 @@ export const setupImportHandler = () => {
 
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
-                if (overlay.parentElement) {
+                // [개선] 에러 발생 시에도 오버레이가 있다면 제거
+                if (overlay && overlay.parentElement) {
                     overlay.remove();
                 }
             } finally {
