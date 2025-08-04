@@ -1119,49 +1119,80 @@ async function handleStorageSync(changes) {
         }
     }
 
-    // [CRITICAL BUG #1 FIX] 데이터 충돌 시 UI 잠금 및 새로고침 강제
+    // [CRITICAL BUG #1 FIX] 데이터 충돌 시 UI 잠금 및 새로고침 강제, 백업 실패에 대한 안전장치 추가
     if (state.isDirty) {
         console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes. Locking UI and forcing a reload to ensure data integrity.");
 
-        // [수정됨] 1. 모달을 띄우기 전에, 현재 편집기 내용을 즉시 백업합니다.
-        try {
-            if (state.dirtyNoteId) {
-                const backupPatch = [{
-                    type: 'note_patch',
-                    noteId: state.dirtyNoteId,
-                    data: { 
-                        title: noteTitleInput?.value ?? '', 
-                        content: noteContentTextarea?.value ?? '', 
-                        updatedAt: Date.now() 
-                    }
-                }];
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
-                localStorage.setItem(backupKey, JSON.stringify(backupPatch));
-                console.log(`[Critical Backup] Conflict detected. Unsaved data for note ${state.dirtyNoteId} has been backed up to '${backupKey}'.`);
-            }
-        } catch (err) {
-            console.error("Critical backup failed during conflict handling:", err);
-            // 백업 실패 시에도 사용자에게 알려야 하지만, 일단 진행합니다.
-        }
-        
-        // 2. UI를 잠급니다.
+        // UI를 먼저 잠급니다. 어떤 경우든 추가 편집은 막아야 합니다.
         editorContainer.classList.add(CONSTANTS.CLASSES.READONLY);
         noteTitleInput.readOnly = true;
         noteContentTextarea.readOnly = true;
         addFolderBtn.disabled = true;
         addNoteBtn.disabled = true;
         settingsBtn.disabled = true;
-        
-        // 3. 사용자에게 상황을 알리고, 새로고침 외에 다른 선택지를 주지 않는 모달을 띄웁니다.
-        await showConfirmModal({
-            title: '⚠️ 데이터 동기화 충돌',
-            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업되었습니다.</strong>',
-            isHtml: true,
-            confirmText: '🔄 지금 새로고침',
-            hideCancelButton: true
-        });
 
-        // 4. 사용자가 확인 버튼을 누르면, 페이지를 새로고침합니다.
+        let backupSucceeded = false;
+        const currentTitle = noteTitleInput?.value ?? '';
+        const currentContent = noteContentTextarea?.value ?? '';
+
+        try {
+            if (state.dirtyNoteId) {
+                const backupPatch = [{
+                    type: 'note_patch',
+                    noteId: state.dirtyNoteId,
+                    data: {
+                        title: currentTitle,
+                        content: currentContent,
+                        updatedAt: Date.now()
+                    }
+                }];
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
+                localStorage.setItem(backupKey, JSON.stringify(backupPatch));
+                console.log(`[Critical Backup] Conflict detected. Unsaved data for note ${state.dirtyNoteId} has been backed up to '${backupKey}'.`);
+                backupSucceeded = true;
+            } else {
+                // dirtyNoteId가 없는 경우는 거의 없지만, 방어적으로 처리
+                backupSucceeded = true;
+            }
+        } catch (err) {
+            console.error("Critical backup failed during conflict handling:", err);
+            backupSucceeded = false;
+        }
+
+        if (backupSucceeded) {
+            // 백업 성공 시의 모달
+            await showConfirmModal({
+                title: '⚠️ 데이터 동기화 충돌',
+                message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업되었습니다.</strong>',
+                isHtml: true,
+                confirmText: '🔄 지금 새로고침',
+                hideCancelButton: true
+            });
+        } else {
+            // 백업 실패 시의 모달 (안전장치)
+            const backupFailureMessage = document.createElement('div');
+            backupFailureMessage.innerHTML = `
+                <p>다른 탭에서 노트가 변경되어 동기화가 필요하지만, <strong>비상 백업에 실패했습니다.</strong> (저장 공간 부족 가능성)</p>
+                <p style="margin-top: 15px; font-weight: bold; color: var(--danger-color);">새로고침하면 현재 편집 중인 내용이 유실될 수 있습니다.</p>
+                <p style="margin-top: 15px;">아래 내용을 복사하여 다른 곳에 붙여넣은 후, 새로고침 버튼을 눌러주세요.</p>
+                <textarea readonly style="width: 100%; height: 150px; margin-top: 10px; background-color: var(--input-bg-color); color: var(--font-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; font-family: monospace; resize: vertical;"></textarea>
+            `;
+            const contentTextArea = backupFailureMessage.querySelector('textarea');
+            contentTextArea.value = `--- 제목 ---\n${currentTitle}\n\n--- 내용 ---\n${currentContent}`;
+            
+            // 사용자가 텍스트를 쉽게 선택할 수 있도록 포커스 및 선택 처리
+            setTimeout(() => contentTextArea.select(), 100);
+
+            await showConfirmModal({
+                title: '🚨 중요: 데이터 백업 실패',
+                message: backupFailureMessage,
+                confirmText: '🔄 새로고침 (데이터 유실 가능)',
+                confirmButtonType: 'danger',
+                hideCancelButton: true
+            });
+        }
+        
+        // 어떤 모달이든, 확인을 누르면 새로고침
         window.location.reload();
         
         return; // UI 잠금 후, 이후의 상태 업데이트 로직은 실행하지 않습니다.
