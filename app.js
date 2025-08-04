@@ -1336,6 +1336,12 @@ const setupGlobalEventListeners = () => {
 
     // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 수정
     window.addEventListener('beforeunload', (e) => {
+        // [BUG FIX] 저장이 진행 중일 때는 데이터가 곧 영구 저장소에 기록될 것이므로,
+        // 오래된 데이터로 비상 백업을 만들지 않도록 합니다.
+        if (window.isSavingInProgress) {
+            return;
+        }
+
         // 데이터 가져오기 중이거나, 저장되지 않은 변경사항이 있거나,
         // 중요한 작업이 진행 중일 때 브라우저에 탭 종료 확인을 요청합니다.
         const needsProtection = window.isImporting || state.isDirty || state.renamingItemId || state.isPerformingOperation;

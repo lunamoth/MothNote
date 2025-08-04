@@ -528,7 +528,7 @@ const handleDeleteNote = (id) => {
             let notesInCurrentView;
             const { item: folderData } = findFolder(state.activeFolderId);
             if (folderData?.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
-                notesInCurrentView = filteredNotes.sort((a,b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+                notesInCurrentView = filteredNotes.sort((a,b) => (b.deletedAt ?? 0) - (b.deletedAt ?? 0));
             } else if (folderData?.isSortable !== false) {
                 notesInCurrentView = sortNotes(filteredNotes, state.noteSortOrder);
             } else {
@@ -942,6 +942,7 @@ export async function handleNoteUpdate(isForced = false, skipSave = false, force
     });
 
     try {
+        window.isSavingInProgress = true; // [BUG FIX] 저장 시작을 동기적으로 알림
         const success = await _performSave(noteIdToSave, titleToSave, contentToSave, skipSave);
         if (!success) {
             updateSaveStatus('dirty'); // 실패 시 '변경됨' 상태 유지
@@ -971,6 +972,7 @@ export async function handleNoteUpdate(isForced = false, skipSave = false, force
         console.error("Save failed:", e);
         wasSuccessful = false;
     } finally {
+        window.isSavingInProgress = false; // [BUG FIX] 저장 완료/실패 시 플래그 해제
         // [CRITICAL BUG FIX] 작업 완료 후 반드시 잠금 해제
         releaseLock();
     }
