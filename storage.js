@@ -156,20 +156,44 @@ export const loadData = async () => {
                             break;
                         }
                     }
-                    if (!noteFound && !authoritativeData.trash.some(item => item.id === patch.noteId)) {
-                        console.warn(`패치할 노트를 찾지 못했으며(ID: ${patch.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
-                        const RECOVERY_FOLDER_NAME = '복구된 노트';
-                        let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                        if (!recoveryFolder) {
-                             const now = Date.now();
-                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                            authoritativeData.folders.unshift(recoveryFolder);
+                    
+                    // [CRITICAL BUG FIX] 노트가 폴더 목록에 없는 경우, 휴지통에 있거나 완전 유실된 상태이므로 별도 처리합니다.
+                    if (!noteFound) {
+                        const isInTrash = authoritativeData.trash.some(item => item.id === patch.noteId);
+                        
+                        if (isInTrash) {
+                            // [신규 로직] '삭제 중 편집' 충돌 상황입니다. 데이터 유실을 막기 위해 패치 내용을 별도 복구합니다.
+                            console.warn(`삭제-편집 충돌 감지 (ID: ${patch.noteId}). 유실을 방지하기 위해 복구 노트를 생성합니다.`);
+                            const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
+                            let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                            if (!recoveryFolder) {
+                                 const now = Date.now();
+                                recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
+                                authoritativeData.folders.unshift(recoveryFolder);
+                            }
+                            // 휴지통의 원본은 그대로 두고, 패치 내용으로 새 노트를 만들어 복구합니다.
+                            const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[삭제된 노트 복구] ${patch.data.title}`, isPinned: false, isFavorite: false };
+                            recoveryFolder.notes.unshift(conflictedNote);
+                            recoveryMessage = `편집 중 삭제된 노트 '${patch.data.title}'의 내용을 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
+                            dataWasPatched = true;
+
+                        } else {
+                            // [기존 로직] 노트가 휴지통에도 없으면, 영구 손실을 방지하기 위해 노트를 복원합니다.
+                            console.warn(`패치할 노트를 찾지 못했으며(ID: ${patch.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
+                            const RECOVERY_FOLDER_NAME = '복구된 노트';
+                            let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                            if (!recoveryFolder) {
+                                 const now = Date.now();
+                                recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
+                                authoritativeData.folders.unshift(recoveryFolder);
+                            }
+                            const resurrectedNote = { ...patch.data, id: patch.noteId, isPinned: false, isFavorite: false, createdAt: patch.data.updatedAt };
+                            recoveryFolder.notes.unshift(resurrectedNote);
+                            recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
+                            dataWasPatched = true;
                         }
-                        const resurrectedNote = { ...patch.data, id: patch.noteId, isPinned: false, isFavorite: false, createdAt: patch.data.updatedAt };
-                        recoveryFolder.notes.unshift(resurrectedNote);
-                        recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
-                        dataWasPatched = true;
                     }
+
                 } else if (patch.type === 'rename_patch') {
                     let itemFound = false;
                     const findAndRename = (items) => {
