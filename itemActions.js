@@ -7,7 +7,8 @@ import {
     addNoteBtn
 } from './components.js';
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
-import { changeActiveFolder } from './navigationActions.js';
+// [CRITICAL BUG FIX] 삭제 전 unsaved 변경사항 확인을 위해 confirmNavigation 함수를 임포트합니다.
+import { changeActiveFolder, confirmNavigation } from './navigationActions.js';
 
 // [CRITICAL BUG FIX] 모든 데이터 저장 작업을 순서대로 처리하기 위한 전역 비동기 잠금(Lock)
 let globalSaveLock = Promise.resolve();
@@ -447,21 +448,12 @@ const handleDeleteFolder = (id) => {
             setState({ renamingItemId: null });
         }
 
-        // [CRITICAL BUG FIX] 폴더 삭제 시, 포함된 노트 중 'dirty' 상태인 노트가 있는지 확인
+        // [CRITICAL BUG FIX] `confirmNavigation`이 `handleDelete`에서 호출되므로,
+        // 이전에 데이터 유실을 유발했던 isDirty 확인 로직을 완전히 제거합니다.
         const folderToMove = state.folders.splice(index, 1)[0];
         const noteIdsInDeletedFolder = new Set(folderToMove.notes.map(n => n.id));
 
-        // 만약 'dirty' 상태인 노트가 삭제되는 폴더에 포함되어 있다면,
-        // isDirty 플래그를 즉시 초기화하여 연쇄적인 데이터 유실을 방지한다.
-        if (state.isDirty && noteIdsInDeletedFolder.has(state.dirtyNoteId)) {
-            clearTimeout(debounceTimer); // 예약된 저장을 취소
-            setState({ isDirty: false, dirtyNoteId: null });
-            updateSaveStatus('saved'); // 시각적으로 저장 완료/취소됨을 알림
-        }
-
         state.totalNoteCount -= folder.notes.length;
-        // const folderToMove = state.folders.splice(index, 1)[0]; // 위로 이동됨
-        // const noteIdsInDeletedFolder = new Set(folderToMove.notes.map(n => n.id)); // 위로 이동됨
         for (const folderId in state.lastActiveNotePerFolder) {
             if (noteIdsInDeletedFolder.has(state.lastActiveNotePerFolder[folderId])) {
                 delete state.lastActiveNotePerFolder[folderId];
@@ -593,6 +585,12 @@ const handleDeleteNote = (id) => {
 };
 
 export const handleDelete = async (id, type, force = false) => {
+    // [CRITICAL BUG FIX] 삭제 작업을 시작하기 전에 저장되지 않은 변경사항을 먼저 확인하고 처리합니다.
+    // 사용자가 저장을 취소하면, 모든 삭제 절차를 중단합니다.
+    if (!(await confirmNavigation())) {
+        return;
+    }
+
     await finishPendingRename();
     const finder = type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder : findNote;
     const { item } = finder(id);
