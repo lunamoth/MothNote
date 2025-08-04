@@ -1341,77 +1341,34 @@ const setupGlobalEventListeners = () => {
         const needsProtection = window.isImporting || state.isDirty || state.renamingItemId || state.isPerformingOperation;
 
         if (needsProtection) {
-            const currentTitle = noteTitleInput?.value ?? '';
-            const currentContent = noteContentTextarea?.value ?? '';
-
-            // 1. 현재 state를 기반으로 백업할 데이터의 깊은 복사본을 생성합니다.
-            const dataToBackup = JSON.parse(JSON.stringify({
-                folders: state.folders, 
-                trash: state.trash,
-                favorites: Array.from(state.favorites),
-                lastSavedTimestamp: state.lastSavedTimestamp
-            }));
-
-            // ========================= [BUG FIX START] =========================
-            // [CRITICAL BUG FIX] 비상 백업 시, 현재 시점의 타임스탬프를 새로 부여합니다.
-            // 이를 통해 loadData에서 다른 탭의 저장 여부와 관계없이 이 백업을 최신으로 인식하게 됩니다.
-            dataToBackup.lastSavedTimestamp = Date.now();
-            // ========================== [BUG FIX END] ==========================
-            
-            // 2. isDirty가 true일 때, activeNoteId 대신 dirtyNoteId를 사용해 백업 데이터를 업데이트
+            // [CRITICAL BUG FIX] 데이터 유실을 방지하기 위해, 전체 상태가 아닌 변경된 '패치' 정보만 저장합니다.
             if (state.isDirty && state.dirtyNoteId) {
-                const noteEntry = dataToBackup.folders
-                    .flatMap(f => f.notes)
-                    .find(n => n.id === state.dirtyNoteId);
-        
-                if (noteEntry) {
-                    noteEntry.title = currentTitle;
-                    noteEntry.content = currentContent;
-                    noteEntry.updatedAt = Date.now();
-                }
-            }
-    
-            // 3. 이름 변경 중인 내용도 비상 백업에 포함
-            if (state.renamingItemId) {
-                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-                if (renamingElement) {
-                    const newName = renamingElement.textContent;
-                    let itemFound = false;
+                const currentTitle = noteTitleInput?.value ?? '';
+                const currentContent = noteContentTextarea?.value ?? '';
 
-                    // 폴더에서 찾기
-                    for (const folder of dataToBackup.folders) {
-                        if (folder.id === state.renamingItemId) {
-                            folder.name = newName;
-                            itemFound = true;
-                            break;
-                        }
-                        // 노트에서 찾기
-                        const note = folder.notes.find(n => n.id === state.renamingItemId);
-                        if (note) {
-                            note.title = newName;
-                            itemFound = true;
-                            break;
-                        }
+                // 1. 변경된 노트의 내용만 담은 '패치' 객체를 생성합니다.
+                const patchData = {
+                    type: 'note_patch',
+                    noteId: state.dirtyNoteId,
+                    data: {
+                        title: currentTitle,
+                        content: currentContent,
+                        updatedAt: Date.now()
                     }
-                    // 휴지통에서 찾기
-                    if (!itemFound) {
-                        const itemInTrash = dataToBackup.trash.find(item => item.id === state.renamingItemId);
-                        if (itemInTrash) {
-                            if (itemInTrash.type === 'folder') itemInTrash.name = newName;
-                            else if (itemInTrash.type === 'note') itemInTrash.title = newName;
-                        }
-                    }
+                };
+
+                // 2. 동기적으로 처리되는 localStorage에 패치 데이터를 저장합니다.
+                try {
+                    localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(patchData));
+                } catch (err) {
+                    console.error("비상 데이터(패치) 저장 실패:", err);
                 }
             }
 
-            // 4. 동기적으로 처리된 최신 데이터를 localStorage에 저장합니다.
-            try {
-                localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(dataToBackup));
-            } catch (err) {
-                console.error("비상 데이터 저장 실패(localStorage):", err);
-            }
+            // 참고: 이름 변경 중(`renamingItemId`)일 때의 데이터는 더 복잡한 병합 로직이 필요하여,
+            // 가장 치명적인 노트 편집 내용 유실 방지에 집중했습니다. 이 로직은 추후 확장될 수 있습니다.
     
-            // 5. 브라우저에게 페이지를 떠나지 말라고 알립니다.
+            // 3. 브라우저에게 페이지를 떠나지 말라고 알립니다.
             e.preventDefault();
             e.returnValue = '';
         }

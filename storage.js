@@ -64,32 +64,44 @@ export const loadData = async () => {
             localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
         }
         
-        // [CRITICAL BUG 2 FIX] 다중 탭 데이터 덮어쓰기 방지를 위한 복구 로직 재설계
+        // [CRITICAL BUG FIX] 다중 탭 데이터 덮어쓰기 방지를 위한 복구 로직 재설계
         const mainStorageResult = await chrome.storage.local.get('appState');
         let mainStorageData = mainStorageResult.appState;
         
         const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
 
+        // [CRITICAL BUG FIX] 전체 덮어쓰기 대신 '패치' 방식으로 복구 로직 변경
         if (uncommittedDataStr) {
             try {
-                const uncommittedData = JSON.parse(uncommittedDataStr);
+                const patchData = JSON.parse(uncommittedDataStr);
                 
-                // 메인 저장소와 비상 백업의 타임스탬프를 비교합니다.
-                const mainTimestamp = mainStorageData?.lastSavedTimestamp || 0;
-                const backupTimestamp = uncommittedData.lastSavedTimestamp || 0;
+                // 메인 데이터가 존재하고, 패치가 유효한 노트 패치일 경우에만 진행
+                if (mainStorageData && patchData.type === 'note_patch') {
+                    console.warn("저장되지 않은 노트 변경분(Patch) 발견. 데이터 병합을 시도합니다.");
+                    let noteFoundAndPatched = false;
 
-                // 백업 데이터가 메인 데이터보다 최신이거나 버전이 같을 때만 복구를 진행합니다.
-                // 이는 다른 탭에서 정상 저장한 최신 데이터를 낡은 백업이 덮어쓰는 것을 방지합니다.
-                if (backupTimestamp >= mainTimestamp) {
-                    console.warn("저장되지 않은 최신 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
-                    await chrome.storage.local.set({ appState: uncommittedData });
-                    mainStorageData = uncommittedData; // 복구된 데이터를 현재 세션의 기준으로 사용합니다.
-                    console.log("데이터 복구 완료.");
-                } else {
-                    console.warn("오래된 비상 백업 데이터 발견. 무시하고 삭제합니다.");
+                    // 메인 데이터에서 패치할 노트를 찾습니다.
+                    for (const folder of mainStorageData.folders) {
+                        const noteToPatch = folder.notes.find(n => n.id === patchData.noteId);
+                        if (noteToPatch) {
+                            // 패치 데이터를 노트에 병합합니다.
+                            Object.assign(noteToPatch, patchData.data);
+                            noteFoundAndPatched = true;
+                            break;
+                        }
+                    }
+
+                    if (noteFoundAndPatched) {
+                        // 패치가 적용된 데이터를 새로운 타임스탬프와 함께 저장합니다.
+                        mainStorageData.lastSavedTimestamp = Date.now();
+                        await chrome.storage.local.set({ appState: mainStorageData });
+                        console.log("노트 데이터 패치 완료.");
+                    } else {
+                        console.warn(`패치할 노트를 찾지 못했습니다 (ID: ${patchData.noteId}). 다른 탭에서 삭제되었을 수 있습니다.`);
+                    }
                 }
             } catch (e) {
-                console.error("저장되지 않은 데이터 복구 실패:", e);
+                console.error("저장되지 않은 데이터(패치) 복구 실패:", e);
             } finally {
                 // 복구 시도 후에는 항상 비상 백업 데이터를 삭제하여 반복적인 복구를 방지합니다.
                 localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
