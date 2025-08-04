@@ -255,8 +255,10 @@ export const handleAddFolder = async () => {
             return null;
         }
 
-        const newFolderId = `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}`;
-        const newFolder = { id: newFolderId, name: trimmedName, notes: [] };
+        const now = Date.now();
+        const newFolderId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
+        // [수정] 새 폴더 생성 시 타임스탬프 추가
+        const newFolder = { id: newFolderId, name: trimmedName, notes: [], createdAt: now, updatedAt: now };
         latestData.folders.push(newFolder);
         
         return {
@@ -326,6 +328,8 @@ export const handleAddNote = async () => {
             const newNote = { id: uniqueId, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             
             activeFolder.notes.unshift(newNote);
+            // [수정] 노트 추가 시 폴더의 updatedAt 갱신
+            activeFolder.updatedAt = now;
 
             const newLastActiveMap = { ...state.lastActiveNotePerFolder, [currentActiveFolderId]: uniqueId };
             
@@ -380,7 +384,10 @@ const _withNoteAction = (noteId, actionFn) => {
 
 export const handlePinNote = (id) => _withNoteAction(id, (note, folder, data) => {
     note.isPinned = !note.isPinned;
-    note.updatedAt = Date.now();
+    const now = Date.now();
+    note.updatedAt = now;
+    // [수정] 노트 상태 변경 시 폴더의 updatedAt 갱신
+    folder.updatedAt = now;
     return {
         newData: data,
         successMessage: note.isPinned ? CONSTANTS.MESSAGES.SUCCESS.NOTE_PINNED : CONSTANTS.MESSAGES.SUCCESS.NOTE_UNPINNED,
@@ -390,7 +397,10 @@ export const handlePinNote = (id) => _withNoteAction(id, (note, folder, data) =>
 
 export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, data) => {
     note.isFavorite = !note.isFavorite;
-    note.updatedAt = Date.now();
+    const now = Date.now();
+    note.updatedAt = now;
+    // [수정] 노트 상태 변경 시 폴더의 updatedAt 갱신
+    folder.updatedAt = now;
     
     if (note.isFavorite) {
         data.favorites.push(id);
@@ -454,6 +464,7 @@ export const handleRestoreItem = async (id) => {
         if (itemIndexInTx === -1) return null; // 다른 탭에서 이미 복원/삭제됨
 
         const [itemToRestoreInTx] = trash.splice(itemIndexInTx, 1);
+        const now = Date.now();
 
         if (itemToRestoreInTx.type === 'folder') {
             // 트랜잭션 내에서 최종 유효성 검사
@@ -475,6 +486,8 @@ export const handleRestoreItem = async (id) => {
                 delete note.deletedAt; delete note.type; delete note.originalFolderId;
             });
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
+            // [수정] 복원된 폴더의 updatedAt 갱신
+            itemToRestoreInTx.updatedAt = now;
             folders.unshift(itemToRestoreInTx);
             return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name), postUpdateState: {} };
 
@@ -491,6 +504,8 @@ export const handleRestoreItem = async (id) => {
             }
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type; delete itemToRestoreInTx.originalFolderId;
             targetFolderInTx.notes.unshift(itemToRestoreInTx);
+            // [수정] 노트가 복원된 폴더의 updatedAt 갱신
+            targetFolderInTx.updatedAt = now;
             return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title), postUpdateState: {} };
         }
         return null;
@@ -523,6 +538,7 @@ const performDeleteItem = (id, type) => {
     const updateLogic = (latestData) => {
         let successMessage = '';
         let postUpdateState = {};
+        const now = Date.now();
 
         if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
         if (state.isDirty && state.dirtyNoteId === id) {
@@ -539,7 +555,9 @@ const performDeleteItem = (id, type) => {
             
             const [folderToMove] = latestData.folders.splice(folderIndex, 1);
             folderToMove.type = 'folder';
-            folderToMove.deletedAt = Date.now();
+            folderToMove.deletedAt = now;
+            // [수정] 휴지통으로 이동하는 폴더의 updatedAt 갱신
+            folderToMove.updatedAt = now;
             latestData.trash.unshift(folderToMove);
             
             folderToMove.notes.forEach(note => {
@@ -552,13 +570,14 @@ const performDeleteItem = (id, type) => {
                 postUpdateState.activeNoteId = null;
             }
         } else { // NOTE
-            let noteToMove, sourceFolderId;
+            let noteToMove, sourceFolderId, sourceFolder;
             let found = false;
             for(const folder of latestData.folders) {
                 const noteIndex = folder.notes.findIndex(n => n.id === id);
                 if (noteIndex !== -1) {
                     [noteToMove] = folder.notes.splice(noteIndex, 1);
                     sourceFolderId = folder.id;
+                    sourceFolder = folder;
                     found = true;
                     break;
                 }
@@ -567,8 +586,13 @@ const performDeleteItem = (id, type) => {
 
             noteToMove.type = 'note';
             noteToMove.originalFolderId = sourceFolderId;
-            noteToMove.deletedAt = Date.now();
+            noteToMove.deletedAt = now;
             latestData.trash.unshift(noteToMove);
+            
+            // [수정] 노트가 삭제된 폴더의 updatedAt 갱신
+            if (sourceFolder) {
+                sourceFolder.updatedAt = now;
+            }
 
             latestData.favorites = latestData.favorites.filter(favId => favId !== id);
             
@@ -685,6 +709,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     
     const updateLogic = (latestData) => {
         let itemToRename, isDuplicate = false;
+        const now = Date.now();
         
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             itemToRename = latestData.folders.find(f => f.id === id);
@@ -697,7 +722,12 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         } else {
             for (const folder of latestData.folders) {
                 const note = folder.notes.find(n => n.id === id);
-                if (note) { itemToRename = note; break; }
+                if (note) { 
+                    itemToRename = note; 
+                    // [수정] 노트 이름 변경 시, 상위 폴더의 updatedAt도 갱신
+                    folder.updatedAt = now;
+                    break;
+                }
             }
             if (!itemToRename) return null;
         }
@@ -711,9 +741,11 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             itemToRename.name = newName;
+            // [수정] 폴더 이름 변경 시 updatedAt 갱신
+            itemToRename.updatedAt = now;
         } else {
             itemToRename.title = newName;
-            itemToRename.updatedAt = Date.now();
+            itemToRename.updatedAt = now;
         }
 
         return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
@@ -775,9 +807,13 @@ async function _performSave(noteId, titleToSave, contentToSave) {
 
     const updateLogic = (latestData) => {
         let noteToSave;
+        let parentFolder;
         for (const folder of latestData.folders) {
             noteToSave = folder.notes.find(n => n.id === noteId);
-            if (noteToSave) break;
+            if (noteToSave) {
+                parentFolder = folder;
+                break;
+            }
         }
         if (!noteToSave) return null;
 
@@ -787,9 +823,15 @@ async function _performSave(noteId, titleToSave, contentToSave) {
             finalTitle = firstLine.substring(0, CONSTANTS.AUTO_TITLE_LENGTH_KOR) + (firstLine.length > CONSTANTS.AUTO_TITLE_LENGTH_KOR ? '...' : '');
         }
 
+        const now = Date.now();
         noteToSave.title = finalTitle;
         noteToSave.content = contentToSave;
-        noteToSave.updatedAt = Date.now();
+        noteToSave.updatedAt = now;
+        
+        // [수정] 노트 내용 저장 시, 상위 폴더의 updatedAt도 갱신
+        if (parentFolder) {
+            parentFolder.updatedAt = now;
+        }
         
         return { newData: latestData, successMessage: null, postUpdateState: {} };
     };

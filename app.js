@@ -764,6 +764,9 @@ const setupDragAndDrop = (listElement, type) => {
             let toIdx = folders.findIndex(item => item.id === dropNextElId);
             if (toIdx === -1) folders.push(draggedItem);
             else folders.splice(toIdx, 0, draggedItem);
+            
+            // [수정] 폴더 순서 변경 시, 이동된 폴더의 updatedAt 갱신
+            draggedItem.updatedAt = Date.now();
 
             return { newData: latestData, successMessage: null, postUpdateState: {} };
         };
@@ -843,9 +846,14 @@ const setupNoteToFolderDrop = () => {
                 }
                 const targetFolder = folders.find(f => f.id === targetFolderId);
                 if (!noteToMove || !targetFolder || sourceFolder.id === targetFolder.id) return null;
-
-                noteToMove.updatedAt = Date.now();
+                
+                const now = Date.now();
+                noteToMove.updatedAt = now;
                 targetFolder.notes.unshift(noteToMove);
+                
+                // [수정] 노트 이동 시, 소스 및 타겟 폴더의 updatedAt 모두 갱신
+                sourceFolder.updatedAt = now;
+                targetFolder.updatedAt = now;
 
                 return {
                     newData: latestData,

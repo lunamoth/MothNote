@@ -104,7 +104,8 @@ export const loadData = async () => {
                                     const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
                                     let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
                                     if (!recoveryFolder) {
-                                        recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [] };
+                                        const now = Date.now();
+                                        recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
                                         authoritativeData.folders.unshift(recoveryFolder);
                                     }
                                     const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[충돌] ${patch.data.title}`, isPinned: false, isFavorite: false };
@@ -127,7 +128,8 @@ export const loadData = async () => {
                         const RECOVERY_FOLDER_NAME = '복구된 노트';
                         let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
                         if (!recoveryFolder) {
-                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [] };
+                             const now = Date.now();
+                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
                             authoritativeData.folders.unshift(recoveryFolder);
                         }
                         const resurrectedNote = { ...patch.data, id: patch.noteId, isPinned: false, isFavorite: false, createdAt: patch.data.updatedAt };
@@ -140,8 +142,25 @@ export const loadData = async () => {
                     const findAndRename = (items) => {
                         for (const item of items) {
                             if (item.id === patch.itemId) {
-                                if (patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) item.name = patch.newName;
-                                else { item.title = patch.newName; item.updatedAt = patch.timestamp; }
+                                // [CRITICAL BUG FIX] 저장된 데이터의 최종 수정 시각과 패치의 타임스탬프를 비교합니다.
+                                const itemLastUpdated = item.updatedAt || 0;
+                                const patchTimestamp = patch.timestamp || 0;
+
+                                // 만약 스토리지의 데이터가 패치보다 최신이면(다른 탭에서 정상 저장됨), 이 패치를 무시합니다.
+                                if (itemLastUpdated > patchTimestamp) {
+                                    console.warn(`Ignoring outdated rename patch for item '${patch.newName}' (ID: ${patch.itemId}). Stored data is newer.`);
+                                    itemFound = true; // "찾았음"으로 처리하여 더 이상 탐색하지 않도록 합니다.
+                                    return true;
+                                }
+
+                                // 패치가 더 최신이거나 버전이 같을 경우에만 적용합니다.
+                                if (patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
+                                    item.name = patch.newName;
+                                    item.updatedAt = patch.timestamp; // 폴더의 수정 시각도 패치 시점으로 업데이트합니다.
+                                } else { // NOTE
+                                    item.title = patch.newName;
+                                    item.updatedAt = patch.timestamp;
+                                }
                                 return true;
                             }
                             if (item.notes && findAndRename(item.notes)) return true;
@@ -149,10 +168,13 @@ export const loadData = async () => {
                         return false;
                     };
                     if(findAndRename(authoritativeData.folders) || findAndRename(authoritativeData.trash)) {
-                        itemFound = true;
-                        dataWasPatched = true;
-                        recoveryMessage = `이름이 변경되지 않았던 '${patch.newName}' 항목을 복구했습니다.`;
-                        console.log(`이름 변경 패치 완료. (ID: ${patch.itemId})`);
+                        if (itemFound) { // itemFound가 true로 설정되었지만, 실제 변경은 없었을 수 있습니다(무시된 경우).
+                             // 이 경우에는 메시지를 표시하지 않거나, "무시됨" 메시지를 표시할 수 있습니다.
+                        } else {
+                            dataWasPatched = true;
+                            recoveryMessage = `이름이 변경되지 않았던 '${patch.newName}' 항목을 복구했습니다.`;
+                            console.log(`이름 변경 패치 완료. (ID: ${patch.itemId})`);
+                        }
                     } else {
                         console.warn(`이름을 변경할 아이템을 찾지 못했습니다. (ID: ${patch.itemId})`);
                     }
@@ -221,7 +243,7 @@ export const loadData = async () => {
             const fId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
             const nId = `${CONSTANTS.ID_PREFIX.NOTE}${now + 1}`;
             const newNote = { id: nId, title: "🎉 환영합니다!", content: "새 탭 노트에 오신 것을 환영합니다! 🚀", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
-            const newFolder = { id: fId, name: "🌟 첫 시작 폴더", notes: [newNote] };
+            const newFolder = { id: fId, name: "🌟 첫 시작 폴더", notes: [newNote], createdAt: now, updatedAt: now };
             
             const initialState = { ...state, folders: [newFolder], trash: [], favorites: new Set(), activeFolderId: fId, activeNoteId: nId, totalNoteCount: 1 };
             setState(initialState);
@@ -291,7 +313,10 @@ const sanitizeContentData = data => {
         return {
             id: folderId,
             name: escapeHtml(String(f.name ?? '제목 없는 폴더')).slice(0, 100),
-            notes: notes
+            notes: notes,
+            // [수정] 폴더 타임스탬프 정보도 안전하게 처리
+            createdAt: Number(f.createdAt) || Date.now(),
+            updatedAt: Number(f.updatedAt) || Date.now(),
         };
     });
 
@@ -303,7 +328,10 @@ const sanitizeContentData = data => {
                 name: escapeHtml(String(item.name ?? '제목 없는 폴더')).slice(0, 100),
                 notes: [],
                 type: 'folder',
-                deletedAt: item.deletedAt || Date.now()
+                deletedAt: item.deletedAt || Date.now(),
+                // [수정] 휴지통의 폴더도 타임스탬프 정보 처리
+                createdAt: Number(item.createdAt) || item.deletedAt || Date.now(),
+                updatedAt: Number(item.updatedAt) || item.deletedAt || Date.now(),
             };
             if (Array.isArray(item.notes)) {
                 folder.notes = item.notes.map(n => sanitizeNote(n, true));
