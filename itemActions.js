@@ -844,7 +844,7 @@ async function _performSave(noteId, titleToSave, contentToSave) {
     return performTransactionalUpdate(updateLogic);
 }
 
-// [아키텍처 수정] 데이터 흐름 재설계에 따른 handleNoteUpdate 함수 재구성
+// [CRITICAL BUG FIX] 노트 수정 후 원상 복구 시, 변경 내용이 저장되는 데이터 유실 버그 수정
 export async function handleNoteUpdate(isForced = false) {
     if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY)) {
         clearTimeout(debounceTimer);
@@ -869,7 +869,9 @@ export async function handleNoteUpdate(isForced = false) {
         
         const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
         
-        if (hasChanged) {
+        // [수정] 한번 dirty 상태가 되면, 원래대로 되돌리는 변경까지 감지하여 저장 로직을 재시작합니다.
+        // 이것이 Critical 데이터 유실 버그를 막습니다.
+        if (state.isDirty || hasChanged) {
             // isDirty가 false였다면, 처음 변경이 시작된 것
             if (!state.isDirty) {
                 setState({ isDirty: true, dirtyNoteId: noteId });
