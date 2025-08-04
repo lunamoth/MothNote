@@ -1157,10 +1157,14 @@ const setupGlobalEventListeners = () => {
 
     window.addEventListener('beforeunload', (e) => {
         if (window.isSavingInProgress || window.isImporting) return;
-        if (localStorage.getItem(CONSTANTS.LS_KEY_DATA_CONFLICT)) {
-            localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
-            return;
-        }
+
+        // [Critical 버그 수정] 데이터 충돌 시 백업 로직을 건너뛰는 결함 수정
+        // 아래의 충돌 감지 및 즉시 반환 로직을 제거하여, 충돌 상황에서도
+        // 현재 탭의 저장되지 않은 변경사항이 비상 백업되도록 보장합니다.
+        // if (localStorage.getItem(CONSTANTS.LS_KEY_DATA_CONFLICT)) {
+        //     localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
+        //     return;
+        // }
 
         const isRenaming = !!state.renamingItemId;
         const needsProtection = state.isDirty || isRenaming || state.isPerformingOperation;
