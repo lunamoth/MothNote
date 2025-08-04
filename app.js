@@ -515,7 +515,7 @@ class Dashboard {
                 showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
                 return;
             }
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t_weather=true&timezone=Asia/Seoul`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
             const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             const data = await response.json();
@@ -623,6 +623,9 @@ class Dashboard {
 
 // --- 전역 변수 ---
 const tabId = crypto.randomUUID();
+// [CRITICAL BUG FIX] 다른 모듈에서 현재 탭 ID에 접근할 수 있도록 window 객체에 할당합니다.
+window.tabId = tabId;
+
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const setupRippleEffect = () => {
@@ -1170,7 +1173,7 @@ async function handleStorageSync(changes) {
             }
             
             if (patches.length > 0) {
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
                 localStorage.setItem(backupKey, JSON.stringify(patches));
                 console.log(`[Critical Backup] Conflict detected. ${patches.length} unsaved item(s) have been backed up to '${backupKey}'.`);
                 backupSucceeded = true;
@@ -1249,73 +1252,40 @@ async function handleStorageSync(changes) {
 const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
 
-    // [버그 수정] 저장 중 입력 내용 유실 방지 로직 적용
+    // [CRITICAL BUG FIX] beforeunload 핸들러 로직 수정 및 단순화
+    // 이제 노트 편집 내용은 handleNoteUpdate에서 실시간으로 백업되므로,
+    // 이 핸들러는 '이름 변경'과 같은 다른 비동기 작업에 대한 최후의 보루 역할만 수행합니다.
     window.addEventListener('beforeunload', (e) => {
-        if (window.isImporting) return; // 가져오기 중에는 아무것도 하지 않음
+        if (window.isImporting) return; // 가져오기 중에는 경고를 표시하지 않음
 
         const isRenaming = !!state.renamingItemId;
-        let needsProtection = state.isDirty || isRenaming || state.isPerformingOperation;
-        let hasUnsavedChangesDuringSave = false;
-        
-        // 저장이 진행 중일 때, UI의 내용과 저장하려던 내용이 다른지 확인
-        if (window.isSavingInProgress && state.pendingChanges && state.dirtyNoteId === state.activeNoteId) {
-            if (noteTitleInput.value !== state.pendingChanges.title || noteContentTextarea.value !== state.pendingChanges.content) {
-                hasUnsavedChangesDuringSave = true;
-            }
-        }
-
-        needsProtection = needsProtection || hasUnsavedChangesDuringSave;
+        const needsProtection = state.isDirty || isRenaming || window.isSavingInProgress;
         
         if (needsProtection) {
             e.preventDefault();
             e.returnValue = '';
 
-            const patches = [];
-            
-            if (hasUnsavedChangesDuringSave) {
-                // 저장 중 추가로 입력된 '최신' 내용을 비상 백업
-                patches.push({
-                    type: 'note_patch',
-                    noteId: state.dirtyNoteId,
-                    data: {
-                        title: noteTitleInput.value,
-                        content: noteContentTextarea.value,
-                        updatedAt: Date.now() // 백업 시점의 시간 기록
-                    }
-                });
-            } else if (state.isDirty && state.dirtyNoteId) {
-                // [버그 수정] 데이터 유실 방지를 위해 state.pendingChanges 대신 UI에서 직접 최신 데이터를 읽어옵니다.
-                patches.push({
-                    type: 'note_patch',
-                    noteId: state.dirtyNoteId,
-                    data: {
-                        title: noteTitleInput.value,
-                        content: noteContentTextarea.value,
-                        updatedAt: Date.now() // 백업 시점의 시간 기록
-                    }
-                });
-            }
-
+            // 이름 변경 중인 경우에만 비상 백업 패치를 생성합니다.
+            // 노트 내용은 이미 handleNoteUpdate에서 실시간으로 백업되고 있습니다.
             if (isRenaming) {
                 const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
                 if (renamingElement) {
-                    patches.push({
+                    const patches = [{
                         type: 'rename_patch',
                         itemId: state.renamingItemId,
                         itemType: renamingElement.closest('.item-list-entry').dataset.type,
                         newName: renamingElement.textContent,
                         timestamp: Date.now()
-                    });
-                }
-            }
-
-            if (patches.length > 0) {
-                try {
-                    const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
-                    localStorage.setItem(backupKey, JSON.stringify(patches));
-                    console.log(`[BeforeUnload] ${patches.length}개의 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
-                } catch (err) {
-                    console.error("비상 데이터(패치) 저장 실패:", err);
+                    }];
+                    
+                    try {
+                        // 이름 변경 패치는 다른 패치와 충돌하지 않도록 별도의 키를 사용합니다.
+                        const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-rename`;
+                        localStorage.setItem(backupKey, JSON.stringify(patches));
+                        console.log(`[BeforeUnload] 이름 변경 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
+                    } catch (err) {
+                        console.error("이름 변경 비상 데이터(패치) 저장 실패:", err);
+                    }
                 }
             }
         }

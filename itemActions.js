@@ -876,13 +876,29 @@ export async function handleNoteUpdate(isForced = false) {
             }
             
             // UI 변경 사항을 즉시 state.pendingChanges에 반영
-            setState({
-                pendingChanges: {
-                    title: currentTitle,
-                    content: currentContent,
-                    updatedAt: Date.now()
-                }
-            });
+            const pendingData = {
+                title: currentTitle,
+                content: currentContent,
+                updatedAt: Date.now()
+            };
+            setState({ pendingChanges: pendingData });
+
+            // --- [CRITICAL BUG FIX] ---
+            // 변경 사항이 감지되는 즉시, 비정상 종료에 대비하여 비상 백업 패치를 localStorage에 기록합니다.
+            // 이 패치는 저장이 성공적으로 완료되면 즉시 삭제됩니다.
+            try {
+                const patch = {
+                    type: 'note_patch',
+                    noteId: noteId,
+                    data: pendingData
+                };
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
+                localStorage.setItem(backupKey, JSON.stringify([patch])); // loadData는 패치 배열을 기대합니다.
+            } catch (e) {
+                console.error("실시간 비상 백업 패치 저장에 실패했습니다:", e);
+                // 이 경우 저장 공간 부족 등 심각한 문제일 수 있으므로 사용자에게 알릴 수 있습니다.
+            }
+            // --- 수정 끝 ---
 
             updateSaveStatus('dirty');
             clearTimeout(debounceTimer);
@@ -920,6 +936,16 @@ export async function handleNoteUpdate(isForced = false) {
             updateSaveStatus('dirty');
             return false;
         }
+        
+        // --- [CRITICAL BUG FIX] ---
+        // 저장이 성공적으로 완료되었으므로, 실시간으로 기록했던 비상 백업 패치를 삭제합니다.
+        try {
+            const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
+            localStorage.removeItem(backupKey);
+        } catch (e) {
+            console.error("성공 후 비상 백업 패치 삭제에 실패했습니다:", e);
+        }
+        // --- 수정 끝 ---
         
         wasSuccessful = true;
         
