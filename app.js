@@ -1254,9 +1254,11 @@ const setupGlobalEventListeners = () => {
         const needsProtection = state.isDirty || isRenaming || state.isPerformingOperation;
         
         if (needsProtection) {
-            // [BUG FIX] 백업 성공 여부를 추적하는 플래그
-            let backupSucceeded = false;
+            // [수정] 경고창을 먼저 띄워 데이터 유실을 방지합니다.
+            e.preventDefault();
+            e.returnValue = '';
 
+            // 그 후, 비상 백업을 시도합니다. (Best-effort)
             const patches = [];
             if (state.isDirty && state.dirtyNoteId) {
                 patches.push({
@@ -1283,24 +1285,10 @@ const setupGlobalEventListeners = () => {
                     const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
                     localStorage.setItem(backupKey, JSON.stringify(patches));
                     console.log(`[BeforeUnload] ${patches.length}개의 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
-                    // [BUG FIX] 백업 성공 시 플래그 설정
-                    backupSucceeded = true;
                 } catch (err) {
-                    // [BUG FIX] 백업 실패 시, 콘솔에만 오류를 남기고 backupSucceeded는 false로 유지
                     console.error("비상 데이터(패치) 저장 실패:", err);
                 }
-            } else {
-                // 백업할 내용이 없지만 보호가 필요한 상태(isPerformingOperation 등)일 수 있으므로
-                // 이 경우에도 경고창을 띄우는 것이 안전합니다.
-                backupSucceeded = true;
             }
-
-            // [BUG FIX] 비상 백업이 성공했을 때만 사용자에게 경고창을 띄웁니다.
-            if (backupSucceeded) {
-                e.preventDefault();
-                e.returnValue = '';
-            }
-            // 백업 실패 시에는 아무것도 하지 않아, 사용자를 오도하지 않고 즉시 탭이 닫히도록 합니다.
         }
     });
     
