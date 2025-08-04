@@ -529,6 +529,7 @@ const performDeleteItem = (id, type) => {
             clearTimeout(debounceTimer);
             postUpdateState.isDirty = false;
             postUpdateState.dirtyNoteId = null;
+            postUpdateState.pendingChanges = null; // [아키텍처 수정] pendingChanges 초기화
             updateSaveStatus('saved');
         }
 
@@ -796,32 +797,46 @@ async function _performSave(noteId, titleToSave, contentToSave) {
     return performTransactionalUpdate(updateLogic);
 }
 
-export async function handleNoteUpdate(isForced = false, skipUiUpdate = false, forceData = null) {
-    // [CRITICAL BUG FIX] 충돌로 인해 UI가 잠겼을 경우, 어떠한 저장 시도도 해서는 안됩니다.
-    // 예약된 타이머를 즉시 취소하고 함수를 종료하여 데이터 덮어쓰기를 방지합니다.
+// [아키텍처 수정] 데이터 흐름 재설계에 따른 handleNoteUpdate 함수 재구성
+export async function handleNoteUpdate(isForced = false) {
     if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY)) {
         clearTimeout(debounceTimer);
-        return true; // 저장이 필요 없으므로 성공으로 간주하고 종료
+        return true;
     }
 
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
         return true;
     }
-    if (state.renamingItemId && isForced) return true;
     
+    // 강제 저장이 아닌 'input' 또는 'blur' 이벤트로 인한 호출
     if (!isForced) {
         const noteId = state.activeNoteId;
         if (!noteId) return true;
+        
         const { item: activeNote } = findNote(noteId);
         if (!activeNote) return true;
         
-        const hasChanged = activeNote.title !== noteTitleInput.value || activeNote.content !== noteContentTextarea.value;
+        const currentTitle = noteTitleInput.value;
+        const currentContent = noteContentTextarea.value;
+        
+        const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
         
         if (hasChanged) {
+            // isDirty가 false였다면, 처음 변경이 시작된 것
             if (!state.isDirty) {
                 setState({ isDirty: true, dirtyNoteId: noteId });
             }
+            
+            // UI 변경 사항을 즉시 state.pendingChanges에 반영
+            setState({
+                pendingChanges: {
+                    title: currentTitle,
+                    content: currentContent,
+                    updatedAt: Date.now()
+                }
+            });
+
             updateSaveStatus('dirty');
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
@@ -829,46 +844,53 @@ export async function handleNoteUpdate(isForced = false, skipUiUpdate = false, f
         return true;
     }
     
+    // 강제 저장 실행 (debouncer 또는 다른 액션에 의해 호출됨)
     clearTimeout(debounceTimer);
-    if (!state.isDirty && !forceData) return true;
+    if (!state.isDirty || !state.pendingChanges) {
+        return true;
+    }
 
     const noteIdToSave = state.dirtyNoteId;
-    if (!noteIdToSave) {
-        setState({ isDirty: false, dirtyNoteId: null });
+    const dataToSave = state.pendingChanges;
+
+    if (!noteIdToSave || !dataToSave) {
+        setState({ isDirty: false, dirtyNoteId: null, pendingChanges: null });
         return true;
     }
     
-    const titleToSave = forceData ? forceData.title : noteTitleInput.value;
-    const contentToSave = forceData ? forceData.content : noteContentTextarea.value;
-    
     const { item: noteToModify } = findNote(noteIdToSave);
     if (!noteToModify) {
-        setState({ isDirty: false, dirtyNoteId: null });
+        setState({ isDirty: false, dirtyNoteId: null, pendingChanges: null });
         return true;
     }
     
     let wasSuccessful = false;
     try {
         window.isSavingInProgress = true;
-        const success = await _performSave(noteIdToSave, titleToSave, contentToSave);
+        const success = await _performSave(noteIdToSave, dataToSave.title, dataToSave.content);
+        
         if (!success) {
             updateSaveStatus('dirty');
             return false;
         }
         
         wasSuccessful = true;
+        
+        // 저장이 완료된 후, UI가 다시 변경되었는지 확인 (저장 중 사용자가 추가 입력한 경우)
+        const isStillDirtyAfterSave = noteTitleInput.value !== dataToSave.title || noteContentTextarea.value !== dataToSave.content;
 
-        const isStillDirtyAfterSave = !forceData && (noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave);
         if (isStillDirtyAfterSave) {
-            updateSaveStatus('dirty');
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
+            // 새로운 변경사항으로 다시 dirty 상태 설정 시작
+            handleNoteUpdate(false);
         } else {
-            setState({ isDirty: false, dirtyNoteId: null });
-            if (!skipUiUpdate) updateSaveStatus('saved');
+            // 완전히 저장되고 추가 변경 없음
+            setState({ isDirty: false, dirtyNoteId: null, pendingChanges: null });
+            updateSaveStatus('saved');
         }
+
     } catch (e) {
         console.error("Save failed:", e);
+        updateSaveStatus('dirty'); // 실패 시 다시 dirty 상태로
         wasSuccessful = false;
     } finally {
         window.isSavingInProgress = false;

@@ -145,6 +145,8 @@ export let state = {
     noteMap: new Map(),
     isDirty: false,
     dirtyNoteId: null,
+    // [아키텍처 수정] UI의 편집 내용을 즉시 반영하기 위한 임시 버퍼
+    pendingChanges: null,
     isPerformingOperation: false,
     totalNoteCount: 0,
     renamingItemId: null,

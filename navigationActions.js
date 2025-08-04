@@ -3,26 +3,17 @@ import { saveSession } from './storage.js';
 import {
     searchInput, showConfirm, sortNotes, showToast, noteTitleInput, noteContentTextarea
 } from './components.js';
-// [개선] finishPendingRename을 itemActions에서 가져와 중복 제거
+// [아키텍처 수정] handleNoteUpdate는 이제 forceData 인자 없이 호출됩니다.
 import { handleNoteUpdate, finishPendingRename } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
-// [최적화] 중복 함수 제거
-// const finishPendingRename = async () => { ... };
 
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
-// [CRITICAL BUG FIX] 저장되지 않은 노트 전환 시 데이터 손실 버그 수정
+// [아키텍처 수정] 저장되지 않은 노트 전환 시 데이터 손실 버그 수정
 export const confirmNavigation = async () => {
     if (!state.isDirty) return true;
-
-    // [CRITICAL BUG FIX] 저장 모달을 띄우기 전, 현재 "dirty" 상태의 편집기 값을 먼저 캡처합니다.
-    // 이는 노트 전환 시 발생하는 데이터 오염(Race Condition)을 방지합니다.
-    const dirtyData = {
-        title: noteTitleInput.value,
-        content: noteContentTextarea.value
-    };
 
     const ok = await showConfirm({
         title: CONSTANTS.MODAL_TITLES.UNSAVED_CHANGES,
@@ -32,8 +23,9 @@ export const confirmNavigation = async () => {
     });
 
     if (ok) {
-        // [CRITICAL BUG FIX] 캡처한 'dirtyData'를 handleNoteUpdate에 전달하여 저장을 요청합니다.
-        const savedSuccessfully = await handleNoteUpdate(true, false, dirtyData);
+        // [아키텍처 수정] 이제 handleNoteUpdate는 state.pendingChanges를 신뢰하므로,
+        // UI 값을 캡처해서 넘겨줄 필요가 없습니다.
+        const savedSuccessfully = await handleNoteUpdate(true);
         if (savedSuccessfully) {
             return true; // 저장 성공 시에만 이동 허용
         } else {
@@ -46,14 +38,12 @@ export const confirmNavigation = async () => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
-    // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
-    await finishPendingRename(); // 다른 액션 전에 이름 변경을 완료
+    await finishPendingRename();
 
     if (state.activeNoteId === newNoteId) return;
 
     if (!(await confirmNavigation())) return;
 
-    // [수정] 활성 폴더가 가상 폴더일 때도 마지막 활성 노트를 기억하도록 조건 단순화
     if (newNoteId && state.activeFolderId) {
         state.lastActiveNotePerFolder[state.activeFolderId] = newNoteId;
     }
@@ -62,16 +52,11 @@ export const changeActiveNote = async (newNoteId) => {
     saveSession();
 };
 
-// [핵심 수정] 함수가 options 객체를 인자로 받도록 수정
 export const changeActiveFolder = async (newFolderId, options = {}) => {
-    // `itemActions.js`의 `withNote` 등에서 `finishPendingRename`이 호출되므로 중복 호출 제거 가능
-    await finishPendingRename(); // 다른 액션 전에 이름 변경을 완료
+    await finishPendingRename();
 
-    // [버그 수정] 날짜 필터가 있는 상태에서 다른 폴더를 클릭해도 정상적으로 전환되도록 조건 수정
     if (state.activeFolderId === newFolderId && !state.dateFilter) return;
 
-    // [핵심 수정] options.force가 true가 아닐 경우에만 저장 확인 창을 띄웁니다.
-    // 이렇게 하면 handleAddFolder에서 이 확인 과정을 건너뛸 수 있습니다.
     if (!options.force && !(await confirmNavigation())) return;
     
     const { item: folder } = findFolder(newFolderId);
@@ -80,12 +65,10 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     let nextActiveNoteId = null;
     const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
 
-    // [수정] 폴더 종류와 상관없이 lastActiveNoteId를 먼저 확인
     if (lastActiveNoteId && notesInFolder.some(n => n.id === lastActiveNoteId)) {
         nextActiveNoteId = lastActiveNoteId;
     } 
     else if (notesInFolder.length > 0) {
-        // [수정] 정렬이 불가능한 가상 폴더(최근, 즐겨찾기, 휴지통)를 고려
         const isSortable = folder?.isSortable !== false;
         const notesToSelectFrom = isSortable
             ? sortNotes(notesInFolder, state.noteSortOrder)
@@ -96,15 +79,12 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     setState({
         activeFolderId: newFolderId,
         activeNoteId: nextActiveNoteId,
-        // [핵심 버그 수정] 다른 폴더를 클릭하면 항상 날짜 필터를 해제합니다.
         dateFilter: null,
-        // [BUG #2 FIX] 폴더 변경 시, 이전 검색 상태를 완전히 초기화
         preSearchActiveNoteId: null 
     });
     saveSession();
 };
 
-// [리팩토링] 현재 뷰의 노트 목록을 가져오는 헬퍼 함수
 const getCurrentViewNotes = () => {
     if (state.dateFilter) {
         const filterDateStr = new Date(state.dateFilter).toISOString().split('T')[0];
@@ -116,12 +96,10 @@ const getCurrentViewNotes = () => {
     return currentFolder?.notes ?? [];
 };
 
-// [리팩토링] 검색 및 초기화 로직을 단일 함수로 통합하여 일관성 보장
 const handleSearch = (searchTerm) => {
     const previousSearchTerm = state.searchTerm;
     const newState = { searchTerm };
     
-    // 검색 시작 시 이전 활성 노트 저장
     if (searchTerm && !previousSearchTerm) {
         newState.preSearchActiveNoteId = state.activeNoteId;
     }
@@ -129,7 +107,6 @@ const handleSearch = (searchTerm) => {
     let nextActiveNoteId = null;
 
     if (searchTerm) {
-        // --- 검색 로직 ---
         const sourceNotes = getCurrentViewNotes();
         
         const filteredNotes = sourceNotes.filter(n =>
@@ -141,21 +118,17 @@ const handleSearch = (searchTerm) => {
         if (sortedNotes.length > 0) {
             nextActiveNoteId = sortedNotes[0].id;
         } else {
-            nextActiveNoteId = null; // 검색 결과 없으면 활성 노트 없음
+            nextActiveNoteId = null;
         }
 
     } else {
-        // --- 초기화 로직 ---
         clearSortedNotesCache();
         const notesInCurrentView = getCurrentViewNotes();
 
-        // [BUG 2 FIX] 날짜 필터 여부와 관계 없이 preSearchActiveNoteId 복원을 최우선으로 시도
         if (state.preSearchActiveNoteId && notesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
             nextActiveNoteId = state.preSearchActiveNoteId;
         } 
-        // preSearchActiveNoteId가 없거나 유효하지 않은 경우, 다음 로직 수행
         else {
-            // 날짜 필터가 없는 경우에만 폴더별 마지막 활성 노트를 확인
             if (!state.dateFilter) {
                 const lastActiveNoteId = state.lastActiveNotePerFolder[state.activeFolderId];
                 if (lastActiveNoteId && notesInCurrentView.some(n => n.id === lastActiveNoteId)) {
@@ -164,32 +137,27 @@ const handleSearch = (searchTerm) => {
             }
         }
         
-        // 여전히 활성 노트가 결정되지 않았다면, 현재 뷰의 첫 번째 노트를 활성화
         if (nextActiveNoteId === null && notesInCurrentView.length > 0) {
             nextActiveNoteId = sortNotes(notesInCurrentView, state.noteSortOrder)[0]?.id ?? null;
         }
 
-        newState.preSearchActiveNoteId = null; // 상태 초기화
+        newState.preSearchActiveNoteId = null;
     }
 
     newState.activeNoteId = nextActiveNoteId;
     setState(newState);
 };
 
-// `input` 이벤트에 대한 핸들러 (디바운싱 적용)
 export const handleSearchInput = async (e) => {
-    // `itemActions.js`의 액션 함수들이 `finishPendingRename`을 호출하므로,
-    // 여기서 직접 호출하지 않아도 안정성이 보장됩니다.
-    await finishPendingRename(); // 검색 전 이름 변경 완료
+    await finishPendingRename();
     const term = e.target.value;
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
 
-// 'X' 버튼 클릭에 대한 핸들러 (즉시 실행)
 export const handleClearSearch = () => {
-    clearTimeout(searchDebounceTimer); // 예약된 검색 취소
+    clearTimeout(searchDebounceTimer);
     searchInput.value = '';
-    handleSearch(''); // 초기화 로직 즉시 실행
+    handleSearch('');
     searchInput.focus();
 };
 
