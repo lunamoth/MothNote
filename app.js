@@ -621,6 +621,8 @@ class Dashboard {
 
 
 // --- 전역 변수 ---
+// [Critical 버그 수정] 각 탭을 식별하기 위한 고유 ID 생성
+const tabId = crypto.randomUUID();
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const setupRippleEffect = () => {
@@ -1187,8 +1189,10 @@ const setupGlobalEventListeners = () => {
 
             if (patches.length > 0) {
                 try {
-                    localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(patches));
-                    console.log(`[BeforeUnload] ${patches.length}개의 비상 백업 데이터를 저장했습니다.`);
+                    // [Critical 버그 수정] 각 탭의 고유 ID를 사용하여 비상 백업 키 생성
+                    const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${tabId}`;
+                    localStorage.setItem(backupKey, JSON.stringify(patches));
+                    console.log(`[BeforeUnload] ${patches.length}개의 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
                 } catch (err) {
                     console.error("비상 데이터(패치) 저장 실패:", err);
                 }

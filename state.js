@@ -3,7 +3,8 @@ export const CONSTANTS = {
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
-    LS_KEY_UNCOMMITTED: 'mothnote_uncommitted_data_v1', // [High 버그 수정] 비상 백업 데이터 키 추가
+    // [Critical 버그 수정] 비상 백업 데이터 키를 고유 식별자와 결합할 '접두사'로 변경
+    LS_KEY_UNCOMMITTED_PREFIX: 'mothnote_uncommitted_prefix_v1', 
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1', // [Critical 버그 수정] 가져오기 임시 데이터 키 추가
     LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // [Critical 버그 수정] 데이터 충돌 감지 플래그
     // --- 설정 관련 상수 ---

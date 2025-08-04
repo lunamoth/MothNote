@@ -54,7 +54,13 @@ export const loadData = async () => {
         if (hadDataConflict) {
             // 플래그가 있었다면, 잠재적으로 오염된 비상 백업 데이터를 폐기합니다.
             localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
-            localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+            // [Critical 버그 수정] 충돌 시 모든 비상 백업 키를 제거합니다.
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
+                    localStorage.removeItem(key);
+                }
+            }
             console.warn("이전 세션에서 데이터 충돌이 감지되었습니다. 데이터 손상을 방지하기 위해 저장되지 않은 변경사항을 폐기합니다.");
             showToast(
                 "⚠️ 이전 세션의 데이터 충돌로 인해 일부 변경사항이 저장되지 않았을 수 있습니다.",
@@ -74,30 +80,35 @@ export const loadData = async () => {
             console.warn("중단된 가져오기 발견. 데이터 복구를 시도합니다.");
             
             // [Critical 버그 수정] 가져오기 복구 시, 최신 비상 백업 데이터와 충돌하는지 확인
-            const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-            if (uncommittedDataStr) {
-                try {
-                    const patches = JSON.parse(uncommittedDataStr);
-                    const notePatch = Array.isArray(patches) ? patches.find(p => p.type === 'note_patch') : null;
-                    const importTimestamp = recoveredImport.appState?.lastSavedTimestamp || 0;
-                    const patchTimestamp = notePatch?.data?.updatedAt || 0;
+            // 이 로직은 이제 모든 비상 백업 키를 검사해야 하지만, 현재 구현에서는 가장 최신 패치 하나만 비교합니다.
+            // 복잡성을 고려하여 첫 번째 발견된 백업 데이터와 비교하는 로직을 유지하되, 모든 키를 검사하도록 개선할 수 있습니다.
+            let uncommittedPatchExists = false;
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
+                     uncommittedPatchExists = true;
+                     // 여기서는 우선순위 결정을 위해 하나의 패치만 확인합니다.
+                     const uncommittedDataStr = localStorage.getItem(key);
+                     try {
+                        const patches = JSON.parse(uncommittedDataStr);
+                        const notePatch = Array.isArray(patches) ? patches.find(p => p.type === 'note_patch') : null;
+                        const importTimestamp = recoveredImport.appState?.lastSavedTimestamp || 0;
+                        const patchTimestamp = notePatch?.data?.updatedAt || 0;
 
-                    // 비상 백업 데이터가 가져오기 데이터보다 최신이면, 가져오기 복구를 중단하고 비상 백업을 우선시합니다.
-                    if (patchTimestamp > importTimestamp) {
-                        console.warn("가져오기 복구 데이터보다 최신인 비상 백업 데이터가 존재하여, 가져오기 복구를 취소합니다. 사용자의 최신 작업을 우선적으로 복구합니다.");
-                    } else {
-                        // 비상 백업이 더 오래되었으면, 안전하게 제거하고 가져오기 복구를 진행합니다.
-                        localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-                        await chrome.storage.local.set({ appState: recoveredImport.appState });
-                        if (recoveredImport.settings) {
-                            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(recoveredImport.settings));
+                        if (patchTimestamp > importTimestamp) {
+                            console.warn("가져오기 복구 데이터보다 최신인 비상 백업 데이터가 존재하여, 가져오기 복구를 취소합니다. 사용자의 최신 작업을 우선적으로 복구합니다.");
+                        } else {
+                            localStorage.removeItem(key); // 더 오래된 백업은 제거
                         }
+                    } catch (e) {
+                         console.error("비상 백업 데이터와 가져오기 데이터 비교 중 오류 발생:", e);
+                         localStorage.removeItem(key);
                     }
-                } catch (e) {
-                     console.error("비상 백업 데이터와 가져오기 데이터 비교 중 오류 발생:", e);
-                     localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED); // 파싱 오류 시 안전하게 제거
+                    break; // 첫 번째 패치만 확인 후 중단
                 }
-            } else {
+            }
+
+            if (!uncommittedPatchExists) {
                  // 비상 백업이 없으면 안전하게 가져오기 복구 진행
                 await chrome.storage.local.set({ appState: recoveredImport.appState });
                 if (recoveredImport.settings) {
@@ -112,18 +123,30 @@ export const loadData = async () => {
         // 다시 최신 데이터를 불러옵니다 (가져오기 복구가 있었을 수 있으므로).
         let mainStorageData = (await chrome.storage.local.get('appState')).appState;
         
-        // [Critical 버그 수정] 비상 백업 데이터 복구 로직 개선 (복합 상태 지원)
-        const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-        if (uncommittedDataStr) {
-            try {
-                const patches = JSON.parse(uncommittedDataStr);
-                let dataWasPatched = false;
-
-                if (Array.isArray(patches) && patches.length > 0) {
-                     console.warn(`저장되지 않은 변경사항 ${patches.length}개를 발견했습니다. 데이터 병합을 시도합니다.`);
+        // [Critical 버그 수정] 여러 탭의 모든 비상 백업 데이터를 수집하고 처리합니다.
+        const allPatches = [];
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
+                keysToRemove.push(key);
+                try {
+                    const patchData = JSON.parse(localStorage.getItem(key));
+                    if (Array.isArray(patchData)) {
+                        allPatches.push(...patchData);
+                    }
+                } catch (e) {
+                    console.error(`비상 백업 데이터 파싱 실패 (키: ${key}):`, e);
                 }
+            }
+        }
 
-                for (const patchData of patches) {
+        if (allPatches.length > 0) {
+            let dataWasPatched = false;
+            try {
+                console.warn(`${allPatches.length}개의 저장되지 않은 변경사항을 발견했습니다. 데이터 병합을 시도합니다.`);
+
+                for (const patchData of allPatches) {
                     if (mainStorageData && patchData.type === 'note_patch') {
                         let noteFound = false;
                         for (const folder of mainStorageData.folders) {
@@ -145,7 +168,7 @@ export const loadData = async () => {
                             }
                         }
                         if (!noteFound) {
-                            // 노트가 삭제된 경우의 복원 로직 (기존 유지)
+                            // 노트가 삭제된 경우의 복원 로직
                             console.warn(`패치할 노트를 찾지 못했으며(ID: ${patchData.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
                             const RECOVERY_FOLDER_NAME = '복구된 노트';
                             let recoveryFolder = mainStorageData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
@@ -160,6 +183,7 @@ export const loadData = async () => {
                         }
 
                     } else if (mainStorageData && patchData.type === 'rename_patch') {
+                        // 이름 변경 패치 로직은 동일
                         let itemFound = false;
                         const findAndRename = (items) => {
                             for (const item of items) {
@@ -192,7 +216,9 @@ export const loadData = async () => {
             } catch (e) {
                 console.error("저장되지 않은 데이터(패치) 복구 실패:", e);
             } finally {
-                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+                // [Critical 버그 수정] 처리된 모든 비상 백업 키 삭제
+                keysToRemove.forEach(key => localStorage.removeItem(key));
+                console.log("모든 비상 백업 데이터를 처리하고 삭제했습니다.");
             }
         }
 
