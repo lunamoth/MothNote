@@ -45,6 +45,9 @@ export const saveSession = () => {
 };
 
 export const loadData = async () => {
+    // [CRITICAL BUG FIX] 사용자에게 알릴 복구 메시지를 저장할 변수
+    let recoveryMessage = null;
+
     try {
         // [Critical 버그 수정] 가져오기 중단 시 복구 로직
         const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
@@ -112,9 +115,43 @@ export const loadData = async () => {
                             break; // 해당 노트를 찾았으므로 루프 종료
                         }
                     }
-
+                    
+                    // [CRITICAL BUG FIX] 다른 탭에서 폴더가 삭제되어 노트가 사라졌을 때의 복구 로직
                     if (!noteFound) {
-                        console.warn(`패치할 노트를 찾지 못했습니다 (ID: ${patchData.noteId}). 다른 탭에서 삭제되었을 수 있습니다.`);
+                        console.warn(`패치할 노트를 찾지 못했으며(ID: ${patchData.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
+
+                        const RECOVERY_FOLDER_NAME = '복구된 노트';
+                        let recoveryFolder = mainStorageData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+
+                        if (!recoveryFolder) {
+                            recoveryFolder = {
+                                id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-recovered`,
+                                name: RECOVERY_FOLDER_NAME,
+                                notes: []
+                            };
+                            // 사용자가 쉽게 볼 수 있도록 폴더 목록 맨 앞에 추가
+                            mainStorageData.folders.unshift(recoveryFolder);
+                        }
+
+                        // 패치 데이터로 노트 객체를 부활시킴
+                        const resurrectedNote = {
+                            id: patchData.noteId,
+                            title: patchData.data.title,
+                            content: patchData.data.content,
+                            createdAt: patchData.data.updatedAt, // 생성일이 없으므로 최종 수정일로 대체
+                            updatedAt: patchData.data.updatedAt,
+                            isPinned: false,
+                            isFavorite: false
+                        };
+
+                        recoveryFolder.notes.unshift(resurrectedNote);
+                        
+                        // 수정된 데이터 구조를 즉시 저장
+                        mainStorageData.lastSavedTimestamp = Date.now();
+                        await chrome.storage.local.set({ appState: mainStorageData });
+
+                        // 사용자에게 알릴 메시지 생성
+                        recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
                     }
                 }
             } catch (e) {
@@ -216,7 +253,12 @@ export const loadData = async () => {
 
         saveSession();
 
-    } catch (e) { console.error("Error loading data:", e); }
+    } catch (e) { 
+        console.error("Error loading data:", e); 
+    } finally {
+        // [CRITICAL BUG FIX] 복구 메시지가 있다면 반환하여 UI에 표시하도록 함
+        return { recoveryMessage };
+    }
 };
 
 // [코드 명확성] 함수의 역할을 명확히 하는 이름으로 변경 (sanitizeHtml -> escapeHtml)

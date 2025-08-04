@@ -1431,7 +1431,12 @@ const init = async () => {
         prevState = { ...state };
     });
 
-    await loadData();
+    // [CRITICAL BUG FIX] loadData가 반환하는 복구 메시지를 처리합니다.
+    const { recoveryMessage } = await loadData();
+    if (recoveryMessage) {
+        // 중요한 알림이므로 사용자가 닫기 전까지 사라지지 않도록 duration을 0으로 설정
+        showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
+    }
     
     // [Critical 버그 수정] 데이터 가져오기 후 새로고침 없이 상태를 갱신합니다.
     // 이 이벤트는 이제 사용되지 않지만, 만약을 위해 남겨둡니다. (새로고침 로직으로 대체됨)
