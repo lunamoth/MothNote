@@ -49,111 +49,138 @@ export const loadData = async () => {
     let recoveryMessage = null;
 
     try {
-        // [Critical 버그 수정] 가져오기 중단 시 복구 로직
-        const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+        // [Critical 버그 수정] 데이터 손상 방지: 로드 시작 시 충돌 플래그를 확인합니다.
+        const hadDataConflict = localStorage.getItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
+        if (hadDataConflict) {
+            // 플래그가 있었다면, 잠재적으로 오염된 비상 백업 데이터를 폐기합니다.
+            localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT);
+            localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+            console.warn("이전 세션에서 데이터 충돌이 감지되었습니다. 데이터 손상을 방지하기 위해 저장되지 않은 변경사항을 폐기합니다.");
+            showToast(
+                "⚠️ 이전 세션의 데이터 충돌로 인해 일부 변경사항이 저장되지 않았을 수 있습니다.",
+                CONSTANTS.TOAST_TYPE.ERROR,
+                8000
+            );
+        }
+
+        const importInProgressDataPromise = chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+        const mainStorageResultPromise = chrome.storage.local.get('appState');
         
-        // [BUG 1 FIX] 가져오기 복구를 우선적으로 처리하고, 성공 시 비정상 종료 데이터를 무효화합니다.
-        if (importInProgressData && Object.keys(importInProgressData).length > 0 && importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]) {
-            const recoveredData = importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS];
+        const [importInProgressResult, mainStorageResult] = await Promise.all([importInProgressDataPromise, mainStorageResultPromise]);
+
+        // [Critical 버그 수정] 가져오기 중단 시 복구 로직
+        if (importInProgressResult && Object.keys(importInProgressResult).length > 0 && importInProgressResult[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]) {
+            const recoveredImport = importInProgressResult[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS];
             console.warn("중단된 가져오기 발견. 데이터 복구를 시도합니다.");
             
-            // 1. 복구된 데이터로 메인 저장소 덮어쓰기
-            await chrome.storage.local.set({ appState: recoveredData.appState });
-            
-            // 2. 복구된 설정이 있으면 localStorage에 저장
-            if (recoveredData.settings) {
-                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(recoveredData.settings));
-            }
+            // [Critical 버그 수정] 가져오기 복구 시, 최신 비상 백업 데이터와 충돌하는지 확인
+            const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+            if (uncommittedDataStr) {
+                try {
+                    const patches = JSON.parse(uncommittedDataStr);
+                    const notePatch = Array.isArray(patches) ? patches.find(p => p.type === 'note_patch') : null;
+                    const importTimestamp = recoveredImport.appState?.lastSavedTimestamp || 0;
+                    const patchTimestamp = notePatch?.data?.updatedAt || 0;
 
-            // 3. 임시 데이터 삭제
+                    // 비상 백업 데이터가 가져오기 데이터보다 최신이면, 가져오기 복구를 중단하고 비상 백업을 우선시합니다.
+                    if (patchTimestamp > importTimestamp) {
+                        console.warn("가져오기 복구 데이터보다 최신인 비상 백업 데이터가 존재하여, 가져오기 복구를 취소합니다. 사용자의 최신 작업을 우선적으로 복구합니다.");
+                    } else {
+                        // 비상 백업이 더 오래되었으면, 안전하게 제거하고 가져오기 복구를 진행합니다.
+                        localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+                        await chrome.storage.local.set({ appState: recoveredImport.appState });
+                        if (recoveredImport.settings) {
+                            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(recoveredImport.settings));
+                        }
+                    }
+                } catch (e) {
+                     console.error("비상 백업 데이터와 가져오기 데이터 비교 중 오류 발생:", e);
+                     localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED); // 파싱 오류 시 안전하게 제거
+                }
+            } else {
+                 // 비상 백업이 없으면 안전하게 가져오기 복구 진행
+                await chrome.storage.local.set({ appState: recoveredImport.appState });
+                if (recoveredImport.settings) {
+                    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(recoveredImport.settings));
+                }
+            }
+            
             await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             console.log("가져오기 데이터 복구 완료.");
-            
-            // 4. [핵심 수정] 가져오기 복구가 성공했으므로, 더 이상 유효하지 않은 비정상 종료 데이터는 제거합니다.
-            // 이렇게 하지 않으면, 가져오기 이전의 미저장 데이터가 가져온 데이터를 덮어쓰는 문제가 발생할 수 있습니다.
-            localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
         }
         
-        // [CRITICAL BUG FIX] 다중 탭 데이터 덮어쓰기 방지를 위한 복구 로직 재설계
-        const mainStorageResult = await chrome.storage.local.get('appState');
-        let mainStorageData = mainStorageResult.appState;
+        // 다시 최신 데이터를 불러옵니다 (가져오기 복구가 있었을 수 있으므로).
+        let mainStorageData = (await chrome.storage.local.get('appState')).appState;
         
+        // [Critical 버그 수정] 비상 백업 데이터 복구 로직 개선 (복합 상태 지원)
         const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-
-        // [CRITICAL BUG FIX] 데이터 유실 방지: 패치 적용 전 타임스탬프 비교
         if (uncommittedDataStr) {
             try {
-                const patchData = JSON.parse(uncommittedDataStr);
+                const patches = JSON.parse(uncommittedDataStr);
                 let dataWasPatched = false;
 
-                // [버그 2 수정] 노트 내용 패치 로직
-                if (mainStorageData && patchData.type === 'note_patch') {
-                    console.warn("저장되지 않은 노트 변경분(Patch) 발견. 데이터 병합을 시도합니다.");
-                    
-                    let noteFound = false;
-                    for (const folder of mainStorageData.folders) {
-                        const noteToPatch = folder.notes.find(n => n.id === patchData.noteId);
-                        if (noteToPatch) {
-                            noteFound = true;
-                            const mainNoteTimestamp = noteToPatch.updatedAt || 0;
-                            const patchTimestamp = patchData.data.updatedAt || 0;
+                if (Array.isArray(patches) && patches.length > 0) {
+                     console.warn(`저장되지 않은 변경사항 ${patches.length}개를 발견했습니다. 데이터 병합을 시도합니다.`);
+                }
 
-                            if (patchTimestamp > mainNoteTimestamp) {
-                                Object.assign(noteToPatch, patchData.data);
-                                dataWasPatched = true;
-                                console.log(`노트 데이터 패치 완료. (ID: ${patchData.noteId})`);
-                            } else {
-                                console.warn(`저장되지 않은 변경사항(Patch)이 이미 저장된 데이터보다 오래되었거나 동일하므로 무시합니다.`);
-                            }
-                            break;
-                        }
-                    }
-                    
-                    if (!noteFound) {
-                        console.warn(`패치할 노트를 찾지 못했으며(ID: ${patchData.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
-                        const RECOVERY_FOLDER_NAME = '복구된 노트';
-                        let recoveryFolder = mainStorageData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                        if (!recoveryFolder) {
-                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [] };
-                            mainStorageData.folders.unshift(recoveryFolder);
-                        }
-                        const resurrectedNote = { ...patchData.data, id: patchData.noteId, isPinned: false, isFavorite: false, createdAt: patchData.data.updatedAt };
-                        recoveryFolder.notes.unshift(resurrectedNote);
-                        recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
-                        dataWasPatched = true;
-                    }
-                // [버그 2 수정] 이름 변경 패치 로직
-                } else if (mainStorageData && patchData.type === 'rename_patch') {
-                    console.warn("저장되지 않은 이름 변경(Patch) 발견. 데이터 병합을 시도합니다.");
-                    let itemFound = false;
-                    const findAndRename = (items) => {
-                        for (const item of items) {
-                            if (item.id === patchData.itemId) {
-                                if (patchData.itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
-                                    item.name = patchData.newName;
+                for (const patchData of patches) {
+                    if (mainStorageData && patchData.type === 'note_patch') {
+                        let noteFound = false;
+                        for (const folder of mainStorageData.folders) {
+                            const noteToPatch = folder.notes.find(n => n.id === patchData.noteId);
+                            if (noteToPatch) {
+                                noteFound = true;
+                                const mainNoteTimestamp = noteToPatch.updatedAt || 0;
+                                const patchTimestamp = patchData.data.updatedAt || 0;
+
+                                if (patchTimestamp > mainNoteTimestamp) {
+                                    Object.assign(noteToPatch, patchData.data);
+                                    dataWasPatched = true;
+                                    recoveryMessage = `저장되지 않은 노트 '${patchData.data.title}'의 변경사항을 복구했습니다.`;
+                                    console.log(`노트 데이터 패치 완료. (ID: ${patchData.noteId})`);
                                 } else {
-                                    item.title = patchData.newName;
-                                    item.updatedAt = patchData.timestamp;
+                                    console.warn(`저장되지 않은 변경사항(Patch)이 이미 저장된 데이터보다 오래되었거나 동일하므로 무시합니다.`);
                                 }
-                                return true;
-                            }
-                            if (item.notes) {
-                                if (findAndRename(item.notes)) return true;
+                                break;
                             }
                         }
-                        return false;
-                    };
-                    
-                    if(findAndRename(mainStorageData.folders)) {
-                        itemFound = true;
-                    }
+                        if (!noteFound) {
+                            // 노트가 삭제된 경우의 복원 로직 (기존 유지)
+                            console.warn(`패치할 노트를 찾지 못했으며(ID: ${patchData.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
+                            const RECOVERY_FOLDER_NAME = '복구된 노트';
+                            let recoveryFolder = mainStorageData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                            if (!recoveryFolder) {
+                                recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [] };
+                                mainStorageData.folders.unshift(recoveryFolder);
+                            }
+                            const resurrectedNote = { ...patchData.data, id: patchData.noteId, isPinned: false, isFavorite: false, createdAt: patchData.data.updatedAt };
+                            recoveryFolder.notes.unshift(resurrectedNote);
+                            recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
+                            dataWasPatched = true;
+                        }
 
-                    if (itemFound) {
-                        dataWasPatched = true;
-                        recoveryMessage = `이름이 변경되지 않았던 '${patchData.newName}' 항목을 복구했습니다.`;
-                        console.log(`이름 변경 패치 완료. (ID: ${patchData.itemId})`);
-                    } else {
-                        console.warn(`이름을 변경할 아이템을 찾지 못했습니다. (ID: ${patchData.itemId})`);
+                    } else if (mainStorageData && patchData.type === 'rename_patch') {
+                        let itemFound = false;
+                        const findAndRename = (items) => {
+                            for (const item of items) {
+                                if (item.id === patchData.itemId) {
+                                    if (patchData.itemType === CONSTANTS.ITEM_TYPE.FOLDER) item.name = patchData.newName;
+                                    else { item.title = patchData.newName; item.updatedAt = patchData.timestamp; }
+                                    return true;
+                                }
+                                if (item.notes && findAndRename(item.notes)) return true;
+                            }
+                            return false;
+                        };
+                        
+                        if(findAndRename(mainStorageData.folders)) {
+                            itemFound = true;
+                            dataWasPatched = true;
+                            recoveryMessage = `이름이 변경되지 않았던 '${patchData.newName}' 항목을 복구했습니다.`;
+                            console.log(`이름 변경 패치 완료. (ID: ${patchData.itemId})`);
+                        } else {
+                            console.warn(`이름을 변경할 아이템을 찾지 못했습니다. (ID: ${patchData.itemId})`);
+                        }
                     }
                 }
 
@@ -165,21 +192,17 @@ export const loadData = async () => {
             } catch (e) {
                 console.error("저장되지 않은 데이터(패치) 복구 실패:", e);
             } finally {
-                // 복구 시도 후에는 항상 비상 백업 데이터를 삭제하여 반복적인 복구를 방지합니다.
                 localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
             }
         }
 
-        // [버그 수정] 앱 로딩 시 이름 변경 상태를 항상 초기화
         setState({ renamingItemId: null });
 
         let initialState = { ...state };
 
         if (mainStorageData && mainStorageData.folders) {
             initialState = { ...initialState, ...mainStorageData };
-            if (!initialState.trash) {
-                initialState.trash = [];
-            }
+            initialState.trash = initialState.trash || [];
             initialState.favorites = new Set(mainStorageData.favorites || []);
 
             let lastSession = null;
@@ -200,12 +223,9 @@ export const loadData = async () => {
 
             initialState.totalNoteCount = initialState.folders.reduce((sum, f) => sum + f.notes.length, 0);
 
-            // 1. 먼저 기본 상태(폴더, 휴지통, 활성 ID 등)를 설정합니다.
             setState(initialState);
-            // 2. 설정된 상태를 기반으로 noteMap을 먼저 빌드합니다.
             buildNoteMap();
 
-            // 3. 이제 빌드된 state.noteMap을 기준으로 활성 ID의 유효성을 검사합니다.
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
             const noteExists = state.noteMap.has(state.activeNoteId);
 
@@ -219,29 +239,21 @@ export const loadData = async () => {
                 needsStateUpdate = true;
             }
 
-            // 휴지통에 있는 노트는 noteMap에 없으므로, 휴지통 뷰가 아닐 때만 noteExists를 검사합니다.
             if (finalActiveFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && !noteExists) {
                 finalActiveNoteId = null; 
-                
                 const activeFolder = state.folders.find(f => f.id === finalActiveFolderId);
                 if (activeFolder && activeFolder.notes.length > 0) {
-                    // [버그 수정] 세션에서 불러온 정렬 순서를 사용하여 활성 노트를 결정합니다.
                     const sortedNotes = sortNotes(activeFolder.notes, state.noteSortOrder);
                     finalActiveNoteId = sortedNotes[0]?.id ?? null;
                 }
                 needsStateUpdate = true;
             }
             
-            // 4. 유효성 검사 후 변경된 ID가 있다면 다시 상태를 업데이트하여 렌더링을 트리거합니다.
             if (needsStateUpdate) {
-                setState({
-                    activeFolderId: finalActiveFolderId,
-                    activeNoteId: finalActiveNoteId
-                });
+                setState({ activeFolderId: finalActiveFolderId, activeNoteId: finalActiveNoteId });
             }
 
         } else {
-            // 처음 사용하는 경우 기본 데이터 생성
             const now = Date.now();
             const fId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
             const nId = `${CONSTANTS.ID_PREFIX.NOTE}${now + 1}`;
@@ -252,24 +264,20 @@ export const loadData = async () => {
             initialState.totalNoteCount = 1;
 
             setState(initialState);
-            buildNoteMap(); // 기본 데이터 생성 후에도 맵 빌드
+            buildNoteMap();
             await saveData();
         }
 
-        // [버그 수정] 데이터 로드 완료 후, 캘린더 하이라이트를 위해 노트 생성일 데이터를 빌드합니다.
         updateNoteCreationDates();
-
         saveSession();
 
     } catch (e) { 
         console.error("Error loading data:", e); 
     } finally {
-        // [CRITICAL BUG FIX] 복구 메시지가 있다면 반환하여 UI에 표시하도록 함
         return { recoveryMessage };
     }
 };
 
-// [코드 명확성] 함수의 역할을 명확히 하는 이름으로 변경 (sanitizeHtml -> escapeHtml)
 const escapeHtml = str => {
     const tempDiv = document.createElement('div');
     tempDiv.textContent = str;
@@ -334,7 +342,6 @@ const sanitizeContentData = data => {
                 type: 'folder',
                 deletedAt: item.deletedAt || Date.now()
             };
-            // [Critical 버그 수정] 가져오기 시, 폴더에 포함된 노트도 isTrash=true로 Sanitize 합니다.
             if (Array.isArray(item.notes)) {
                 folder.notes = item.notes.map(n => sanitizeNote(n, true));
             }
@@ -398,7 +405,6 @@ export const handleExport = async (settings) => {
         }
     }
 
-    // [핵심 수정] isDirty 플래그 확인 없이, 항상 강제 저장을 시도하여 최신 데이터를 보장
     await handleNoteUpdate(true);
 
     try {
@@ -407,7 +413,6 @@ export const handleExport = async (settings) => {
             folders: state.folders,
             trash: state.trash,
             favorites: Array.from(state.favorites),
-            // [CRITICAL BUG 2 FIX] 내보내는 데이터에도 타임스탬프를 포함합니다.
             lastSavedTimestamp: state.lastSavedTimestamp
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
@@ -443,7 +448,6 @@ export const handleImport = async () => {
         }
     }
     
-    // [핵심 수정] isDirty 플래그 확인 없이, 항상 강제 저장을 시도
     await handleNoteUpdate(true);
     
     importFileInput.click();
@@ -462,10 +466,9 @@ export const setupImportHandler = () => {
 
         const reader = new FileReader();
         reader.onload = async event => {
-            const overlay = document.createElement('div'); // 오버레이를 미리 생성
+            const overlay = document.createElement('div');
             overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold;';
             
-            // [BUG 2 FIX] finally 블록을 사용하여 어떤 경우에도 isImporting 플래그가 초기화되도록 보장
             try {
                 const importedData = JSON.parse(event.target.result);
                 const sanitizedContent = sanitizeContentData(importedData);
@@ -484,7 +487,6 @@ export const setupImportHandler = () => {
                 });
 
                 if (ok) {
-                    // [BUG 2 FIX] 데이터 교체라는 민감한 작업이 시작됨을 알립니다.
                     window.isImporting = true;
                     
                     overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
@@ -496,7 +498,6 @@ export const setupImportHandler = () => {
                         folders: sanitizedContent.folders,
                         trash: sanitizedContent.trash,
                         favorites: Array.from(rebuiltFavorites),
-                        // [CRITICAL BUG 2 FIX] 가져온 데이터에도 현재 시점의 타임스탬프를 부여합니다.
                         lastSavedTimestamp: Date.now()
                     };
 
@@ -509,11 +510,9 @@ export const setupImportHandler = () => {
                     await chrome.storage.local.set({ appState: appStateToSave });
                     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                     
-                    // [CRITICAL BUG 1 FIX] 세션 불일치 방지를 위해 이전 세션 정보를 삭제합니다.
                     localStorage.removeItem(CONSTANTS.LS_KEY);
                     await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
-                    // [CRITICAL BUG 1 FIX] 페이지를 새로고침하여 깨끗한 상태에서 데이터를 다시 로드합니다.
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                     setTimeout(() => {
                         window.location.reload();
@@ -525,8 +524,6 @@ export const setupImportHandler = () => {
                     overlay.remove();
                 }
             } finally {
-                // [BUG 2 FIX] 작업이 성공하든 실패하든, isImporting 상태를 해제하여
-                // beforeunload 핸들러가 정상적으로 동작하도록 복원합니다.
                 window.isImporting = false;
             }
         };

@@ -1272,50 +1272,37 @@ const initializeDragAndDrop = () => {
     setupNoteToFolderDrop();
 };
 
-// [수정] 다중 탭 동기화 로직 전면 수정
 async function handleStorageSync(changes) {
-    // 1. [수정] isSavingLocally 플래그를 확인하여 현재 탭에서 발생한 변경사항은 즉시 무시합니다.
-    if (isSavingLocally) {
-        return;
-    }
+    if (isSavingLocally) return;
 
     const { newValue } = changes.appState;
 
-    // [CRITICAL BUG 2 FIX] 이름 변경 중 삭제로 인한 교착 상태 방지
     if (state.renamingItemId) {
-        // 새 데이터의 모든 아이템 ID를 Set으로 만듭니다. (폴더 + 노트 + 휴지통)
         const newAllItemIds = new Set();
         newValue.folders.forEach(f => {
             newAllItemIds.add(f.id);
             f.notes.forEach(n => newAllItemIds.add(n.id));
         });
         newValue.trash.forEach(t => newAllItemIds.add(t.id));
-
-        // 만약 이름 변경 중이던 아이템이 새 데이터에 없다면 (즉, 다른 탭에서 삭제되었다면)
         if (!newAllItemIds.has(state.renamingItemId)) {
-            // 교착 상태를 풀기 위해 이름 변경 Promise를 강제로 완료시킵니다.
             forceResolvePendingRename();
         }
     }
 
-    // 2. 현재 탭에 저장되지 않은 변경사항이 있을 경우 데이터 충돌이 발생합니다.
+    // [Critical 버그 수정] 데이터 충돌 시, 사용자에게 알리고 비상 백업 생성을 막기 위한 플래그 설정
     if (state.isDirty) {
         console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes.");
-        // 사용자에게 충돌 사실을 알리고 수동 조치를 유도합니다.
-        // 0을 전달하여 닫기 전까지 사라지지 않는 토스트를 표시합니다.
+        localStorage.setItem(CONSTANTS.LS_KEY_DATA_CONFLICT, 'true');
         showToast(
             "⚠️ 데이터 충돌: 다른 탭에서 노트가 수정되었습니다. 데이터 유실을 막으려면 현재 변경 내용을 복사한 후, 탭을 새로고침 하세요.",
             CONSTANTS.TOAST_TYPE.ERROR,
-            0 // 0 = 지속형 토스트
+            0
         );
-        // 자동으로 상태를 덮어쓰지 않고 사용자가 직접 해결하도록 합니다.
         return;
     }
 
-    // 3. 충돌이 없을 경우, 다른 탭의 최신 데이터를 안전하게 현재 탭에 반영합니다.
     console.log("Received data from another tab. Updating local state...");
 
-    // 현재 탭의 세션 관련 상태(UI 상태)는 보존합니다.
     const sessionState = {
         activeFolderId: state.activeFolderId,
         activeNoteId: state.activeNoteId,
@@ -1324,12 +1311,11 @@ async function handleStorageSync(changes) {
         searchTerm: state.searchTerm,
         preSearchActiveNoteId: state.preSearchActiveNoteId,
         dateFilter: state.dateFilter,
-        renamingItemId: null, // 동기화 시 이름 변경 상태는 초기화
+        renamingItemId: null,
         isDirty: false,
         dirtyNoteId: null,
     };
 
-    // 영구 데이터(newValue)와 세션 데이터(sessionState)를 합쳐 새로운 상태를 만듭니다.
     const updatedState = {
         ...newValue,
         favorites: new Set(newValue.favorites || []),
@@ -1341,7 +1327,6 @@ async function handleStorageSync(changes) {
     buildNoteMap();
     updateNoteCreationDates();
 
-    // 캘린더가 있는 경우 UI를 강제로 다시 렌더링합니다.
     if (dashboard) {
         dashboard.renderCalendar(true);
     }
@@ -1353,57 +1338,61 @@ async function handleStorageSync(changes) {
 const setupGlobalEventListeners = () => {
     window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
 
-    // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 수정
+    // [Critical 버그 수정] 탭 종료 시 데이터 유실을 방지하기 위해 `beforeunload` 핸들러 전면 수정
     window.addEventListener('beforeunload', (e) => {
-        // [BUG FIX] 저장이 진행 중일 때는 데이터가 곧 영구 저장소에 기록될 것이므로,
-        // 오래된 데이터로 비상 백업을 만들지 않도록 합니다.
-        if (window.isSavingInProgress) {
+        if (window.isSavingInProgress || window.isImporting) {
+            return;
+        }
+
+        // [Critical 버그 수정] 다른 탭과의 데이터 충돌이 감지된 경우, 오염된 데이터를 백업하지 않음
+        if (localStorage.getItem(CONSTANTS.LS_KEY_DATA_CONFLICT)) {
+            localStorage.removeItem(CONSTANTS.LS_KEY_DATA_CONFLICT); // 플래그만 제거하고 종료
             return;
         }
 
         const isRenaming = !!state.renamingItemId;
-        const needsProtection = window.isImporting || state.isDirty || isRenaming || state.isPerformingOperation;
+        const needsProtection = state.isDirty || isRenaming || state.isPerformingOperation;
         
-        // [버그 2 수정] 비상 백업 로직 개선
         if (needsProtection) {
-            let patchData = null;
+            // [Critical 버그 수정] 복합 상태를 모두 저장하기 위해 배열 사용
+            const patches = [];
 
-            // 노트 내용 변경 백업
+            // 1. 노트 내용 변경 백업
             if (state.isDirty && state.dirtyNoteId) {
-                const currentTitle = noteTitleInput?.value ?? '';
-                const currentContent = noteContentTextarea?.value ?? '';
-                patchData = {
+                patches.push({
                     type: 'note_patch',
                     noteId: state.dirtyNoteId,
                     data: {
-                        title: currentTitle,
-                        content: currentContent,
+                        title: noteTitleInput?.value ?? '',
+                        content: noteContentTextarea?.value ?? '',
                         updatedAt: Date.now()
                     }
-                };
-            // 이름 변경 백업
-            } else if (isRenaming) {
+                });
+            }
+
+            // 2. 이름 변경 백업 (else if가 아닌 독립적인 if)
+            if (isRenaming) {
                 const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
                 if (renamingElement) {
-                    patchData = {
+                    patches.push({
                         type: 'rename_patch',
                         itemId: state.renamingItemId,
                         itemType: renamingElement.closest('.item-list-entry').dataset.type,
                         newName: renamingElement.textContent,
-                        timestamp: Date.now() // 노트의 updatedAt을 업데이트하기 위함
-                    };
+                        timestamp: Date.now()
+                    });
                 }
             }
 
-            if (patchData) {
+            if (patches.length > 0) {
                 try {
-                    localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(patchData));
+                    localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(patches));
+                    console.log(`[BeforeUnload] ${patches.length}개의 비상 백업 데이터를 저장했습니다.`);
                 } catch (err) {
                     console.error("비상 데이터(패치) 저장 실패:", err);
                 }
             }
     
-            // 브라우저에게 페이지를 떠나지 말라고 알립니다.
             e.preventDefault();
             e.returnValue = '';
         }
@@ -1411,10 +1400,8 @@ const setupGlobalEventListeners = () => {
     
     window.addEventListener('keydown', handleGlobalKeyDown);
 
-    // [Critical 버그 수정] 다중 탭 데이터 동기화를 위한 이벤트 리스너 추가
     chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName === 'local' && changes.appState) {
-            // async 함수를 호출하되, await하지 않음으로써 리스너 자체는 동기적으로 즉시 반환되도록 함.
             handleStorageSync(changes);
         }
     });
@@ -1441,15 +1428,11 @@ const init = async () => {
         prevState = { ...state };
     });
 
-    // [CRITICAL BUG FIX] loadData가 반환하는 복구 메시지를 처리합니다.
     const { recoveryMessage } = await loadData();
     if (recoveryMessage) {
-        // 중요한 알림이므로 사용자가 닫기 전까지 사라지지 않도록 duration을 0으로 설정
         showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
     }
     
-    // [Critical 버그 수정] 데이터 가져오기 후 새로고침 없이 상태를 갱신합니다.
-    // 이 이벤트는 이제 사용되지 않지만, 만약을 위해 남겨둡니다. (새로고침 로직으로 대체됨)
     window.addEventListener('app-data-imported', async () => {
         await loadData();
         loadAndApplySettings();
