@@ -1173,7 +1173,8 @@ async function handleStorageSync(changes) {
             }
             
             if (patches.length > 0) {
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
+                // [Bug ID: 1 Fix] 자동 저장 로직과의 충돌을 피하기 위해 충돌 백업에 고유한 키를 사용합니다.
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-conflict`;
                 localStorage.setItem(backupKey, JSON.stringify(patches));
                 console.log(`[Critical Backup] Conflict detected. ${patches.length} unsaved item(s) have been backed up to '${backupKey}'.`);
                 backupSucceeded = true;
