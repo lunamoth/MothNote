@@ -17,7 +17,8 @@ import {
     handleDelete, handleRestoreItem, handlePermanentlyDeleteItem,
     startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
     finishPendingRename,
-    toYYYYMMDD
+    toYYYYMMDD,
+    commitChanges // [CRITICAL BUG FIX] 전역 잠금이 적용된 commitChanges 함수 임포트
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -868,13 +869,8 @@ const setupDragAndDrop = (listElement, type) => {
         
         buildNoteMap();
         
-        // [Critical 버그 수정] saveData를 트랜잭션 플래그로 감싸 데이터 손실 방지
-        setState({ isPerformingOperation: true });
-        try {
-            await saveData();
-        } finally {
-            setState({ isPerformingOperation: false });
-        }
+        // [Critical 버그 수정] 직접 saveData 호출 대신, 전역 잠금이 적용된 commitChanges 사용
+        await commitChanges();
         
         setState({});
     });
@@ -958,13 +954,8 @@ const setupNoteToFolderDrop = () => {
                 buildNoteMap();
                 if (dashboard) dashboard.renderCalendar(true);
                 
-                // [Critical 버그 수정] saveData를 트랜잭션 플래그로 감싸 데이터 손실 방지
-                setState({ isPerformingOperation: true });
-                try {
-                    await saveData();
-                } finally {
-                    setState({ isPerformingOperation: false });
-                }
+                // [Critical 버그 수정] 직접 saveData 호출 대신, 전역 잠금이 적용된 commitChanges 사용
+                await commitChanges();
 
                 setState({}); 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name));

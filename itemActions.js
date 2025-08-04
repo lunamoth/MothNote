@@ -9,6 +9,10 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder } from './navigationActions.js';
 
+// [CRITICAL BUG FIX] 모든 데이터 저장 작업을 순서대로 처리하기 위한 전역 비동기 잠금(Lock)
+let globalSaveLock = Promise.resolve();
+
+
 /**
  * [Critical 버그 수정] 앱의 전체 상태(활성 노트, 휴지통)를 확인하여
  * 충돌하지 않는 고유한 ID를 생성하고 반환합니다.
@@ -97,10 +101,20 @@ export const setCalendarRenderer = (renderer) => {
 };
 
 // --- 상태 변경 및 저장을 위한 헬퍼 함수 ---
-// [Critical 버그 수정] commitChanges가 트랜잭션으로 동작하도록 수정
-const commitChanges = async (newState = {}) => {
-    setState({ isPerformingOperation: true }); // 트랜잭션 시작 플래그
+// [Critical 버그 수정] commitChanges가 트랜잭션으로 동작하도록 수정 및 전역 잠금 적용
+export const commitChanges = async (newState = {}) => {
+    // 이전 작업이 끝날 때까지 기다림
+    await globalSaveLock;
+
+    let releaseLock;
+    // 현재 작업을 위한 새 잠금 생성
+    globalSaveLock = new Promise(resolve => {
+        releaseLock = resolve;
+    });
+    
+    let success = false;
     try {
+        setState({ isPerformingOperation: true }); // 트랜잭션 시작 플래그
         clearSortedNotesCache();
         state._virtualFolderCache.recent = null;
         state._virtualFolderCache.favorites = null;
@@ -109,10 +123,12 @@ const commitChanges = async (newState = {}) => {
         state._virtualFolderCache.trash = null;
 
         setState(newState); // 메모리 상태 변경
-        await saveData(); // 영구 저장
+        success = await saveData(); // 영구 저장 및 성공 여부 확인
     } finally {
         setState({ isPerformingOperation: false }); // 트랜잭션 종료 플래그
+        releaseLock(); // 잠금 해제
     }
+    return success;
 };
 
 // --- 공통 후처리 로직 추상화 ---
@@ -164,12 +180,21 @@ export const handleRestoreItem = async (id) => {
     const itemIndex = state.trash.findIndex(item => item.id === id);
     if (itemIndex === -1) return;
 
-    // [Critical 버그 수정] 원본 데이터 보호를 위해 깊은 복사를 사용합니다.
+    // [CRITICAL BUG FIX] 복원할 아이템의 복사본을 만들되, 아직 state에서는 제거하지 않습니다.
     const itemToRestore = JSON.parse(JSON.stringify(state.trash[itemIndex]));
-    // [Critical 버그 수정] 원본 아이템을 휴지통에서 즉시 제거하고, 취소 시 복원을 위해 저장합니다.
-    const originalItemFromTrash = state.trash.splice(itemIndex, 1)[0];
 
+    // --- 폴더 복원 로직 ---
     if (itemToRestore.type === 'folder') {
+        let finalFolderName = itemToRestore.name;
+
+        // [Critical 버그 수정] 복원될 폴더 ID가 현재 사용 중인지 확인합니다.
+        if (state.folders.some(f => f.id === itemToRestore.id)) {
+            const oldId = itemToRestore.id;
+            itemToRestore.id = generateUniqueId();
+            console.warn(`복원 중 폴더 ID 충돌 발생. '${oldId}' -> '${itemToRestore.id}' (으)로 재할당됨.`);
+        }
+
+        // 이름 중복 검사 및 새 이름 입력 (비동기)
         if (state.folders.some(f => f.name === itemToRestore.name)) {
             const newName = await showPrompt({
                 title: '📁 폴더 이름 중복',
@@ -184,18 +209,28 @@ export const handleRestoreItem = async (id) => {
             });
 
             if (newName) {
-                itemToRestore.name = newName.trim();
+                finalFolderName = newName.trim();
             } else {
-                // [Critical 버그 수정] 사용자가 취소하면, 제거했던 '원본' 아이템을 다시 휴지통에 넣습니다.
-                state.trash.unshift(originalItemFromTrash);
+                // 사용자가 프롬프트에서 취소하면 아무것도 하지 않고 함수 종료
                 return;
             }
         }
         
-        // [Critical 버그 수정] 복원된 폴더 객체 내의 노트들을 처리합니다.
+        itemToRestore.name = finalFolderName;
+        
+        // [CRITICAL BUG FIX] 모든 사용자 결정이 끝난 후에야 실제 상태를 변경합니다.
+        state.trash.splice(itemIndex, 1);
+        
         state.totalNoteCount += itemToRestore.notes.length;
         
         itemToRestore.notes.forEach(note => {
+            // [Critical 버그 수정] 복원될 노트 ID가 현재 사용 중인지 확인합니다.
+            if (state.noteMap.has(note.id)) {
+                const oldNoteId = note.id;
+                note.id = generateUniqueId();
+                console.warn(`폴더 복원 중 포함된 노트의 ID 충돌 발생. '${oldNoteId}' -> '${note.id}' (으)로 재할당됨.`);
+            }
+
             delete note.deletedAt;
             delete note.type;
             delete note.originalFolderId;
@@ -214,6 +249,7 @@ export const handleRestoreItem = async (id) => {
         
         await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestore.name));
 
+    // --- 노트 복원 로직 ---
     } else if (itemToRestore.type === 'note') {
         const { item: originalFolder, isInTrash } = findFolder(itemToRestore.originalFolderId);
         let targetFolder = null;
@@ -221,6 +257,7 @@ export const handleRestoreItem = async (id) => {
         if (originalFolder && !isInTrash) {
             targetFolder = originalFolder;
         } else {
+            // 복원할 폴더 선택 (비동기)
             const newFolderId = await showFolderSelectPrompt({
                 title: '🤔 원본 폴더를 찾을 수 없음',
                 message: '이 노트의 원본 폴더가 없거나 휴지통에 있습니다. 복원할 폴더를 선택해주세요.'
@@ -228,14 +265,26 @@ export const handleRestoreItem = async (id) => {
 
             if (newFolderId) {
                 targetFolder = findFolder(newFolderId).item;
+            } else {
+                // 사용자가 폴더 선택을 취소하면 아무것도 하지 않고 함수 종료
+                return;
             }
         }
 
+        // 사용자가 폴더를 선택하지 않았거나 유효하지 않으면 종료
         if (!targetFolder) {
-            // [Critical 버그 수정] 사용자가 취소하면, 제거했던 '원본' 아이템을 다시 휴지통에 넣습니다.
-            state.trash.unshift(originalItemFromTrash);
             return;
         }
+
+        // [Critical 버그 수정] 복원될 노트 ID가 현재 사용 중인지 확인합니다.
+        if (state.noteMap.has(itemToRestore.id)) {
+            const oldId = itemToRestore.id;
+            itemToRestore.id = generateUniqueId();
+            console.warn(`노트 복원 중 ID 충돌 발생. '${oldId}' -> '${itemToRestore.id}' (으)로 재할당됨.`);
+        }
+        
+        // [CRITICAL BUG FIX] 모든 사용자 결정이 끝난 후에야 실제 상태를 변경합니다.
+        state.trash.splice(itemIndex, 1);
         
         delete itemToRestore.deletedAt;
         delete itemToRestore.type;
@@ -290,13 +339,8 @@ export const handleAddFolder = async () => {
         state.folders.push(newFolder);
         await changeActiveFolder(newFolder.id, { force: true });
         
-        // [Critical 버그 수정] saveData를 트랜잭션 플래그로 감싸 데이터 손실 방지
-        setState({ isPerformingOperation: true });
-        try {
-            await saveData();
-        } finally {
-            setState({ isPerformingOperation: false });
-        }
+        // [Critical 버그 수정] 직접 saveData 호출 대신, 전역 잠금이 적용된 commitChanges 사용
+        await commitChanges();
         
         setTimeout(() => {
             const newFolderEl = folderList.querySelector(`[data-id="${newFolder.id}"]`);
@@ -799,7 +843,7 @@ export const startRename = (liElement, type) => {
 // --- '열쇠' 방식 저장 관리 로직 ---
 
 let debounceTimer = null;
-let saveLock = Promise.resolve(); // '열쇠' 역할을 하는 Promise. 초기는 즉시 완료된 상태.
+// [Critical 버그 수정] 로컬 saveLock 제거. globalSaveLock으로 통일됨.
 
 // [BUG 1 FIX] _performSave가 저장 성공 여부(boolean)를 반환하도록 수정
 async function _performSave(noteId, titleToSave, contentToSave, skipSave = false) {
@@ -832,7 +876,7 @@ async function _performSave(noteId, titleToSave, contentToSave, skipSave = false
     return true; // 저장 성공 또는 건너뛴 경우 true 반환
 }
 
-// [BUG 1 FIX] handleNoteUpdate가 저장 성공 여부(boolean)를 반환하도록 수정
+// [BUG 1 FIX & CRITICAL BUG FIX] handleNoteUpdate가 전역 잠금을 사용하고 저장 성공 여부(boolean)를 반환하도록 수정
 export async function handleNoteUpdate(isForced = false, skipSave = false) {
     if (editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
@@ -888,11 +932,12 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
         return true;
     }
     
-    await saveLock;
+    // [CRITICAL BUG FIX] 전역 잠금을 사용하여 다른 저장 작업과 충돌 방지
+    await globalSaveLock;
 
     let releaseLock;
     let wasSuccessful = false;
-    saveLock = new Promise(resolve => {
+    globalSaveLock = new Promise(resolve => {
         releaseLock = resolve;
     });
 
@@ -922,6 +967,7 @@ export async function handleNoteUpdate(isForced = false, skipSave = false) {
         console.error("Save failed:", e);
         wasSuccessful = false;
     } finally {
+        // [CRITICAL BUG FIX] 작업 완료 후 반드시 잠금 해제
         releaseLock();
     }
     return wasSuccessful;
