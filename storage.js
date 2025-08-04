@@ -6,12 +6,20 @@ import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemAct
 
 export const saveData = async () => {
     try {
+        // [CRITICAL BUG 2 FIX] 저장 시점의 타임스탬프를 함께 기록합니다.
+        const timestamp = Date.now();
         const dataToSave = { 
             folders: state.folders, 
             trash: state.trash,
-            favorites: Array.from(state.favorites) 
+            favorites: Array.from(state.favorites),
+            lastSavedTimestamp: timestamp
         };
         await chrome.storage.local.set({ appState: dataToSave });
+
+        // [CRITICAL BUG 2 FIX] 저장 성공 후, 메모리의 타임스탬프도 갱신합니다.
+        // 이는 beforeunload 핸들러가 정확한 최신 타임스탬프를 참조하도록 보장합니다.
+        setState({ lastSavedTimestamp: timestamp });
+
         return true; // [BUG 1 FIX] 저장 성공 시 true 반환
     } catch (e) {
         console.error("Error saving state:", e);
@@ -33,7 +41,6 @@ export const loadData = async () => {
     try {
         // [Critical 버그 수정] 가져오기 중단 시 복구 로직
         const importInProgressData = await chrome.storage.local.get(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-        const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
         
         // [BUG 1 FIX] 가져오기 복구를 우선적으로 처리하고, 성공 시 비정상 종료 데이터를 무효화합니다.
         if (importInProgressData && Object.keys(importInProgressData).length > 0 && importInProgressData[CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]) {
@@ -55,35 +62,51 @@ export const loadData = async () => {
             // 4. [핵심 수정] 가져오기 복구가 성공했으므로, 더 이상 유효하지 않은 비정상 종료 데이터는 제거합니다.
             // 이렇게 하지 않으면, 가져오기 이전의 미저장 데이터가 가져온 데이터를 덮어쓰는 문제가 발생할 수 있습니다.
             localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
+        }
+        
+        // [CRITICAL BUG 2 FIX] 다중 탭 데이터 덮어쓰기 방지를 위한 복구 로직 재설계
+        const mainStorageResult = await chrome.storage.local.get('appState');
+        let mainStorageData = mainStorageResult.appState;
+        
+        const uncommittedDataStr = localStorage.getItem(CONSTANTS.LS_KEY_UNCOMMITTED);
 
-        } else if (uncommittedDataStr) {
-            // [High 버그 수정] 앱 로딩 시, 비정상 종료로 저장되지 않은 데이터가 있는지 확인하고 복구합니다.
+        if (uncommittedDataStr) {
             try {
-                console.warn("저장되지 않은 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
                 const uncommittedData = JSON.parse(uncommittedDataStr);
-                // chrome.storage에 비상 데이터를 저장 (복원)
-                await chrome.storage.local.set({ appState: uncommittedData });
-                // 복원이 완료되었으므로 localStorage의 백업은 제거
-                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
-                console.log("데이터 복구 및 백업 삭제 완료.");
+                
+                // 메인 저장소와 비상 백업의 타임스탬프를 비교합니다.
+                const mainTimestamp = mainStorageData?.lastSavedTimestamp || 0;
+                const backupTimestamp = uncommittedData.lastSavedTimestamp || 0;
+
+                // 백업 데이터가 메인 데이터보다 최신이거나 버전이 같을 때만 복구를 진행합니다.
+                // 이는 다른 탭에서 정상 저장한 최신 데이터를 낡은 백업이 덮어쓰는 것을 방지합니다.
+                if (backupTimestamp >= mainTimestamp) {
+                    console.warn("저장되지 않은 최신 데이터 발견. localStorage 백업으로부터 복구를 시도합니다.");
+                    await chrome.storage.local.set({ appState: uncommittedData });
+                    mainStorageData = uncommittedData; // 복구된 데이터를 현재 세션의 기준으로 사용합니다.
+                    console.log("데이터 복구 완료.");
+                } else {
+                    console.warn("오래된 비상 백업 데이터 발견. 무시하고 삭제합니다.");
+                }
             } catch (e) {
                 console.error("저장되지 않은 데이터 복구 실패:", e);
-                // 실패 시 백업 데이터를 남겨두어 다음 시도를 할 수 있게 함
+            } finally {
+                // 복구 시도 후에는 항상 비상 백업 데이터를 삭제하여 반복적인 복구를 방지합니다.
+                localStorage.removeItem(CONSTANTS.LS_KEY_UNCOMMITTED);
             }
         }
 
         // [버그 수정] 앱 로딩 시 이름 변경 상태를 항상 초기화
         setState({ renamingItemId: null });
 
-        const result = await chrome.storage.local.get('appState');
         let initialState = { ...state };
 
-        if (result.appState && result.appState.folders) {
-            initialState = { ...initialState, ...result.appState };
+        if (mainStorageData && mainStorageData.folders) {
+            initialState = { ...initialState, ...mainStorageData };
             if (!initialState.trash) {
                 initialState.trash = [];
             }
-            initialState.favorites = new Set(result.appState.favorites || []);
+            initialState.favorites = new Set(mainStorageData.favorites || []);
 
             let lastSession = null;
             try {
@@ -304,7 +327,9 @@ export const handleExport = async (settings) => {
             settings: settings,
             folders: state.folders,
             trash: state.trash,
-            favorites: Array.from(state.favorites)
+            favorites: Array.from(state.favorites),
+            // [CRITICAL BUG 2 FIX] 내보내는 데이터에도 타임스탬프를 포함합니다.
+            lastSavedTimestamp: state.lastSavedTimestamp
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -391,7 +416,9 @@ export const setupImportHandler = () => {
                     const appStateToSave = {
                         folders: sanitizedContent.folders,
                         trash: sanitizedContent.trash,
-                        favorites: Array.from(rebuiltFavorites)
+                        favorites: Array.from(rebuiltFavorites),
+                        // [CRITICAL BUG 2 FIX] 가져온 데이터에도 현재 시점의 타임스탬프를 부여합니다.
+                        lastSavedTimestamp: Date.now()
                     };
 
                     await chrome.storage.local.set({ 

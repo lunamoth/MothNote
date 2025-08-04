@@ -948,24 +948,25 @@ export async function handleNoteUpdate(isForced = false, skipSave = false, force
             return false;
         }
         
-        // [수정] 저장 성공 시, dirty 상태 완전 초기화
-        setState({ isDirty: false, dirtyNoteId: null });
+        wasSuccessful = true;
 
-        // 현재 보고 있는 노트가 방금 저장한 노트와 같고, 저장 이후 추가 변경이 없었다면 '저장됨' UI 표시
-        if (state.activeNoteId === noteIdToSave && !forceData) {
-            const hasChangedAgain = noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave;
-            if (!hasChangedAgain) {
-                updateSaveStatus('saved');
-            } else {
-                // 저장 직후 바로 다시 변경된 경우, 즉시 dirty 상태로 전환
-                setState({ isDirty: true, dirtyNoteId: state.activeNoteId });
-                updateSaveStatus('dirty');
-            }
-        } else if (forceData) {
-            // 다른 노트로 전환하면서 저장한 경우, UI는 그냥 둔다.
+        // [CRITICAL BUG FIX] 레이스 컨디션 방지: 저장 작업 중 추가 변경이 있었는지 확인합니다.
+        // forceData가 없는 일반적인 자동 저장 상황에서만 이 검사를 수행합니다.
+        const isStillDirtyAfterSave = !forceData && (noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave);
+
+        if (isStillDirtyAfterSave) {
+            // 저장 중에 새로운 내용이 입력되었습니다.
+            // isDirty 상태는 이미 true이므로 그대로 두고, UI를 '변경됨'으로 유지합니다.
+            updateSaveStatus('dirty');
+            // 새로운 변경사항에 대한 저장을 다시 예약합니다.
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
+        } else {
+            // 저장 후 추가 변경이 없었거나, 백그라운드 저장(forceData)이었습니다.
+            // 이제 안전하게 dirty 상태를 초기화할 수 있습니다.
+            setState({ isDirty: false, dirtyNoteId: null });
             updateSaveStatus('saved');
         }
-        wasSuccessful = true;
     } catch (e) {
         console.error("Save failed:", e);
         wasSuccessful = false;

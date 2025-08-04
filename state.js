@@ -149,7 +149,9 @@ export let state = {
     preSearchActiveNoteId: null,
     _virtualFolderCache: { all: null, recent: null, favorites: null, trash: null },
     noteCreationDates: new Set(),
-    dateFilter: null
+    dateFilter: null,
+    // [CRITICAL BUG 2 FIX] 데이터 덮어쓰기 방지를 위한 마지막 저장 시점 타임스탬프
+    lastSavedTimestamp: null
 };
 
 const subscribers = new Set();
