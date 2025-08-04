@@ -1,4 +1,4 @@
-import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
+import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
 import { saveData, saveSession } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
@@ -19,7 +19,8 @@ let globalSaveLock = Promise.resolve();
  * 충돌하지 않는 고유한 ID를 생성하고 반환합니다.
  * 이 함수는 ID 충돌로 인한 데이터 유실을 방지합니다.
  */
-const generateUniqueId = () => {
+const generateUniqueId = (prefix) => {
+    const basePrefix = prefix || CONSTANTS.ID_PREFIX.NOTE;
     // crypto.randomUUID()가 가장 이상적이지만, 모든 환경에서 지원되지는 않음
     if (typeof crypto?.randomUUID === 'function') {
         let id;
@@ -34,7 +35,7 @@ const generateUniqueId = () => {
     let attempts = 0;
     const MAX_ATTEMPTS = 10;
     do {
-        id = `${CONSTANTS.ID_PREFIX.NOTE}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        id = `${basePrefix}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         if (attempts++ > MAX_ATTEMPTS) {
             console.error("고유 ID 생성에 실패했습니다. 매우 드문 경우입니다.");
             id += `-${Math.random().toString(36).substring(2, 15)}`;
@@ -119,6 +120,66 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
+// [Critical 버그 수정] 데이터 무결성을 위한 원자적 업데이트 함수
+const performTransactionalUpdate = async (updateFn) => {
+    await globalSaveLock;
+    let releaseLock;
+    globalSaveLock = new Promise(resolve => { releaseLock = resolve; });
+
+    let success = false;
+    try {
+        setState({ isPerformingOperation: true });
+
+        // 1. 저장소에서 최신 데이터를 읽어옵니다.
+        const storageResult = await chrome.storage.local.get('appState');
+        const latestData = storageResult.appState || { folders: [], trash: [], favorites: [] };
+
+        // 2. 최신 데이터를 기반으로 업데이트 로직을 수행합니다. (updateFn 콜백)
+        const result = await updateFn(JSON.parse(JSON.stringify(latestData)));
+        
+        // 사용자가 작업을 취소한 경우 (예: 프롬프트에서 '취소')
+        if (result === null) {
+            return false;
+        }
+
+        const { newData, successMessage, postUpdateState } = result;
+        
+        // 3. 변경된 데이터를 저장소에 다시 씁니다.
+        const timestamp = Date.now();
+        newData.lastSavedTimestamp = timestamp;
+        await chrome.storage.local.set({ appState: newData });
+        
+        // 4. 현재 탭의 state를 최신 데이터와 세션 정보로 업데이트합니다.
+        setState({
+            ...state, // 활성 폴더/노트 등 UI 상태는 유지
+            folders: newData.folders,
+            trash: newData.trash,
+            favorites: new Set(newData.favorites || []),
+            lastSavedTimestamp: timestamp,
+            ...postUpdateState // UI 변경이 필요한 추가 상태
+        });
+        
+        // 5. 파생 데이터 및 UI 갱신
+        buildNoteMap();
+        updateNoteCreationDates();
+        calendarRenderer(true);
+
+        if (successMessage) {
+            showToast(successMessage);
+        }
+        success = true;
+
+    } catch (e) {
+        console.error("Transactional update failed:", e);
+        showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        success = false;
+    } finally {
+        setState({ isPerformingOperation: false });
+        releaseLock();
+    }
+    return success;
+};
+
 // --- 상태 변경 및 저장을 위한 헬퍼 함수 ---
 // [Critical 버그 수정] commitChanges가 트랜잭션으로 동작하도록 수정 및 전역 잠금 적용
 export const commitChanges = async (newState = {}) => {
@@ -196,126 +257,97 @@ const moveItemToTrash = (item, type, originalFolderId = null) => {
 
 export const handleRestoreItem = async (id) => {
     await finishPendingRename();
-    const itemIndex = state.trash.findIndex(item => item.id === id);
-    if (itemIndex === -1) return;
 
-    // [CRITICAL BUG FIX] 복원할 아이템의 복사본을 만들되, 아직 state에서는 제거하지 않습니다.
-    const itemToRestore = JSON.parse(JSON.stringify(state.trash[itemIndex]));
+    const updateLogic = async (latestData) => {
+        const { folders, trash } = latestData;
+        const itemIndex = trash.findIndex(item => item.id === id);
+        if (itemIndex === -1) return null; // 아이템이 다른 탭에서 이미 복원/삭제됨
 
-    // --- 폴더 복원 로직 ---
-    if (itemToRestore.type === 'folder') {
-        let finalFolderName = itemToRestore.name;
+        const itemToRestore = trash.splice(itemIndex, 1)[0];
+        const postUpdateState = {}; // 복원 후 UI 상태 변경을 위한 객체
 
-        // [Critical 버그 수정] 복원될 폴더 ID가 현재 사용 중인지 확인합니다.
-        if (state.folders.some(f => f.id === itemToRestore.id)) {
-            const oldId = itemToRestore.id;
-            itemToRestore.id = generateUniqueId();
-            console.warn(`복원 중 폴더 ID 충돌 발생. '${oldId}' -> '${itemToRestore.id}' (으)로 재할당됨.`);
-        }
+        // --- 폴더 복원 로직 ---
+        if (itemToRestore.type === 'folder') {
+            let finalFolderName = itemToRestore.name;
+            const allNoteIdsInLiveFolders = new Set(folders.flatMap(f => f.notes.map(n => n.id)));
 
-        // 이름 중복 검사 및 새 이름 입력 (비동기)
-        if (state.folders.some(f => f.name === itemToRestore.name)) {
-            const newName = await showPrompt({
-                title: '📁 폴더 이름 중복',
-                message: `'${itemToRestore.name}' 폴더가 이미 존재합니다. 복원할 폴더의 새 이름을 입력해주세요.`,
-                initialValue: `${itemToRestore.name} (복사본)`,
-                validationFn: (value) => {
-                    const trimmedValue = value.trim();
-                    if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
-                    if (state.folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
-                    return { isValid: true };
-                }
-            });
+            if (folders.some(f => f.id === itemToRestore.id)) {
+                const oldId = itemToRestore.id;
+                itemToRestore.id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER);
+                console.warn(`복원 중 폴더 ID 충돌 발생. '${oldId}' -> '${itemToRestore.id}' (으)로 재할당됨.`);
+            }
 
-            if (newName) {
+            if (folders.some(f => f.name === itemToRestore.name)) {
+                const newName = await showPrompt({
+                    title: '📁 폴더 이름 중복',
+                    message: `'${itemToRestore.name}' 폴더가 이미 존재합니다. 복원할 폴더의 새 이름을 입력해주세요.`,
+                    initialValue: `${itemToRestore.name} (복사본)`,
+                    validationFn: (value) => {
+                        const trimmedValue = value.trim();
+                        if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
+                        if (folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+                        return { isValid: true };
+                    }
+                });
+                if (!newName) return null; // 사용자가 취소
                 finalFolderName = newName.trim();
-            } else {
-                // 사용자가 프롬프트에서 취소하면 아무것도 하지 않고 함수 종료
-                return;
-            }
-        }
-        
-        itemToRestore.name = finalFolderName;
-        
-        // [CRITICAL BUG FIX] 모든 사용자 결정이 끝난 후에야 실제 상태를 변경합니다.
-        state.trash.splice(itemIndex, 1);
-        
-        state.totalNoteCount += itemToRestore.notes.length;
-        
-        itemToRestore.notes.forEach(note => {
-            // [Critical 버그 수정] 복원될 노트 ID가 현재 사용 중인지 확인합니다.
-            if (state.noteMap.has(note.id)) {
-                const oldNoteId = note.id;
-                note.id = generateUniqueId();
-                console.warn(`폴더 복원 중 포함된 노트의 ID 충돌 발생. '${oldNoteId}' -> '${note.id}' (으)로 재할당됨.`);
             }
 
-            delete note.deletedAt;
-            delete note.type;
-            delete note.originalFolderId;
-            if (note.isFavorite) {
-                state.favorites.add(note.id);
-            }
-        });
-
-        delete itemToRestore.deletedAt;
-        delete itemToRestore.type;
-        state.folders.unshift(itemToRestore);
-
-        itemToRestore.notes.forEach(note => {
-            state.noteMap.set(note.id, { note: note, folderId: itemToRestore.id });
-        });
-        
-        await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestore.name));
-
-    // --- 노트 복원 로직 ---
-    } else if (itemToRestore.type === 'note') {
-        const { item: originalFolder, isInTrash } = findFolder(itemToRestore.originalFolderId);
-        let targetFolder = null;
-
-        if (originalFolder && !isInTrash) {
-            targetFolder = originalFolder;
-        } else {
-            // 복원할 폴더 선택 (비동기)
-            const newFolderId = await showFolderSelectPrompt({
-                title: '🤔 원본 폴더를 찾을 수 없음',
-                message: '이 노트의 원본 폴더가 없거나 휴지통에 있습니다. 복원할 폴더를 선택해주세요.'
+            itemToRestore.name = finalFolderName;
+            
+            itemToRestore.notes.forEach(note => {
+                if (allNoteIdsInLiveFolders.has(note.id)) {
+                    const oldNoteId = note.id;
+                    note.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE);
+                    console.warn(`폴더 복원 중 포함된 노트의 ID 충돌 발생. '${oldNoteId}' -> '${note.id}' (으)로 재할당됨.`);
+                }
+                delete note.deletedAt; delete note.type; delete note.originalFolderId;
             });
 
-            if (newFolderId) {
-                targetFolder = findFolder(newFolderId).item;
+            delete itemToRestore.deletedAt; delete itemToRestore.type;
+            folders.unshift(itemToRestore);
+            
+            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestore.name), postUpdateState };
+
+        // --- 노트 복원 로직 ---
+        } else if (itemToRestore.type === 'note') {
+            const originalFolder = folders.find(f => f.id === itemToRestore.originalFolderId);
+            let targetFolder = null;
+
+            if (originalFolder) {
+                targetFolder = originalFolder;
             } else {
-                // 사용자가 폴더 선택을 취소하면 아무것도 하지 않고 함수 종료
-                return;
+                const newFolderId = await showFolderSelectPrompt({
+                    title: '🤔 원본 폴더를 찾을 수 없음',
+                    message: '이 노트의 원본 폴더가 없거나 휴지통에 있습니다. 복원할 폴더를 선택해주세요.'
+                });
+                if (!newFolderId) return null; // 사용자가 취소
+                targetFolder = folders.find(f => f.id === newFolderId);
             }
-        }
 
-        // 사용자가 폴더를 선택하지 않았거나 유효하지 않으면 종료
-        if (!targetFolder) {
-            return;
-        }
+            if (!targetFolder) {
+                await showAlert({ title: '오류', message: '선택한 폴더를 찾을 수 없어 복원에 실패했습니다.' });
+                trash.splice(itemIndex, 0, itemToRestore); // 작업 실패 시 아이템 원위치
+                return null;
+            }
 
-        // [Critical 버그 수정] 복원될 노트 ID가 현재 사용 중인지 확인합니다.
-        if (state.noteMap.has(itemToRestore.id)) {
-            const oldId = itemToRestore.id;
-            itemToRestore.id = generateUniqueId();
-            console.warn(`노트 복원 중 ID 충돌 발생. '${oldId}' -> '${itemToRestore.id}' (으)로 재할당됨.`);
-        }
-        
-        // [CRITICAL BUG FIX] 모든 사용자 결정이 끝난 후에야 실제 상태를 변경합니다.
-        state.trash.splice(itemIndex, 1);
-        
-        delete itemToRestore.deletedAt;
-        delete itemToRestore.type;
-        delete itemToRestore.originalFolderId;
-        if (itemToRestore.isFavorite) state.favorites.add(itemToRestore.id);
-        
-        targetFolder.notes.unshift(itemToRestore);
-        state.totalNoteCount++;
-        state.noteMap.set(itemToRestore.id, { note: itemToRestore, folderId: targetFolder.id });
+            const allNoteIdsInLiveFolders = new Set(folders.flatMap(f => f.notes.map(n => n.id)));
+            if (allNoteIdsInLiveFolders.has(itemToRestore.id)) {
+                const oldId = itemToRestore.id;
+                itemToRestore.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE);
+                console.warn(`노트 복원 중 ID 충돌 발생. '${oldId}' -> '${itemToRestore.id}' (으)로 재할당됨.`);
+            }
 
-        await finalizeItemChange({}, CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestore.title));
-    }
+            delete itemToRestore.deletedAt; delete itemToRestore.type; delete itemToRestore.originalFolderId;
+            
+            targetFolder.notes.unshift(itemToRestore);
+            
+            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestore.title), postUpdateState };
+        }
+        return null;
+    };
+    
+    await performTransactionalUpdate(updateLogic);
     saveSession();
 };
 
@@ -410,7 +442,7 @@ export const handleAddNote = () => {
             }
             
             // [Critical 버그 수정] ID 충돌을 원천적으로 방지하기 위해 `generateUniqueId` 헬퍼 함수를 사용합니다.
-            const uniqueId = generateUniqueId();
+            const uniqueId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE);
 
             const newNote = { id: uniqueId, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             activeFolder.notes.unshift(newNote);

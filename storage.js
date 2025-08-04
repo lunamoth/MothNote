@@ -84,8 +84,9 @@ export const loadData = async () => {
         if (uncommittedDataStr) {
             try {
                 const patchData = JSON.parse(uncommittedDataStr);
-                
-                // 메인 데이터가 존재하고, 패치가 유효한 노트 패치일 경우에만 진행
+                let dataWasPatched = false;
+
+                // [버그 2 수정] 노트 내용 패치 로직
                 if (mainStorageData && patchData.type === 'note_patch') {
                     console.warn("저장되지 않은 노트 변경분(Patch) 발견. 데이터 병합을 시도합니다.");
                     
@@ -94,66 +95,73 @@ export const loadData = async () => {
                         const noteToPatch = folder.notes.find(n => n.id === patchData.noteId);
                         if (noteToPatch) {
                             noteFound = true;
-                            
-                            // [CRITICAL BUG FIX] 타임스탬프 비교 로직 추가
-                            // 패치 데이터가 주 저장소 데이터보다 최신일 경우에만 적용합니다.
                             const mainNoteTimestamp = noteToPatch.updatedAt || 0;
                             const patchTimestamp = patchData.data.updatedAt || 0;
 
                             if (patchTimestamp > mainNoteTimestamp) {
-                                console.log(`패치 데이터가 더 최신이므로 적용합니다. (Patch: ${new Date(patchTimestamp).toISOString()}, Main: ${new Date(mainNoteTimestamp).toISOString()})`);
                                 Object.assign(noteToPatch, patchData.data);
-                                
-                                // 패치가 적용된 데이터를 새로운 타임스탬프와 함께 저장합니다.
-                                mainStorageData.lastSavedTimestamp = Date.now();
-                                await chrome.storage.local.set({ appState: mainStorageData });
-                                console.log("노트 데이터 패치 완료.");
-
+                                dataWasPatched = true;
+                                console.log(`노트 데이터 패치 완료. (ID: ${patchData.noteId})`);
                             } else {
-                                console.warn(`저장되지 않은 변경사항(Patch)이 이미 저장된 데이터보다 오래되었거나 동일하므로 무시합니다. (Patch: ${new Date(patchTimestamp).toISOString()}, Main: ${new Date(mainNoteTimestamp).toISOString()})`);
+                                console.warn(`저장되지 않은 변경사항(Patch)이 이미 저장된 데이터보다 오래되었거나 동일하므로 무시합니다.`);
                             }
-                            break; // 해당 노트를 찾았으므로 루프 종료
+                            break;
                         }
                     }
                     
-                    // [CRITICAL BUG FIX] 다른 탭에서 폴더가 삭제되어 노트가 사라졌을 때의 복구 로직
                     if (!noteFound) {
                         console.warn(`패치할 노트를 찾지 못했으며(ID: ${patchData.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
-
                         const RECOVERY_FOLDER_NAME = '복구된 노트';
                         let recoveryFolder = mainStorageData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-
                         if (!recoveryFolder) {
-                            recoveryFolder = {
-                                id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-recovered`,
-                                name: RECOVERY_FOLDER_NAME,
-                                notes: []
-                            };
-                            // 사용자가 쉽게 볼 수 있도록 폴더 목록 맨 앞에 추가
+                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${Date.now()}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [] };
                             mainStorageData.folders.unshift(recoveryFolder);
                         }
-
-                        // 패치 데이터로 노트 객체를 부활시킴
-                        const resurrectedNote = {
-                            id: patchData.noteId,
-                            title: patchData.data.title,
-                            content: patchData.data.content,
-                            createdAt: patchData.data.updatedAt, // 생성일이 없으므로 최종 수정일로 대체
-                            updatedAt: patchData.data.updatedAt,
-                            isPinned: false,
-                            isFavorite: false
-                        };
-
+                        const resurrectedNote = { ...patchData.data, id: patchData.noteId, isPinned: false, isFavorite: false, createdAt: patchData.data.updatedAt };
                         recoveryFolder.notes.unshift(resurrectedNote);
-                        
-                        // 수정된 데이터 구조를 즉시 저장
-                        mainStorageData.lastSavedTimestamp = Date.now();
-                        await chrome.storage.local.set({ appState: mainStorageData });
-
-                        // 사용자에게 알릴 메시지 생성
                         recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
+                        dataWasPatched = true;
+                    }
+                // [버그 2 수정] 이름 변경 패치 로직
+                } else if (mainStorageData && patchData.type === 'rename_patch') {
+                    console.warn("저장되지 않은 이름 변경(Patch) 발견. 데이터 병합을 시도합니다.");
+                    let itemFound = false;
+                    const findAndRename = (items) => {
+                        for (const item of items) {
+                            if (item.id === patchData.itemId) {
+                                if (patchData.itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
+                                    item.name = patchData.newName;
+                                } else {
+                                    item.title = patchData.newName;
+                                    item.updatedAt = patchData.timestamp;
+                                }
+                                return true;
+                            }
+                            if (item.notes) {
+                                if (findAndRename(item.notes)) return true;
+                            }
+                        }
+                        return false;
+                    };
+                    
+                    if(findAndRename(mainStorageData.folders)) {
+                        itemFound = true;
+                    }
+
+                    if (itemFound) {
+                        dataWasPatched = true;
+                        recoveryMessage = `이름이 변경되지 않았던 '${patchData.newName}' 항목을 복구했습니다.`;
+                        console.log(`이름 변경 패치 완료. (ID: ${patchData.itemId})`);
+                    } else {
+                        console.warn(`이름을 변경할 아이템을 찾지 못했습니다. (ID: ${patchData.itemId})`);
                     }
                 }
+
+                if (dataWasPatched) {
+                    mainStorageData.lastSavedTimestamp = Date.now();
+                    await chrome.storage.local.set({ appState: mainStorageData });
+                }
+
             } catch (e) {
                 console.error("저장되지 않은 데이터(패치) 복구 실패:", e);
             } finally {

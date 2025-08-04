@@ -604,10 +604,10 @@ class Dashboard {
         this.dom.calendarGrid.innerHTML = '';
         const year = this.internalState.currentDate.getFullYear(), month = this.internalState.currentDate.getMonth();
         this.dom.calendarMonthYear.textContent = `🗓️ ${year}년 ${month + 1}월`;
-        const firstDay = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
         const days = ['일', '월', '화', '수', '목', '금', '토'];
         days.forEach(day => { const el = document.createElement('div'); el.className = 'calendar-day day-name'; el.textContent = day; this.dom.calendarGrid.appendChild(el); });
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
         for (let i = 0; i < firstDay; i++) { const el = document.createElement('div'); el.className = 'calendar-day'; this.dom.calendarGrid.appendChild(el); }
         const today = new Date(), todayYear = today.getFullYear(), todayMonth = today.getMonth(), todayDate = today.getDate();
         for (let i = 1; i <= daysInMonth; i++) {
@@ -1361,18 +1361,18 @@ const setupGlobalEventListeners = () => {
             return;
         }
 
-        // 데이터 가져오기 중이거나, 저장되지 않은 변경사항이 있거나,
-        // 중요한 작업이 진행 중일 때 브라우저에 탭 종료 확인을 요청합니다.
-        const needsProtection = window.isImporting || state.isDirty || state.renamingItemId || state.isPerformingOperation;
-
+        const isRenaming = !!state.renamingItemId;
+        const needsProtection = window.isImporting || state.isDirty || isRenaming || state.isPerformingOperation;
+        
+        // [버그 2 수정] 비상 백업 로직 개선
         if (needsProtection) {
-            // [CRITICAL BUG FIX] 데이터 유실을 방지하기 위해, 전체 상태가 아닌 변경된 '패치' 정보만 저장합니다.
+            let patchData = null;
+
+            // 노트 내용 변경 백업
             if (state.isDirty && state.dirtyNoteId) {
                 const currentTitle = noteTitleInput?.value ?? '';
                 const currentContent = noteContentTextarea?.value ?? '';
-
-                // 1. 변경된 노트의 내용만 담은 '패치' 객체를 생성합니다.
-                const patchData = {
+                patchData = {
                     type: 'note_patch',
                     noteId: state.dirtyNoteId,
                     data: {
@@ -1381,19 +1381,29 @@ const setupGlobalEventListeners = () => {
                         updatedAt: Date.now()
                     }
                 };
+            // 이름 변경 백업
+            } else if (isRenaming) {
+                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
+                if (renamingElement) {
+                    patchData = {
+                        type: 'rename_patch',
+                        itemId: state.renamingItemId,
+                        itemType: renamingElement.closest('.item-list-entry').dataset.type,
+                        newName: renamingElement.textContent,
+                        timestamp: Date.now() // 노트의 updatedAt을 업데이트하기 위함
+                    };
+                }
+            }
 
-                // 2. 동기적으로 처리되는 localStorage에 패치 데이터를 저장합니다.
+            if (patchData) {
                 try {
                     localStorage.setItem(CONSTANTS.LS_KEY_UNCOMMITTED, JSON.stringify(patchData));
                 } catch (err) {
                     console.error("비상 데이터(패치) 저장 실패:", err);
                 }
             }
-
-            // 참고: 이름 변경 중(`renamingItemId`)일 때의 데이터는 더 복잡한 병합 로직이 필요하여,
-            // 가장 치명적인 노트 편집 내용 유실 방지에 집중했습니다. 이 로직은 추후 확장될 수 있습니다.
     
-            // 3. 브라우저에게 페이지를 떠나지 말라고 알립니다.
+            // 브라우저에게 페이지를 떠나지 말라고 알립니다.
             e.preventDefault();
             e.returnValue = '';
         }
