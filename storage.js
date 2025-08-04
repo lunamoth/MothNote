@@ -500,7 +500,7 @@ export const setupImportHandler = () => {
                     ? sanitizeSettings(importedData.settings) 
                     : JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
 
-                const ok = await showConfirm({
+                const firstConfirm = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
                     message: "가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong><br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
                     isHtml: true,
@@ -508,41 +508,67 @@ export const setupImportHandler = () => {
                     confirmButtonType: 'danger'
                 });
 
-                if (ok) {
-                    window.isImporting = true;
-                    
-                    overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
-                    document.body.appendChild(overlay);
-
-                    const rebuiltFavorites = new Set(sanitizedContent.favorites);
-
-                    // [Critical Bug 수정] 가져올 모든 데이터를 하나의 페이로드로 묶습니다.
-                    const importPayload = {
-                        appState: {
-                            folders: sanitizedContent.folders,
-                            trash: sanitizedContent.trash,
-                            favorites: Array.from(rebuiltFavorites),
-                            lastSavedTimestamp: Date.now()
-                        },
-                        settings: sanitizedSettings
-                    };
-
-                    // [Critical Bug 수정] 1. 실제 데이터를 덮어쓰기 전, 복구를 위한 플래그를 localStorage에 저장합니다.
-                    localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
-
-                    // [Critical Bug 수정] 2. 실제 데이터 덮어쓰기 작업을 수행합니다.
-                    await chrome.storage.local.set({ appState: importPayload.appState });
-                    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                    
-                    // [Critical Bug 수정] 3. 모든 작업이 성공적으로 끝난 후, 세션 정보와 복구 플래그를 정리합니다.
-                    localStorage.removeItem(CONSTANTS.LS_KEY);
-                    localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-
-                    showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 500);
+                if (!firstConfirm) {
+                    e.target.value = ''; // 사용자가 첫 확인에서 취소
+                    return;
                 }
+
+                // --- [CRITICAL BUG 수정] 데이터 손실 방지를 위한 2차 확인 로직 ---
+                // 가져올 데이터가 비어있는지 확인합니다.
+                const isDataEmpty = sanitizedContent.folders.length === 0 && sanitizedContent.trash.length === 0;
+
+                if (isDataEmpty) {
+                    const finalConfirm = await showConfirm({
+                        title: '⚠️ 빈 데이터 경고',
+                        message: "가져올 파일에 노트나 폴더가 없습니다.<br><br>계속 진행하면 현재의 모든 데이터가 <strong>영구적으로 삭제되고 빈 상태로 초기화됩니다.</strong><br><br>정말로 모든 데이터를 지우시겠습니까?",
+                        isHtml: true,
+                        confirmText: '💥 예, 모든 데이터를 삭제합니다',
+                        confirmButtonType: 'danger'
+                    });
+
+                    // 사용자가 최종 확인에서 취소하면 작업을 중단합니다.
+                    if (!finalConfirm) {
+                        showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                        e.target.value = '';
+                        return;
+                    }
+                }
+                // --- 수정 끝 ---
+
+                window.isImporting = true;
+                
+                overlay.textContent = '데이터를 적용하는 중입니다... 잠시만 기다려주세요.';
+                document.body.appendChild(overlay);
+
+                const rebuiltFavorites = new Set(sanitizedContent.favorites);
+
+                // [Critical Bug 수정] 가져올 모든 데이터를 하나의 페이로드로 묶습니다.
+                const importPayload = {
+                    appState: {
+                        folders: sanitizedContent.folders,
+                        trash: sanitizedContent.trash,
+                        favorites: Array.from(rebuiltFavorites),
+                        lastSavedTimestamp: Date.now()
+                    },
+                    settings: sanitizedSettings
+                };
+
+                // [Critical Bug 수정] 1. 실제 데이터를 덮어쓰기 전, 복구를 위한 플래그를 localStorage에 저장합니다.
+                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
+
+                // [Critical Bug 수정] 2. 실제 데이터 덮어쓰기 작업을 수행합니다.
+                await chrome.storage.local.set({ appState: importPayload.appState });
+                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                
+                // [Critical Bug 수정] 3. 모든 작업이 성공적으로 끝난 후, 세션 정보와 복구 플래그를 정리합니다.
+                localStorage.removeItem(CONSTANTS.LS_KEY);
+                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+
+                showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
                 if (overlay.parentElement) {
