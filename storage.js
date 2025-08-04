@@ -49,6 +49,37 @@ export const loadData = async () => {
     let recoveryMessage = null;
 
     try {
+        // [Critical Bug 수정] 앱 로딩 시작 시, 완료되지 않은 가져오기 작업이 있는지 먼저 확인합니다.
+        const incompleteImportRaw = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+        if (incompleteImportRaw) {
+            console.warn("완료되지 않은 가져오기 작업 감지. 복구를 시작합니다...");
+            recoveryMessage = "이전 가져오기 작업이 완료되지 않아 자동으로 복구했습니다.";
+
+            try {
+                const importPayload = JSON.parse(incompleteImportRaw);
+
+                // 플래그에 저장된 데이터를 사용하여 가져오기 작업을 마저 완료합니다.
+                await chrome.storage.local.set({ appState: importPayload.appState });
+                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(importPayload.settings));
+                
+                // 이전 세션 정보를 삭제합니다.
+                localStorage.removeItem(CONSTANTS.LS_KEY); 
+                
+                // 복구가 완료되었으므로 플래그를 제거합니다.
+                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+
+                // 복구된 데이터로 앱을 완전히 새로 시작하기 위해 페이지를 새로고침합니다.
+                window.location.reload();
+                return; // 추가적인 로딩 로직 실행을 중단합니다.
+
+            } catch (err) {
+                console.error("가져오기 복구 실패:", err);
+                showToast("데이터 가져오기 복구에 실패했습니다. 개발자 콘솔을 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
+                // 잘못된 플래그가 계속 문제를 일으키지 않도록 제거합니다.
+                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            }
+        }
+        
         // --- 1. 모든 복구 소스 수집 ---
         const mainStorageResult = await chrome.storage.local.get('appState');
         const mainData = mainStorageResult.appState;
@@ -485,24 +516,27 @@ export const setupImportHandler = () => {
 
                     const rebuiltFavorites = new Set(sanitizedContent.favorites);
 
-                    const appStateToSave = {
-                        folders: sanitizedContent.folders,
-                        trash: sanitizedContent.trash,
-                        favorites: Array.from(rebuiltFavorites),
-                        lastSavedTimestamp: Date.now()
+                    // [Critical Bug 수정] 가져올 모든 데이터를 하나의 페이로드로 묶습니다.
+                    const importPayload = {
+                        appState: {
+                            folders: sanitizedContent.folders,
+                            trash: sanitizedContent.trash,
+                            favorites: Array.from(rebuiltFavorites),
+                            lastSavedTimestamp: Date.now()
+                        },
+                        settings: sanitizedSettings
                     };
 
-                    await chrome.storage.local.set({ 
-                        [CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS]: { 
-                            appState: appStateToSave,
-                            settings: sanitizedSettings
-                        } 
-                    });
-                    await chrome.storage.local.set({ appState: appStateToSave });
+                    // [Critical Bug 수정] 1. 실제 데이터를 덮어쓰기 전, 복구를 위한 플래그를 localStorage에 저장합니다.
+                    localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
+
+                    // [Critical Bug 수정] 2. 실제 데이터 덮어쓰기 작업을 수행합니다.
+                    await chrome.storage.local.set({ appState: importPayload.appState });
                     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                     
+                    // [Critical Bug 수정] 3. 모든 작업이 성공적으로 끝난 후, 세션 정보와 복구 플래그를 정리합니다.
                     localStorage.removeItem(CONSTANTS.LS_KEY);
-                    await chrome.storage.local.remove(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                    localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
                     showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                     setTimeout(() => {
@@ -516,9 +550,10 @@ export const setupImportHandler = () => {
                 }
             } finally {
                 window.isImporting = false;
+                // [수정] 작업이 끝나면 입력 필드를 초기화하여 동일한 파일을 다시 선택할 수 있도록 합니다.
+                e.target.value = '';
             }
         };
         reader.readAsText(file);
-        e.target.value = '';
     };
 };
