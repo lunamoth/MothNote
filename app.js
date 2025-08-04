@@ -1173,7 +1173,12 @@ async function handleStorageSync(changes) {
             }
             
             if (patches.length > 0) {
-                // [Bug ID: 1 Fix] 자동 저장 로직과의 충돌을 피하기 위해 충돌 백업에 고유한 키를 사용합니다.
+                // [BUG-CRITICAL-001 FIX] 새로운 충돌 백업을 생성하기 전에,
+                // 기존의 실시간 자동 저장 백업을 먼저 제거하여 데이터 중복 및 잠재적 유실을 방지합니다.
+                const autoSaveBackupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
+                localStorage.removeItem(autoSaveBackupKey);
+
+                // 이제 최신 데이터로 유일한 백업을 생성합니다.
                 const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-conflict`;
                 localStorage.setItem(backupKey, JSON.stringify(patches));
                 console.log(`[Critical Backup] Conflict detected. ${patches.length} unsaved item(s) have been backed up to '${backupKey}'.`);

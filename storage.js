@@ -1,5 +1,5 @@
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
-import { showToast, showConfirm, importFileInput, sortNotes } from './components.js';
+import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from './components.js';
 // [수정] itemActions.js에서 updateNoteCreationDates 함수를 추가로 가져옵니다.
 import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemActions.js';
 
@@ -164,171 +164,133 @@ export const loadData = async () => {
         // --- 2. 가장 최신인 '기준' 데이터 결정 ---
         let authoritativeData = mainData || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
         
-        // [CRITICAL BUG FIX] 타임스탬프와 관계없이, 진행 중이던 트랜잭션(저널)이 존재하면
-        // 항상 최신 데이터로 간주하여 시스템 시간 오류로 인한 데이터 유실을 방지합니다.
         if (inFlightData) {
             authoritativeData = inFlightData;
             recoveryMessage = "이전에 완료되지 않은 작업이 복구되었습니다.";
             console.warn("완료되지 않은 트랜잭션(저널)을 발견하여, 해당 데이터를 기준으로 복구를 시작합니다.");
         }
 
-        // --- 3. 기준 데이터에 '패치' 병합 ---
+        // --- 3. [구조 개선] 패치 그룹화 및 통합 처리 ---
         if (allPatches.length > 0) {
             let dataWasPatched = false;
-            console.warn(`${allPatches.length}개의 저장되지 않은 변경사항(패치)을 발견했습니다. 데이터 병합을 시도합니다.`);
-
+            
+            // 3-1. 패치를 아이템 ID 기준으로 그룹화하고, 각 타입별로 최신 패치만 유지
+            const patchesByItemId = new Map();
             for (const patch of allPatches) {
-                if (patch.type === 'note_patch') {
-                    let noteFound = false;
-                    for (const folder of authoritativeData.folders) {
-                        const noteToPatch = folder.notes.find(n => n.id === patch.noteId);
-                        if (noteToPatch) {
-                            noteFound = true;
-                            // [CRITICAL BUG FIX] 데이터 유실 방지를 위해 타임스탬프 검사 로직을 수정합니다.
-                            // 기존 로직은 패치의 타임스탬프가 저장된 데이터보다 오래되면 패치를 무시하여,
-                            // 동기화 충돌 시 생성된 비상 백업 데이터가 유실되는 치명적 결함이 있었습니다.
-                            // 이제 패치가 존재하면 항상 내용의 타임스탬프를 비교하여 충돌 여부를 판단합니다.
-                            
-                            // 타임스탬프가 다르다면, 다른 탭에서 변경이 있었다는 의미이므로 '충돌'입니다.
-                            // 덮어쓰기를 방지하기 위해, 패치 내용을 별도의 복구 노트로 생성합니다.
-                            if (patch.data.updatedAt !== noteToPatch.updatedAt) {
-                                console.warn(`데이터 충돌 감지 (ID: ${patch.noteId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
-                                const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
-                                let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                                if (!recoveryFolder) {
-                                    const now = Date.now();
-                                    recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                                    authoritativeData.folders.unshift(recoveryFolder);
-                                }
-                                const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[충돌] ${patch.data.title}`, isPinned: false, isFavorite: false };
-                                recoveryFolder.notes.unshift(conflictedNote);
-                                recoveryMessage = `'${patch.data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
-                            } else {
-                                // 타임스탬프가 같다면, 브라우저 비정상 종료 등으로 인한 정상적인 복구 상황입니다.
-                                // 이 경우 데이터를 안전하게 덮어씁니다.
-                                Object.assign(noteToPatch, patch.data);
-                                recoveryMessage = `저장되지 않았던 노트 '${patch.data.title}'의 변경사항을 복구했습니다.`;
-                            }
-                            dataWasPatched = true;
-                            break;
-                        }
-                    }
-                    
-                    // [CRITICAL BUG FIX] 노트가 폴더 목록에 없는 경우, 휴지통에 있거나 완전 유실된 상태이므로 별도 처리합니다.
-                    if (!noteFound) {
-                        const isInTrash = authoritativeData.trash.some(item => item.id === patch.noteId);
-                        
-                        if (isInTrash) {
-                            // [신규 로직] '삭제 중 편집' 충돌 상황입니다. 데이터 유실을 막기 위해 패치 내용을 별도 복구합니다.
-                            console.warn(`삭제-편집 충돌 감지 (ID: ${patch.noteId}). 유실을 방지하기 위해 복구 노트를 생성합니다.`);
+                if (!patch.itemId) continue;
+
+                if (!patchesByItemId.has(patch.itemId)) {
+                    patchesByItemId.set(patch.itemId, {});
+                }
+                const existingPatches = patchesByItemId.get(patch.itemId);
+                
+                const getTimestamp = p => p.timestamp || p.data?.updatedAt || 0;
+                
+                const existingTimestamp = getTimestamp(existingPatches[patch.type] || {});
+                const newTimestamp = getTimestamp(patch);
+
+                if (newTimestamp >= existingTimestamp) {
+                    existingPatches[patch.type] = patch;
+                }
+            }
+            
+            console.warn(`${patchesByItemId.size}개 항목에 대한 저장되지 않은 변경사항(패치)을 발견했습니다. 데이터 병합을 시도합니다.`);
+
+            // 3-2. 그룹화된 패치를 순회하며 통합 복구 로직 적용
+            for (const [itemId, groupedPatches] of patchesByItemId.entries()) {
+                const { note_patch, rename_patch } = groupedPatches;
+
+                let itemToUpdate = null, folderOfItem = null, isInTrash = false;
+
+                // 기준 데이터에서 아이템 위치 찾기
+                for (const folder of authoritativeData.folders) {
+                    const note = folder.notes.find(n => n.id === itemId);
+                    if (note) { itemToUpdate = note; folderOfItem = folder; break; }
+                }
+                if (!itemToUpdate) {
+                    const folder = authoritativeData.folders.find(f => f.id === itemId);
+                    if (folder) { itemToUpdate = folder; }
+                }
+                if (!itemToUpdate) {
+                    const trashedItem = authoritativeData.trash.find(t => t.id === itemId);
+                    if (trashedItem) { itemToUpdate = trashedItem; isInTrash = true; }
+                }
+                
+                // Case 1: 아이템이 기준 데이터에 존재하는 경우 (일반적인 패치 적용)
+                if (itemToUpdate) {
+                    if (note_patch) {
+                        // 데이터 충돌 시 '충돌 복구 노트' 생성
+                        if (note_patch.data.updatedAt !== itemToUpdate.updatedAt && !isInTrash) {
+                             console.warn(`데이터 충돌 감지 (ID: ${itemId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
                             const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
                             let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
                             if (!recoveryFolder) {
-                                 const now = Date.now();
+                                const now = Date.now();
                                 recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
                                 authoritativeData.folders.unshift(recoveryFolder);
                             }
-                            // 휴지통의 원본은 그대로 두고, 패치 내용으로 새 노트를 만들어 복구합니다.
-                            const conflictedNote = { ...patch.data, id: `${patch.noteId}-conflict-${Date.now()}`, title: `[삭제된 노트 복구] ${patch.data.title}`, isPinned: false, isFavorite: false };
+                            const conflictedNote = { ...note_patch.data, id: `${itemId}-conflict-${Date.now()}`, title: `[충돌] ${note_patch.data.title}`, isPinned: false, isFavorite: false };
                             recoveryFolder.notes.unshift(conflictedNote);
-                            recoveryMessage = `편집 중 삭제된 노트 '${patch.data.title}'의 내용을 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
-                            dataWasPatched = true;
-
-                        } else {
-                            // [기존 로직] 노트가 휴지통에도 없으면, 영구 손실을 방지하기 위해 노트를 복원합니다.
-                            console.warn(`패치할 노트를 찾지 못했으며(ID: ${patch.noteId}), 영구 손실을 방지하기 위해 노트를 복원합니다.`);
-                            const RECOVERY_FOLDER_NAME = '복구된 노트';
-                            let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                            if (!recoveryFolder) {
-                                 const now = Date.now();
-                                recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                                authoritativeData.folders.unshift(recoveryFolder);
-                            }
-                            const resurrectedNote = { ...patch.data, id: patch.noteId, isPinned: false, isFavorite: false, createdAt: patch.data.updatedAt };
-                            recoveryFolder.notes.unshift(resurrectedNote);
-                            recoveryMessage = `저장되지 않은 노트 '${resurrectedNote.title}'를 '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
-                            dataWasPatched = true;
+                            recoveryMessage = `'${note_patch.data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
+                        } else { // 정상적인 복구
+                            Object.assign(itemToUpdate, note_patch.data);
+                            recoveryMessage = `저장되지 않았던 노트 '${note_patch.data.title}'의 변경사항을 복구했습니다.`;
                         }
                     }
+                    if (rename_patch) {
+                         const itemLastUpdated = itemToUpdate.updatedAt || 0;
+                         const patchTimestamp = rename_patch.timestamp || 0;
+                         if (itemLastUpdated <= patchTimestamp) {
+                            if (rename_patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) itemToUpdate.name = rename_patch.newName;
+                            else itemToUpdate.title = rename_patch.newName;
+                            itemToUpdate.updatedAt = rename_patch.timestamp;
+                            recoveryMessage = `이름이 변경되지 않았던 '${rename_patch.newName}' 항목을 복구했습니다.`;
+                         }
+                    }
+                    dataWasPatched = true;
+                } 
+                // Case 2: 아이템이 기준 데이터에 없음 (데이터 유실 방지를 위한 '복원' 로직)
+                else {
+                    console.warn(`패치를 적용할 아이템(ID: ${itemId})을 찾지 못했습니다. 영구 손실을 방지하기 위해 항목을 복원합니다.`);
+                    
+                    const itemType = rename_patch?.itemType || (note_patch ? CONSTANTS.ITEM_TYPE.NOTE : null);
+                    if (!itemType) continue; // 타입 정보가 없으면 복원 불가
 
-                } else if (patch.type === 'rename_patch') {
-                    let itemFound = false;
-                    const findAndRename = (items) => {
-                        for (const item of items) {
-                            if (item.id === patch.itemId) {
-                                // [CRITICAL BUG FIX] 저장된 데이터의 최종 수정 시각과 패치의 타임스탬프를 비교합니다.
-                                const itemLastUpdated = item.updatedAt || 0;
-                                const patchTimestamp = patch.timestamp || 0;
-
-                                // 만약 스토리지의 데이터가 패치보다 최신이면(다른 탭에서 정상 저장됨), 이 패치를 무시합니다.
-                                if (itemLastUpdated > patchTimestamp) {
-                                    console.warn(`Ignoring outdated rename patch for item '${patch.newName}' (ID: ${patch.itemId}). Stored data is newer.`);
-                                    itemFound = true; // "찾았음"으로 처리하여 더 이상 탐색하지 않도록 합니다.
-                                    return true;
-                                }
-
-                                // 패치가 더 최신이거나 버전이 같을 경우에만 적용합니다.
-                                if (patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
-                                    item.name = patch.newName;
-                                    item.updatedAt = patch.timestamp; // 폴더의 수정 시각도 패치 시점으로 업데이트합니다.
-                                } else { // NOTE
-                                    item.title = patch.newName;
-                                    item.updatedAt = patch.timestamp;
-                                }
-                                return true;
-                            }
-                            if (item.notes && findAndRename(item.notes)) return true;
-                        }
-                        return false;
-                    };
-                    if(findAndRename(authoritativeData.folders) || findAndRename(authoritativeData.trash)) {
-                        if (!itemFound) {
-                            dataWasPatched = true;
-                            recoveryMessage = `이름이 변경되지 않았던 '${patch.newName}' 항목을 복구했습니다.`;
-                            console.log(`이름 변경 패치 완료. (ID: ${patch.itemId})`);
-                        }
-                    } else {
-                        // --- [CRITICAL BUG FIXED] ---
-                        // 이름 변경 패치 대상을 찾지 못하면 데이터 유실이 발생하므로, note_patch처럼 항목을 복원합니다.
-                        console.warn(`이름 변경 패치를 적용할 아이템(ID: ${patch.itemId})을 찾지 못했습니다. 영구 손실을 방지하기 위해 항목을 복원합니다.`);
-
-                        const RECOVERY_FOLDER_NAME = '복구된 항목';
-                        let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                        if (!recoveryFolder) {
-                            const now = Date.now();
-                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered-item`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                            authoritativeData.folders.unshift(recoveryFolder);
-                        }
-                        
+                    const RECOVERY_FOLDER_NAME = '복구된 항목';
+                    let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                    if (!recoveryFolder) {
                         const now = Date.now();
-                        if (patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
-                            const resurrectedFolder = {
-                                id: patch.itemId,
-                                name: patch.newName,
-                                notes: [],
-                                createdAt: patch.timestamp || now,
-                                updatedAt: patch.timestamp || now
-                            };
-                            // 폴더는 최상위 레벨에 바로 복원합니다.
-                            authoritativeData.folders.unshift(resurrectedFolder);
-                            recoveryMessage = `저장되지 않았던 폴더 '${patch.newName}'을(를) 복원했습니다.`;
-                        } else { // NOTE
-                            const resurrectedNote = {
-                                id: patch.itemId,
-                                title: patch.newName,
-                                content: `(이 노트는 비정상 종료로부터 복구되었으며, 내용은 비어있을 수 있습니다.)`,
-                                createdAt: patch.timestamp || now,
-                                updatedAt: patch.timestamp || now,
-                                isPinned: false,
-                                isFavorite: false
-                            };
-                            // 노트는 "복구된 항목" 폴더에 넣어 복원합니다.
-                            recoveryFolder.notes.unshift(resurrectedNote);
-                            recoveryMessage = `저장되지 않았던 노트 '${patch.newName}'을(를) '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
-                        }
-                        dataWasPatched = true;
-                        // --- 수정 완료 ---
+                        recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered-item`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
+                        authoritativeData.folders.unshift(recoveryFolder);
                     }
+                    
+                    const timestamp = rename_patch?.timestamp || note_patch?.data?.updatedAt || Date.now();
+
+                    if (itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
+                        const resurrectedFolder = {
+                            id: itemId,
+                            name: rename_patch.newName,
+                            notes: [],
+                            createdAt: timestamp,
+                            updatedAt: timestamp
+                        };
+                        authoritativeData.folders.unshift(resurrectedFolder);
+                        recoveryMessage = `저장되지 않았던 폴더 '${resurrectedFolder.name}'을(를) 복원했습니다.`;
+                    } else { // NOTE
+                        const resurrectedNote = {
+                            id: itemId,
+                            title: rename_patch?.newName || note_patch?.data?.title || '복구된 노트',
+                            // [CRITICAL BUG FIX] note_patch의 내용을 우선적으로 사용하고, 없을 때만 boilerplate 텍스트 사용
+                            content: note_patch?.data?.content || `(이 노트는 비정상 종료로부터 복구되었으며, 이름만 복원되었을 수 있습니다.)`,
+                            createdAt: note_patch?.data?.createdAt || timestamp,
+                            updatedAt: timestamp,
+                            isPinned: false,
+                            isFavorite: false
+                        };
+                        recoveryFolder.notes.unshift(resurrectedNote);
+                        recoveryMessage = `저장되지 않았던 노트 '${resurrectedNote.title}'을(를) '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
+                    }
+                    dataWasPatched = true;
                 }
             }
 
@@ -338,13 +300,11 @@ export const loadData = async () => {
         }
         
         // --- 4. 복구된 데이터를 최종 저장하고 임시 파일 정리 ---
-        // 복구 과정에서 변경이 있었다면 최종본을 스토리지에 저장
         if (authoritativeData !== mainData) {
             await chrome.storage.local.set({ appState: authoritativeData });
             console.log("복구/병합된 데이터를 스토리지에 최종 저장했습니다.");
         }
         
-        // 모든 임시 데이터 삭제
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
         patchKeysToRemove.forEach(key => localStorage.removeItem(key));
 
