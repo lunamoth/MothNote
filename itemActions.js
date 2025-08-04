@@ -503,6 +503,11 @@ export const handleRestoreItem = async (id) => {
                 itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
             }
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type; delete itemToRestoreInTx.originalFolderId;
+
+            // [Critical Bug Fix] 노트 복원 시, 해당 노트의 `updatedAt` 타임스탬프를 갱신합니다.
+            // 이렇게 해야 '수정일 순 정렬' 및 '최근 노트' 기능이 정상적으로 동작합니다.
+            itemToRestoreInTx.updatedAt = now;
+
             targetFolderInTx.notes.unshift(itemToRestoreInTx);
             // [수정] 노트가 복원된 폴더의 updatedAt 갱신
             targetFolderInTx.updatedAt = now;
