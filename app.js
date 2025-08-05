@@ -347,9 +347,10 @@ async function handleStorageSync(changes) {
         editorContainer.classList.add(CONSTANTS.CLASSES.READONLY);
         noteTitleInput.readOnly = true; noteContentTextarea.readOnly = true;
         
+        // [리팩토링] 이제 데이터 손실 위험이 없으므로, 비상 백업에 대한 언급을 제거하고 새로고침만 안내.
         await showConfirmModal({
             title: '⚠️ 데이터 동기화 충돌',
-            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업되었으며, 새로고침 후 복구됩니다.</strong>',
+            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 자동으로 저장되지 않았습니다.</strong>',
             isHtml: true, confirmText: '🔄 지금 새로고침', hideCancelButton: true
         });
         
@@ -380,43 +381,22 @@ const setupGlobalEventListeners = () => {
         if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
     });
 
-    // [근본적인 아키텍처 수정] beforeunload 핸들러의 역할을 '최종 비상 백업'으로 단순화
+    // [리팩토링] beforeunload 핸들러의 역할을 '브라우저 네이티브 경고'로 단순화하고, 비상 백업 로직을 완전히 제거.
     window.addEventListener('beforeunload', (e) => {
-        if (window.isImporting) return;
+        // 데이터 가져오기 중에는 경고 없이 페이지를 떠나도록 허용
+        if (window.isImporting) {
+            return;
+        }
 
-        const isNoteDirty = state.isDirty && state.activeNoteId;
-        const isRenaming = !!state.renamingItemId;
-
-        if (isNoteDirty || isRenaming) {
-            e.preventDefault(); e.returnValue = '';
-
-            if (isNoteDirty) {
-                try {
-                    const patch = {
-                        type: 'note_patch', noteId: state.activeNoteId,
-                        data: { title: noteTitleInput.value, content: noteContentTextarea.value, updatedAt: Date.now() }
-                    };
-                    const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-note`;
-                    localStorage.setItem(backupKey, JSON.stringify([patch]));
-                    console.log(`[BeforeUnload] 노트 최종 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
-                } catch (err) { console.error("beforeunload 비상 노트 백업 실패:", err); }
-            }
-            
-            if (isRenaming) {
-                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
-                if (renamingElement) {
-                    const patch = {
-                        type: 'rename_patch', itemId: state.renamingItemId,
-                        itemType: renamingElement.closest('.item-list-entry').dataset.type,
-                        newName: renamingElement.textContent, timestamp: Date.now()
-                    };
-                    try {
-                        const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-rename`;
-                        localStorage.setItem(backupKey, JSON.stringify([patch]));
-                        console.log(`[BeforeUnload] 이름 변경 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
-                    } catch (err) { console.error("이름 변경 비상 데이터(패치) 저장 실패:", err); }
-                }
-            }
+        // 이름 변경 중인 항목이 있으면 강제로 완료 시도
+        if (state.renamingItemId) {
+            finishPendingRename();
+        }
+        
+        // 저장되지 않은 노트가 있다면, 브라우저의 기본 경고창을 띄운다.
+        if (state.isDirty) {
+            e.preventDefault(); // 표준에 따라 필요
+            e.returnValue = ''; // 대부분의 최신 브라우저에서 이 메시지는 무시되지만, 호환성을 위해 포함
         }
     });
     

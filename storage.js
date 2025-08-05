@@ -91,13 +91,12 @@ export const saveSession = () => {
     }
 };
 
-// [근본적인 아키텍처 수정] loadData 함수를 단순화하고 역할을 명확히 합니다.
-// 이제 이 함수는 1) 비정상적인 가져오기 복구, 2) '죽은 탭'의 비상 백업 복구만 책임집니다.
+// [리팩토링] loadData에서 localStorage 기반 비상 백업 복구 로직을 완전히 제거.
 export const loadData = async () => {
     let recoveryMessage = null;
 
     try {
-        // 1. 비정상적인 가져오기 작업 복구 (가장 높은 우선순위)
+        // 1. 비정상적인 가져오기 작업 복구 (이 로직은 그대로 유지)
         const incompleteImportRaw = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
         if (incompleteImportRaw) {
             console.warn("완료되지 않은 가져오기 작업 감지. 복구를 시작합니다...");
@@ -119,84 +118,13 @@ export const loadData = async () => {
             }
         }
         
-        // 2. 주 저장소에서 데이터 로드
+        // 2. 주 저장소에서 데이터 로드 (이제 이것이 유일한 데이터 소스)
         const mainStorageResult = await chrome.storage.local.get('appState');
-        let authoritativeData = mainStorageResult.appState || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
+        const authoritativeData = mainStorageResult.appState || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
 
-        // 3. '죽은 탭'의 비상 백업(uncommitted patches) 수집 및 복구
-        let activeTabs = {};
-        try {
-            activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
-        } catch (e) { console.error("활성 탭 목록 읽기 실패:", e); }
+        // 3. [완전 제거] '죽은 탭'의 비상 백업(uncommitted patches) 수집 및 복구 로직
         
-        const allPatches = [];
-        const patchKeysProcessedInThisLoad = [];
-        
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
-                const backupTabId = key.substring(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX.length).split('-')[0];
-                
-                if (backupTabId !== window.tabId && !activeTabs[backupTabId]) {
-                    console.warn(`죽은 탭(${backupTabId})의 비상 백업 데이터 '${key}'를 발견했습니다. 복구를 시도합니다.`);
-                    try {
-                        const patchData = JSON.parse(localStorage.getItem(key));
-                        if (Array.isArray(patchData)) {
-                            allPatches.push(...patchData);
-                            patchKeysProcessedInThisLoad.push(key);
-                        }
-                    } catch (e) { console.error(`비상 백업 데이터 파싱 실패 (키: ${key}):`, e); }
-                }
-            }
-        }
-        
-        // 4. 수집된 패치를 주 데이터에 병합 (단순화된 로직)
-        if (allPatches.length > 0) {
-            const patchesByItemId = new Map();
-            for (const patch of allPatches) {
-                const itemId = patch.itemId || patch.noteId;
-                if (!itemId) continue;
-                if (!patchesByItemId.has(itemId)) patchesByItemId.set(itemId, []);
-                patchesByItemId.get(itemId).push(patch);
-            }
-
-            console.warn(`${patchesByItemId.size}개 항목에 대한 저장되지 않은 변경사항(패치)을 발견했습니다. 데이터 병합을 시도합니다.`);
-            recoveryMessage = (recoveryMessage ? recoveryMessage + "\n" : "") + "저장되지 않은 변경사항을 복구했습니다.";
-
-            for (const [itemId, patchGroup] of patchesByItemId.entries()) {
-                patchGroup.sort((a, b) => (a.timestamp || a.data?.updatedAt || 0) - (b.timestamp || b.data?.updatedAt || 0));
-                const latestPatch = patchGroup[patchGroup.length - 1]; // 가장 최신 패치만 적용
-
-                let itemToUpdate = null;
-                for (const folder of authoritativeData.folders) {
-                    if (folder.id === itemId) { itemToUpdate = folder; break; }
-                    const note = folder.notes.find(n => n.id === itemId);
-                    if (note) { itemToUpdate = note; break; }
-                }
-
-                if (itemToUpdate) {
-                    if (latestPatch.type === 'note_patch' && latestPatch.data) {
-                        Object.assign(itemToUpdate, latestPatch.data);
-                    }
-                    if (latestPatch.type === 'rename_patch' && latestPatch.newName) {
-                        if (latestPatch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) itemToUpdate.name = latestPatch.newName;
-                        else itemToUpdate.title = latestPatch.newName;
-                        itemToUpdate.updatedAt = latestPatch.timestamp;
-                    }
-                }
-            }
-        }
-        
-        // 5. 복구/병합된 데이터를 스토리지에 최종 저장하고 임시 파일 정리
-        if (allPatches.length > 0) {
-            authoritativeData.lastSavedTimestamp = Date.now();
-            await chrome.storage.local.set({ appState: authoritativeData });
-            console.log("복구/병합된 데이터를 스토리지에 최종 저장했습니다.");
-        }
-        
-        patchKeysProcessedInThisLoad.forEach(key => localStorage.removeItem(key));
-
-        // 6. 최종 상태(state) 설정 및 UI 초기화
+        // 4. 최종 상태(state) 설정 및 UI 초기화
         let finalState = { ...state, ...authoritativeData };
         if (authoritativeData && authoritativeData.folders && authoritativeData.folders.length > 0) {
             finalState.trash = finalState.trash || [];
@@ -223,6 +151,7 @@ export const loadData = async () => {
             setState(finalState);
             buildNoteMap();
 
+            const { findFolder } = await import('./state.js'); // 동적 import로 순환 종속성 회피
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
             const noteExistsInMap = state.noteMap.has(state.activeNoteId);
 
@@ -262,17 +191,18 @@ export const loadData = async () => {
     } catch (e) { 
         console.error("Error loading data:", e); 
         showToast("데이터 로딩 중 심각한 오류가 발생했습니다. 개발자 콘솔을 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
-    } finally {
-        if (recoveryMessage) {
-            const preFormattedMessage = document.createElement('pre');
-            preFormattedMessage.style.whiteSpace = 'pre-wrap';
-            preFormattedMessage.style.textAlign = 'left';
-            preFormattedMessage.style.margin = '0';
-            preFormattedMessage.textContent = recoveryMessage;
-            return { recoveryMessage: preFormattedMessage };
-        }
-        return { recoveryMessage: null };
+    } 
+    
+    // 복구 메시지는 이제 import 복구 시에만 생성됩니다.
+    if (recoveryMessage) {
+        const preFormattedMessage = document.createElement('pre');
+        preFormattedMessage.style.whiteSpace = 'pre-wrap';
+        preFormattedMessage.style.textAlign = 'left';
+        preFormattedMessage.style.margin = '0';
+        preFormattedMessage.textContent = recoveryMessage;
+        return { recoveryMessage: preFormattedMessage };
     }
+    return { recoveryMessage: null };
 };
 
 

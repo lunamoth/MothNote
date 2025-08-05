@@ -3,12 +3,9 @@ export const CONSTANTS = {
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
-    // [근본적인 아키텍처 수정] 비상 백업 데이터 키를 고유 식별자와 결합할 '접두사'로 변경
-    LS_KEY_UNCOMMITTED_PREFIX: 'mothnote_uncommitted_prefix_v1', 
+    // [리팩토링] 비상 백업 시스템이 제거되었으므로 관련 상수를 삭제합니다.
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1',
     LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // 사용되지 않지만, 만약을 위해 유지
-    // [근본적인 아키텍처 수정] 저널링 키 제거. 분산 락과 원자적 트랜잭션으로 대체되어 더 이상 필요 없음.
-    // LS_KEY_IN_FLIGHT_TX: 'mothnote_inflight_transaction_v1',
     // --- 분산 락 관련 상수 ---
     SS_KEY_WRITE_LOCK: 'mothnote_session_write_lock_v1', // Session Storage에 저장될 락의 키
     LOCK_TIMEOUT_MS: 8000, // 8초 후 락이 자동으로 만료되도록 설정 (데드락 방지)
@@ -150,9 +147,7 @@ export let state = {
     // --- 실시간 상태 플래그 ---
     isDirty: false,
     dirtyNoteId: null,
-    // [근본적인 아키텍처 수정] pendingChanges는 더 이상 '신뢰의 출처'가 아닙니다.
-    // handleNoteUpdate에서 저장 시점의 UI 값을 임시로 담는 용도로만 사용됩니다.
-    // UI(`textarea`)가 항상 최신 상태를 가집니다.
+    // [리팩토링] pendingChanges는 더 이상 사용되지 않습니다.
     pendingChanges: null,
     isPerformingOperation: false,
     // [추가] 자신의 변경사항을 식별하기 위한 트랜잭션 ID

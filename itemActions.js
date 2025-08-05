@@ -153,13 +153,7 @@ export const performTransactionalUpdate = async (updateFn) => {
         // 6. chrome.storage에 최종 데이터 저장 (이것이 유일한 '커밋' 지점)
         await chrome.storage.local.set({ appState: newData });
         
-        // 7. [매우 중요] 트랜잭션 성공 후, 이 탭이 생성한 모든 임시 백업 파일을 즉시 정리합니다.
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith(`${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`)) {
-                localStorage.removeItem(key);
-            }
-        }
+        // 7. [리팩토링] 로컬 스토리지 백업 로직이 제거되었으므로, 관련 정리 코드도 필요 없어짐.
         
         // 8. 로컬 state를 성공적으로 커밋된 데이터로 업데이트하고 UI 렌더링
         setState({
@@ -378,9 +372,7 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
     }
     data.favorites = Array.from(favoritesSet);
 
-    // [버그 수정] postUpdateState 로직 추가
     let postUpdateState = {};
-    // 만약 현재 즐겨찾기 뷰에 있고, 즐겨찾기를 해제했다면, 검색 상태를 초기화한다.
     if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.FAVORITES.id && !isNowFavorite) {
         postUpdateState.searchTerm = '';
         postUpdateState.preSearchActiveNoteId = null;
@@ -639,6 +631,7 @@ export const handleEmptyTrash = async () => {
     );
 };
 
+// [리팩토링] handleNoteUpdate에서 localStorage 비상 백업 로직을 완전히 제거
 let debounceTimer = null;
 export async function handleNoteUpdate(isForced = false) {
     if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || editorContainer.style.display === 'none') {
@@ -656,37 +649,30 @@ export async function handleNoteUpdate(isForced = false) {
     const currentContent = noteContentTextarea.value;
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
     
+    // 강제 저장이 아닐 때 (사용자 입력 시)
     if (!isForced) {
-        if (state.isDirty || hasChanged) {
+        // 변경 사항이 있을 때만 isDirty 플래그 설정 및 debounce 타이머 관리
+        if (hasChanged) {
             if (!state.isDirty) {
                 setState({ isDirty: true, dirtyNoteId: noteId });
+                updateSaveStatus('dirty');
             }
-            
-            try {
-                const patch = {
-                    type: 'note_patch',
-                    noteId: noteId,
-                    data: { title: currentTitle, content: currentContent, updatedAt: Date.now() }
-                };
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-note`;
-                localStorage.setItem(backupKey, JSON.stringify([patch]));
-            } catch (e) {
-                console.error("실시간 비상 백업 패치 저장에 실패했습니다:", e);
-            }
-
-            updateSaveStatus('dirty');
+            // debounce 타이머 재설정
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
         }
         return true;
     }
     
+    // 강제 저장일 때 (debounce 만료 또는 페이지 이동/닫기 시)
     clearTimeout(debounceTimer);
-    if (!state.isDirty && !hasChanged) {
+
+    // 저장되지 않은 변경사항이 없으면 저장할 필요 없음
+    if (!state.isDirty) {
         return true;
     }
     
-    const noteIdToSave = state.dirtyNoteId || noteId;
+    const noteIdToSave = state.dirtyNoteId; // isDirty 설정 시 저장된 noteId 사용
     const titleToSave = currentTitle;
     const contentToSave = currentContent;
 
@@ -717,14 +703,16 @@ export async function handleNoteUpdate(isForced = false) {
     const wasSuccessful = await performTransactionalUpdate(updateLogic);
     
     if (wasSuccessful) {
-        const isStillDirtyAfterSave = noteTitleInput.value !== titleToSave || noteContentTextarea.value !== contentToSave;
-        if (isStillDirtyAfterSave) {
-            handleNoteUpdate(false);
-        } else {
+        // 저장 후, UI에 추가적인 변경이 없다면 dirty 상태 해제
+        if (noteTitleInput.value === titleToSave && noteContentTextarea.value === contentToSave) {
             setState({ isDirty: false, dirtyNoteId: null });
             updateSaveStatus('saved');
+        } else {
+            // 저장하는 동안 사용자가 추가 입력한 경우, 다시 dirty 상태로 전환
+            handleNoteUpdate(false);
         }
     } else {
+        // 저장 실패 시 dirty 상태 유지
         updateSaveStatus('dirty');
     }
 
