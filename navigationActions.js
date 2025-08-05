@@ -5,7 +5,8 @@ import { saveSession } from './storage.js';
 import {
     searchInput, showConfirm, sortNotes, showToast
 } from './components.js';
-import { saveCurrentNoteIfChanged, finishPendingRename } from './itemActions.js';
+// [BUG FIX 1] `toYYYYMMDD` 함수를 정상적으로 import하고, 존재하지 않는 함수 require 호출을 제거합니다.
+import { saveCurrentNoteIfChanged, finishPendingRename, toYYYYMMDD } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
 
@@ -84,9 +85,10 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     saveSession();
 };
 
+// [BUG FIX 1] 검색 기능이 정상 동작하도록 수정합니다.
 const getCurrentViewNotes = () => {
     if (state.dateFilter) {
-        const { toYYYYMMDD } = require('./itemActions.js');
+        // [BUG FIX] 'require'를 제거하고 모듈 상단에서 import한 'toYYYYMMDD'를 사용합니다.
         const dateStr = toYYYYMMDD(state.dateFilter);
         return Array.from(state.noteMap.values())
             .map(e => e.note)

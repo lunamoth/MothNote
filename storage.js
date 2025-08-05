@@ -1,3 +1,5 @@
+// storage.js
+
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from './components.js';
 import { updateNoteCreationDates } from './itemActions.js';
@@ -326,11 +328,13 @@ export const sanitizeSettings = (settingsData) => {
     return sanitized;
 };
 
+// [BUG FIX 2] 데이터 내보내기(백업) 기능을 수정합니다.
 export const handleExport = async (settings) => {
-    // app.js에서 호출하므로 동적 임포트 불필요
-    const { handleNoteUpdate, finishPendingRename } = await import('./itemActions.js');
+    // [BUG FIX] 존재하지 않는 함수 대신 'saveCurrentNoteIfChanged'를 호출하여
+    // 내보내기 전 현재 노드의 변경사항이 안전하게 저장되도록 합니다.
+    const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
     await finishPendingRename();
-    await handleNoteUpdate(true);
+    await saveCurrentNoteIfChanged();
 
     try {
         const dataToExport = {
@@ -368,6 +372,7 @@ export const handleImport = async () => {
     importFileInput.click();
 };
 
+// [BUG FIX 3] 데이터 가져오기(복원) 기능을 수정합니다.
 export const setupImportHandler = () => {
     importFileInput.onchange = async e => {
         const file = e.target.files[0];
@@ -409,10 +414,11 @@ export const setupImportHandler = () => {
                     if (!finalConfirm) { showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR); e.target.value = ''; return; }
                 }
                 
-                // [안정성 강화] 임포트 전 미저장 노트 강제 저장
-                const { handleNoteUpdate, finishPendingRename } = await import('./itemActions.js');
+                // [BUG FIX] 존재하지 않는 함수 대신 'saveCurrentNoteIfChanged'를 호출하여
+                // 가져오기 전 현재 노드의 변경사항이 안전하게 저장되도록 합니다.
+                const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
                 await finishPendingRename();
-                await handleNoteUpdate(true);
+                await saveCurrentNoteIfChanged();
 
                 if (!(await acquireWriteLock(window.tabId))) {
                     showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
