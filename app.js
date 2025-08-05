@@ -653,6 +653,9 @@ const tabId = crypto.randomUUID();
 // [CRITICAL BUG FIX] 다른 모듈에서 현재 탭 ID에 접근할 수 있도록 window 객체에 할당합니다.
 window.tabId = tabId;
 
+// [BUG FIX] 앱 초기화 중 storage 이벤트를 무시하기 위한 플래그
+window.isInitializing = true;
+
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const setupRippleEffect = () => {
@@ -1140,6 +1143,11 @@ const initializeDragAndDrop = () => {
 };
 
 async function handleStorageSync(changes) {
+    // [BUG FIX] 앱 초기화 중에는 모든 storage 이벤트를 무시합니다.
+    if (window.isInitializing) {
+        return;
+    }
+    
     const { newValue } = changes.appState;
     if (newValue.transactionId && newValue.transactionId === state.currentTransactionId) {
         return;
@@ -1338,38 +1346,43 @@ const setupGlobalEventListeners = () => {
 };
 
 const init = async () => {
-    // [HEARTBEAT] init 시작 시 탭 등록 및 주기적 갱신 시작
-    registerTab();
-    heartbeatIntervalId = setInterval(registerTab, HEARTBEAT_INTERVAL);
+    try {
+        // [HEARTBEAT] init 시작 시 탭 등록 및 주기적 갱신 시작
+        registerTab();
+        heartbeatIntervalId = setInterval(registerTab, HEARTBEAT_INTERVAL);
 
-    loadAndApplySettings();
+        loadAndApplySettings();
 
-    setupEventListeners();
-    setupFeatureToggles();
-    initializeDragAndDrop();
-    setupImportHandler();
-    setupGlobalEventListeners();
-    setupRippleEffect();
+        setupEventListeners();
+        setupFeatureToggles();
+        initializeDragAndDrop();
+        setupImportHandler();
+        setupGlobalEventListeners();
+        setupRippleEffect();
 
-    subscribe(renderAll);
-    
-    let prevState = { ...state };
-    subscribe(() => {
-        if (prevState.dateFilter && !state.dateFilter && dashboard) {
-            dashboard.resetCalendarDate();
-            dashboard.renderCalendar();
+        subscribe(renderAll);
+        
+        let prevState = { ...state };
+        subscribe(() => {
+            if (prevState.dateFilter && !state.dateFilter && dashboard) {
+                dashboard.resetCalendarDate();
+                dashboard.renderCalendar();
+            }
+            prevState = { ...state };
+        });
+
+        const { recoveryMessage } = await loadData();
+        if (recoveryMessage) {
+            showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
         }
-        prevState = { ...state };
-    });
-
-    const { recoveryMessage } = await loadData();
-    if (recoveryMessage) {
-        showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
+        
+        dashboard = new Dashboard();
+        dashboard.init();
+        setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
+    } finally {
+        // [BUG FIX] 모든 초기화 과정이 끝난 후 플래그를 해제합니다.
+        window.isInitializing = false;
     }
-    
-    dashboard = new Dashboard();
-    dashboard.init();
-    setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
 };
 
 document.addEventListener('DOMContentLoaded', init);

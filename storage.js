@@ -385,17 +385,41 @@ export const loadData = async () => {
             }
 
         } else {
-            // 초기 사용자 데이터 생성
+            // [BUG FIX] 초기 사용자 데이터 생성 로직 수정
             const now = Date.now();
             const fId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
             const nId = `${CONSTANTS.ID_PREFIX.NOTE}${now + 1}`;
-            const newNote = { id: nId, title: "🎉 환영합니다!", content: "새 탭 노트에 오신 것을 환영합니다! 🚀", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
+            const newNote = { id: nId, title: "🎉 환영합니다!", content: "MothNote 에 오신 것을 환영합니다! 🦋", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             const newFolder = { id: fId, name: "🌟 첫 시작 폴더", notes: [newNote], createdAt: now, updatedAt: now };
+
+            // 1. 저장할 데이터에 트랜잭션 ID를 포함시킵니다.
+            const transactionId = Date.now() + Math.random();
+            const initialAppStateForStorage = {
+                folders: [newFolder],
+                trash: [],
+                favorites: [], // JSON 저장을 위해 배열로 변환
+                lastSavedTimestamp: now,
+                transactionId: transactionId // 이 ID로 인해 storage.onChanged 이벤트가 무시됩니다.
+            };
             
-            const initialState = { ...state, folders: [newFolder], trash: [], favorites: new Set(), activeFolderId: fId, activeNoteId: nId, totalNoteCount: 1 };
-            setState(initialState);
+            // 2. 메모리(state)에 상태를 설정합니다. 여기에도 트랜잭션 ID를 설정합니다.
+            const initialStateForState = {
+                ...state,
+                folders: [newFolder],
+                trash: [],
+                favorites: new Set(),
+                activeFolderId: fId,
+                activeNoteId: nId,
+                totalNoteCount: 1,
+                lastSavedTimestamp: now,
+                currentTransactionId: transactionId
+            };
+            setState(initialStateForState);
+            
             buildNoteMap();
-            await saveData();
+            
+            // 3. 직접 chrome.storage.local.set을 호출하여 데이터를 저장합니다.
+            await chrome.storage.local.set({ appState: initialAppStateForStorage });
         }
 
         updateNoteCreationDates();
