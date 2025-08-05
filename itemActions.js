@@ -133,7 +133,7 @@ export const performTransactionalUpdate = async (updateFn) => {
         }
         
         if (postUpdateState) setState(postUpdateState);
-        if (successMessage) showToast(successMessage);
+        if (successMessage) showToast(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
         
         success = true;
 
@@ -586,11 +586,11 @@ export const handleEmptyTrash = async () => {
     );
 };
 
-
 /**
- * [REFACTORED] 최종 저장을 담당하는 견고한 함수.
- * 데이터 무결성을 보장하기 위해, 저장하려는 노트의 버전을 확인하여 '덮어쓰기'를 방지합니다.
- * @returns {Promise<boolean>} 저장에 성공했거나 변경사항이 없으면 true, 실패(충돌 포함)하면 false를 반환합니다.
+ * [REFACTORED] 데이터 유실 방지를 위한 최종 저장 함수.
+ * 데이터 충돌 시, 저장을 실패하는 대신 "충돌된 사본"을 생성하여 사용자의 작업을 100% 보존합니다.
+ * 또한, 편집 중이던 노트가 다른 탭에서 삭제된 경우에도 내용을 복구하여 새 노트로 저장할 기회를 제공합니다.
+ * @returns {Promise<boolean>} 저장/충돌 해결에 성공했으면 true, 그 외의 경우 false를 반환합니다.
  */
 export async function saveCurrentNoteIfChanged() {
     if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || !state.activeNoteId) {
@@ -599,15 +599,25 @@ export async function saveCurrentNoteIfChanged() {
     
     const noteId = state.activeNoteId;
     const { item: activeNote } = findNote(noteId);
+
+    // [보강] 편집하던 노트가 다른 탭에서 삭제된 경우의 데이터 복구 로직
     if (!activeNote) {
-        console.warn(`saveCurrentNoteIfChanged: Note with ID ${noteId} not found in state.`);
-        return true;
+        if (state.isDirty && state.dirtyNoteId === noteId) {
+            console.warn(`저장하려던 노트(ID: ${noteId})가 삭제되었습니다. 미저장 내용을 새 노트로 저장합니다.`);
+            showToast("⚠️ 편집하던 노트가 다른 곳에서 삭제되었습니다!", CONSTANTS.TOAST_TYPE.ERROR, 0);
+
+            const lastKnownTitle = noteTitleInput.value;
+            const lastKnownContent = noteContentTextarea.value;
+            
+            // 새 노트로 저장하는 복구 로직 호출
+            await handleAddNoteFromConflict(lastKnownTitle, lastKnownContent);
+        }
+        return true; // 작업 완료
     }
     
-    // [보완] 현재 UI의 값과 로컬 state의 노트 버전을 캡처합니다.
     const currentTitle = noteTitleInput.value;
     const currentContent = noteContentTextarea.value;
-    const localVersion = activeNote.updatedAt; // 사용자가 보고 있던 버전(타임스탬프)
+    const localVersion = activeNote.updatedAt;
     
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
     
@@ -617,44 +627,64 @@ export async function saveCurrentNoteIfChanged() {
     
     updateSaveStatus('saving');
 
-    const { success } = await performTransactionalUpdate(latestData => {
+    const { success, payload: newNoteId } = await performTransactionalUpdate(latestData => {
         let noteToSave, parentFolder;
-        // 트랜잭션 내부에서 최신 스토리지 데이터 기준의 노트를 찾습니다.
         for (const folder of latestData.folders) {
-            noteToSave = folder.notes.find(n => n.id === noteId);
-            if (noteToSave) { parentFolder = folder; break; }
+            const note = folder.notes.find(n => n.id === noteId);
+            if (note) { noteToSave = note; parentFolder = folder; break; }
         }
 
         if (!noteToSave) {
-            console.warn(`저장하려던 노트(ID: ${noteId})를 다른 트랜잭션에서 찾을 수 없습니다. (아마도 삭제됨)`);
-            return null;
+            console.warn(`트랜잭션 중 노트(ID: ${noteId})를 찾을 수 없습니다.`);
+            return null; // 저장 중단
         }
 
-        // ★★★★★ 덮어쓰기 방지 (핵심 로직) ★★★★★
-        // 내가 보고 있던 버전과 스토리지의 실제 버전이 다르면, 다른 탭에서 먼저 수정한 것입니다.
+        // ★★★★★ 데이터 유실 방지 및 아키텍처 교착 상태 해결의 핵심 로직 ★★★★★
         if (noteToSave.updatedAt !== localVersion) {
-            console.error(`SAVE CONFLICT: Local version ${localVersion} does not match storage version ${noteToSave.updatedAt}. Aborting save.`);
-            showToast("⚠️ 다른 탭에서 노트가 변경되어 저장할 수 없습니다!", CONSTANTS.TOAST_TYPE.ERROR, 0);
-            return null; // 저장 작업을 즉시 중단합니다.
+            console.error(`SAVE CONFLICT DETECTED! Local version ${localVersion} vs Storage version ${noteToSave.updatedAt}. Creating a conflict copy.`);
+            
+            const allNoteIds = new Set(latestData.folders.flatMap(f => f.notes.map(n => n.id)).concat(latestData.trash.map(t => t.id)));
+            const newConflictNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+            const now = Date.now();
+            
+            const conflictNote = {
+                id: newConflictNoteId,
+                title: `${currentTitle || '제목 없음'} (충돌된 사본 ${new Date(now).toLocaleTimeString('ko-KR')})`,
+                content: currentContent,
+                createdAt: now, updatedAt: now, isPinned: false
+            };
+            
+            parentFolder.notes.unshift(conflictNote);
+            parentFolder.updatedAt = now;
+            
+            return {
+                newData: latestData,
+                successMessage: `⚠️ 충돌 감지! 작업 내용을 '${conflictNote.title}'(으)로 안전하게 복사했습니다.`,
+                postUpdateState: { activeNoteId: newConflictNoteId },
+                payload: newConflictNoteId
+            };
         }
-        // ★★★★★ 덮어쓰기 방지 끝 ★★★★★
+        // ★★★★★ 핵심 로직 끝 ★★★★★
 
+        // 충돌이 없을 경우의 정상 저장 로직
         const now = Date.now();
         noteToSave.title = currentTitle;
         noteToSave.content = currentContent;
-        noteToSave.updatedAt = now; // 새로운 버전(타임스탬프)으로 업데이트
+        noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         
         return { newData: latestData, successMessage: null, postUpdateState: {} };
     });
     
     if (success) {
+        // 충돌이 발생하여 새 노트로 저장된 경우, UI가 새 노트를 보도록 즉시 변경
+        if (newNoteId && newNoteId !== noteId) {
+             await changeActiveNote(newNoteId);
+        }
         setState({ isDirty: false, dirtyNoteId: null });
         updateSaveStatus('saved');
     } else {
-        // 실패는 충돌 또는 기타 오류일 수 있습니다.
         updateSaveStatus('dirty');
-        // 실패 메시지는 충돌 시 이미 표시되었으므로 여기서는 추가로 표시하지 않을 수 있습니다.
     }
 
     return success;
@@ -800,6 +830,11 @@ export const startRename = (liElement, type) => {
     }, 0);
 };
 
+/**
+ * [NEW] 다른 곳에서 삭제된 노트의 미저장 내용을 새 노트로 저장하는 함수.
+ * @param {string} title - 사용자가 마지막으로 입력했던 제목.
+ * @param {string} content - 사용자가 마지막으로 입력했던 내용.
+ */
 export const handleAddNoteFromConflict = async (title, content) => {
     const targetFolderId = await showFolderSelectPrompt({
         title: '새 노트로 저장',
@@ -837,7 +872,7 @@ export const handleAddNoteFromConflict = async (title, content) => {
         
         return {
             newData: latestData,
-            successMessage: null,
+            successMessage: "✅ 삭제된 노트의 내용을 새 노트로 안전하게 저장했습니다.",
             postUpdateState: {
                 activeFolderId: targetFolderId,
                 isDirty: false,

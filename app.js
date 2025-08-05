@@ -345,8 +345,9 @@ const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElement
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
 /**
- * [REFACTORED] 데이터 동기화 핸들러.
- * 복잡한 병합 로직을 제거하고, "사용자 작업 시 동기화 금지" 규칙을 적용하여 안정성을 확보합니다.
+ * [REFACTORED] 데이터 동기화 핸들러 (로컬 우선 정책 적용)
+ * "로컬 우선" 정책에 따라, 더 이상 자동으로 데이터를 병합하지 않고 사용자에게 변경 사실만 알립니다.
+ * 사용자가 직접 작업을 저장하고 동기화할 수 있도록 하여 데이터 유실을 원천적으로 방지합니다.
  */
 async function handleStorageSync(changes) {
     if (window.isInitializing || window.isImporting || !changes.appState) {
@@ -359,15 +360,31 @@ async function handleStorageSync(changes) {
         return;
     }
 
-    // ★★★★★ 동기화 안정성 확보 (핵심 로직) ★★★★★
-    // 현재 탭에서 사용자가 노트를 수정 중(isDirty)일 경우, 자동으로 데이터를 덮어쓰지 않습니다.
-    // 이는 데이터 유실을 방지하는 가장 중요한 안전장치입니다.
+    // ★★★★★ "로컬 우선" 정책의 핵심 ★★★★★
+    // 현재 탭에서 사용자가 노트를 수정 중(isDirty)일 경우, 자동으로 데이터를 덮어쓰지 않고 알림만 표시합니다.
     if (state.isDirty) {
         console.warn(`SYNC IGNORED: Remote change for transaction ${newValue.transactionId} received, but local state is dirty. Sync will be postponed.`);
-        showToast("다른 탭에서 변경사항이 감지되었습니다. 현재 작업을 저장하면 동기화됩니다.", CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
-        return; // 여기서 함수를 종료하여 위험한 자동 병합을 막습니다.
+        
+        // 사용자가 인지할 수 있도록, 자동으로 사라지지 않는 토스트 메시지를 표시합니다.
+        const messageNode = document.createElement('span');
+        messageNode.innerHTML = `다른 탭에서 변경사항이 감지되었습니다. 현재 작업을 저장하면 동기화됩니다. <a href="#" id="sync-reload-link" style="color: inherit; text-decoration: underline;">[지금 동기화]</a>`;
+        
+        // 토스트 클릭 시, 저장 후 새로고침을 시도하는 링크
+        messageNode.querySelector('#sync-reload-link').onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const saved = await saveCurrentNoteIfChanged();
+            if(saved) {
+                window.location.reload();
+            } else {
+                showToast("저장에 실패하여 동기화할 수 없습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
+            }
+        };
+
+        showToast(messageNode, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
+        return; // 여기서 함수를 종료하여 위험한 자동 병합을 원천 차단합니다.
     }
-    // ★★★★★ 동기화 안정성 확보 끝 ★★★★★
+    // ★★★★★ "로컬 우선" 정책 끝 ★★★★★
 
     console.log("Storage change detected. Safely reconciling local state.");
     
