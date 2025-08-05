@@ -177,12 +177,13 @@ export const loadData = async () => {
             // 3-1. 패치를 아이템 ID 기준으로 그룹화하고, 각 타입별로 최신 패치만 유지
             const patchesByItemId = new Map();
             for (const patch of allPatches) {
-                if (!patch.itemId) continue;
+                if (!patch.itemId && !patch.noteId) continue;
+                const itemId = patch.itemId || patch.noteId;
 
-                if (!patchesByItemId.has(patch.itemId)) {
-                    patchesByItemId.set(patch.itemId, {});
+                if (!patchesByItemId.has(itemId)) {
+                    patchesByItemId.set(itemId, {});
                 }
-                const existingPatches = patchesByItemId.get(patch.itemId);
+                const existingPatches = patchesByItemId.get(itemId);
                 
                 const getTimestamp = p => p.timestamp || p.data?.updatedAt || 0;
                 
@@ -249,11 +250,55 @@ export const loadData = async () => {
                     }
                     dataWasPatched = true;
                 } 
-                // [CRITICAL BUG 1 FIX] Case 2: 아이템이 기준 데이터에 없음 (의도적으로 영구 삭제된 경우)
+                // [CRITICAL BUG 1 FIX] Case 2: 아이템이 기준 데이터에 없음 (고아 패치).
+                // 사용자의 마지막 편집 내용을 유실하지 않도록, 이 데이터를 새 노트로 안전하게 복구합니다.
                 else {
-                    // 이 패치는 영구적으로 삭제된 항목에 대한 것이므로, '고아(orphaned)' 패치로 간주하고 무시합니다.
-                    // 데이터를 복원하지 않음으로써 사용자의 삭제 의도를 존중하고, 데이터 부활 버그를 방지합니다.
-                    console.warn(`무효화된(orphaned) 패치를 발견하여 무시합니다 (대상 ID: ${itemId}). 해당 항목은 영구적으로 삭제된 것으로 보입니다.`);
+                    console.warn(`고아(orphaned) 패치를 발견하여 복구를 시도합니다 (대상 ID: ${itemId}).`);
+
+                    // 복구할 데이터가 있는 경우에만 진행
+                    if (note_patch || rename_patch) {
+                        const ORPHAN_RECOVERY_FOLDER_NAME = '⚠️ 고아 노트 복구';
+                        let recoveryFolder = authoritativeData.folders.find(f => f.name === ORPHAN_RECOVERY_FOLDER_NAME);
+                        
+                        // 복구 폴더가 없으면 생성
+                        if (!recoveryFolder) {
+                            const now = Date.now();
+                            recoveryFolder = { 
+                                id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-orphan-recovery`, 
+                                name: ORPHAN_RECOVERY_FOLDER_NAME, 
+                                notes: [], 
+                                createdAt: now, 
+                                updatedAt: now 
+                            };
+                            authoritativeData.folders.unshift(recoveryFolder);
+                        }
+
+                        // 복구할 노트 데이터 조합
+                        const recoveryData = note_patch ? { ...note_patch.data } : { title: '', content: '', createdAt: Date.now() };
+                        if (rename_patch) {
+                            recoveryData.title = rename_patch.newName;
+                            recoveryData.updatedAt = rename_patch.timestamp;
+                        }
+
+                        const recoveredNote = {
+                            id: `${itemId}-orphan-${Date.now()}`, // 새 고유 ID 생성
+                            title: `[복구됨] ${recoveryData.title || '제목 없음'}`,
+                            content: recoveryData.content || '',
+                            createdAt: recoveryData.createdAt || Date.now(),
+                            updatedAt: recoveryData.updatedAt || Date.now(),
+                            isPinned: false,
+                            isFavorite: false,
+                        };
+
+                        recoveryFolder.notes.unshift(recoveredNote);
+                        dataWasPatched = true;
+                        
+                        const newRecoveryMessage = `저장되지 않고 삭제되었을 수 있는 노트의 내용을 '${ORPHAN_RECOVERY_FOLDER_NAME}' 폴더에 복구했습니다.`;
+                        // 기존 복구 메시지가 있으면 줄바꿈으로 추가, 없으면 새로 할당
+                        recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${newRecoveryMessage}` : newRecoveryMessage;
+                    } else {
+                        console.warn(`내용이 없는 고아 패치를 발견하여 무시합니다 (대상 ID: ${itemId}).`);
+                    }
                 }
             }
 

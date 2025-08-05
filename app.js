@@ -1173,10 +1173,9 @@ async function handleStorageSync(changes) {
             }
             
             if (patches.length > 0) {
-                // [BUG-CRITICAL-001 FIX] 새로운 충돌 백업을 생성하기 전에,
-                // 기존의 실시간 자동 저장 백업을 먼저 제거하여 데이터 중복 및 잠재적 유실을 방지합니다.
-                const autoSaveBackupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
-                localStorage.removeItem(autoSaveBackupKey);
+                // [CRITICAL-2 BUG FIX] 기존 실시간 백업을 삭제하는 위험한 로직 제거.
+                // 이제 loadData가 모든 백업 패치를 안전하게 병합하므로,
+                // 충돌 시점의 데이터를 추가로 백업하기만 하면 됩니다.
 
                 // 이제 최신 데이터로 유일한 백업을 생성합니다.
                 const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-conflict`;
