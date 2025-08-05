@@ -177,39 +177,28 @@ export const loadData = async () => {
         if (allPatches.length > 0) {
             let dataWasPatched = false;
             
-            // 3-1. 패치를 아이템 ID 기준으로 그룹화하고, 각 타입별로 최신 패치만 유지
+            // 3-1. 패치를 아이템 ID 기준으로 그룹화합니다.
             const patchesByItemId = new Map();
             for (const patch of allPatches) {
                 if (!patch.itemId && !patch.noteId) continue;
                 const itemId = patch.itemId || patch.noteId;
 
                 if (!patchesByItemId.has(itemId)) {
-                    patchesByItemId.set(itemId, {});
+                    patchesByItemId.set(itemId, []);
                 }
-                const existingPatches = patchesByItemId.get(itemId);
-                
-                const getTimestamp = p => p.timestamp || p.data?.updatedAt || 0;
-                
-                const existingTimestamp = getTimestamp(existingPatches[patch.type] || {});
-                const newTimestamp = getTimestamp(patch);
-
-                if (newTimestamp >= existingTimestamp) {
-                    existingPatches[patch.type] = patch;
-                }
+                patchesByItemId.get(itemId).push(patch);
             }
-            
+
             console.warn(`${patchesByItemId.size}개 항목에 대한 저장되지 않은 변경사항(패치)을 발견했습니다. 데이터 병합을 시도합니다.`);
 
-            // 3-2. 그룹화된 패치를 순회하며 통합 복구 로직 적용
-            for (const [itemId, groupedPatches] of patchesByItemId.entries()) {
-                const { note_patch, rename_patch } = groupedPatches;
-
-                let itemToUpdate = null, folderOfItem = null, isInTrash = false;
-
+            // [CRITICAL BUG 수정] 3-2. 그룹화된 패치를 순회하며 복구 로직 적용
+            for (const [itemId, patchGroup] of patchesByItemId.entries()) {
+                let itemToUpdate = null, isInTrash = false;
+                
                 // 기준 데이터에서 아이템 위치 찾기
                 for (const folder of authoritativeData.folders) {
                     const note = folder.notes.find(n => n.id === itemId);
-                    if (note) { itemToUpdate = note; folderOfItem = folder; break; }
+                    if (note) { itemToUpdate = note; break; }
                 }
                 if (!itemToUpdate) {
                     const folder = authoritativeData.folders.find(f => f.id === itemId);
@@ -219,88 +208,97 @@ export const loadData = async () => {
                     const trashedItem = authoritativeData.trash.find(t => t.id === itemId);
                     if (trashedItem) { itemToUpdate = trashedItem; isInTrash = true; }
                 }
+
+                // 타임스탬프 순으로 패치 정렬 (최신이 마지막에 오도록)
+                const getTimestamp = p => p.timestamp || p.data?.updatedAt || 0;
+                patchGroup.sort((a, b) => getTimestamp(a) - getTimestamp(b));
                 
                 // Case 1: 아이템이 기준 데이터에 존재하는 경우 (일반적인 패치 적용)
                 if (itemToUpdate) {
-                    if (note_patch) {
-                        // 데이터 충돌 시 '충돌 복구 노트' 생성
-                        if (note_patch.data.updatedAt !== itemToUpdate.updatedAt && !isInTrash) {
-                             console.warn(`데이터 충돌 감지 (ID: ${itemId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
-                            const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
-                            let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                            if (!recoveryFolder) {
-                                const now = Date.now();
-                                recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                                authoritativeData.folders.unshift(recoveryFolder);
+                    let isFirstPatchApplied = false;
+                    
+                    for (const patch of patchGroup) {
+                        const { type, data, newName, timestamp, itemType } = patch;
+                        const itemLastUpdated = itemToUpdate.updatedAt || 0;
+                        const patchTimestamp = timestamp || data?.updatedAt || 0;
+                        
+                        // 첫 번째 패치이거나, 기준 데이터보다 최신인 경우 적용
+                        if (!isFirstPatchApplied && itemLastUpdated < patchTimestamp) {
+                            if (type === 'note_patch' && data) {
+                                Object.assign(itemToUpdate, data);
+                                recoveryMessage = `저장되지 않았던 노트 '${data.title}'의 변경사항을 복구했습니다.`;
                             }
-                            const conflictedNote = { ...note_patch.data, id: `${itemId}-conflict-${Date.now()}`, title: `[충돌] ${note_patch.data.title}`, isPinned: false, isFavorite: false };
-                            recoveryFolder.notes.unshift(conflictedNote);
-                            recoveryMessage = `'${note_patch.data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
-                        } else { // 정상적인 복구
-                            Object.assign(itemToUpdate, note_patch.data);
-                            recoveryMessage = `저장되지 않았던 노트 '${note_patch.data.title}'의 변경사항을 복구했습니다.`;
+                            if (type === 'rename_patch' && newName) {
+                                if (itemType === CONSTANTS.ITEM_TYPE.FOLDER) itemToUpdate.name = newName;
+                                else itemToUpdate.title = newName;
+                                itemToUpdate.updatedAt = timestamp;
+                                recoveryMessage = `이름이 변경되지 않았던 '${newName}' 항목을 복구했습니다.`;
+                            }
+                            isFirstPatchApplied = true;
+                        } 
+                        // 첫 번째 패치가 적용되었거나, 기준 데이터와 내용이 충돌하는 후속 패치들
+                        // -> 모두 별도의 충돌 복구 노트로 생성하여 데이터 유실 방지
+                        else {
+                            if (type === 'note_patch' && data && !isInTrash) {
+                                console.warn(`데이터 충돌 감지 (ID: ${itemId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
+                                const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
+                                let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
+                                if (!recoveryFolder) {
+                                    const now = Date.now();
+                                    recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
+                                    authoritativeData.folders.unshift(recoveryFolder);
+                                }
+                                const conflictedNote = { ...data, id: `${itemId}-conflict-${Date.now()}`, title: `[충돌] ${data.title}`, isPinned: false, isFavorite: false };
+                                recoveryFolder.notes.unshift(conflictedNote);
+
+                                const newRecoveryMessage = `'${data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
+                                recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${newRecoveryMessage}` : newRecoveryMessage;
+                            }
                         }
-                    }
-                    if (rename_patch) {
-                         const itemLastUpdated = itemToUpdate.updatedAt || 0;
-                         const patchTimestamp = rename_patch.timestamp || 0;
-                         if (itemLastUpdated <= patchTimestamp) {
-                            if (rename_patch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) itemToUpdate.name = rename_patch.newName;
-                            else itemToUpdate.title = rename_patch.newName;
-                            itemToUpdate.updatedAt = rename_patch.timestamp;
-                            recoveryMessage = `이름이 변경되지 않았던 '${rename_patch.newName}' 항목을 복구했습니다.`;
-                         }
                     }
                     dataWasPatched = true;
                 } 
-                // [CRITICAL BUG 1 FIX] Case 2: 아이템이 기준 데이터에 없음 (고아 패치).
+                // Case 2: 아이템이 기준 데이터에 없음 (연결 끊긴 패치).
                 // 사용자의 마지막 편집 내용을 유실하지 않도록, 이 데이터를 새 노트로 안전하게 복구합니다.
                 else {
-                    console.warn(`고아(orphaned) 패치를 발견하여 복구를 시도합니다 (대상 ID: ${itemId}).`);
+                    console.warn(`연결이 끊긴(unlinked) 패치를 발견하여 복구를 시도합니다 (대상 ID: ${itemId}).`);
 
-                    // 복구할 데이터가 있는 경우에만 진행
-                    if (note_patch || rename_patch) {
-                        const ORPHAN_RECOVERY_FOLDER_NAME = '⚠️ 고아 노트 복구';
-                        let recoveryFolder = authoritativeData.folders.find(f => f.name === ORPHAN_RECOVERY_FOLDER_NAME);
+                    const notePatches = patchGroup.filter(p => p.type === 'note_patch' && p.data);
+                    
+                    if (notePatches.length > 0) {
+                        const UNLINKED_RECOVERY_FOLDER_NAME = '⚠️ 연결 끊긴 노트 복구';
+                        let recoveryFolder = authoritativeData.folders.find(f => f.name === UNLINKED_RECOVERY_FOLDER_NAME);
                         
-                        // 복구 폴더가 없으면 생성
                         if (!recoveryFolder) {
                             const now = Date.now();
                             recoveryFolder = { 
-                                id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-orphan-recovery`, 
-                                name: ORPHAN_RECOVERY_FOLDER_NAME, 
+                                id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-unlinked-recovery`, 
+                                name: UNLINKED_RECOVERY_FOLDER_NAME, 
                                 notes: [], 
                                 createdAt: now, 
                                 updatedAt: now 
                             };
                             authoritativeData.folders.unshift(recoveryFolder);
                         }
-
-                        // 복구할 노트 데이터 조합
-                        const recoveryData = note_patch ? { ...note_patch.data } : { title: '', content: '', createdAt: Date.now() };
-                        if (rename_patch) {
-                            recoveryData.title = rename_patch.newName;
-                            recoveryData.updatedAt = rename_patch.timestamp;
+                        
+                        // 모든 연결 끊긴 노트 패치를 각각 별도의 노트로 복구
+                        for (const note_patch of notePatches) {
+                             const recoveredNote = {
+                                ...note_patch.data,
+                                id: `${itemId}-unlinked-${Date.now()}-${Math.random()}`, // 새 고유 ID 생성
+                                title: `[복구됨] ${note_patch.data.title || '제목 없음'}`,
+                                isPinned: false,
+                                isFavorite: false,
+                            };
+                            recoveryFolder.notes.unshift(recoveredNote);
                         }
 
-                        const recoveredNote = {
-                            id: `${itemId}-orphan-${Date.now()}`, // 새 고유 ID 생성
-                            title: `[복구됨] ${recoveryData.title || '제목 없음'}`,
-                            content: recoveryData.content || '',
-                            createdAt: recoveryData.createdAt || Date.now(),
-                            updatedAt: recoveryData.updatedAt || Date.now(),
-                            isPinned: false,
-                            isFavorite: false,
-                        };
-
-                        recoveryFolder.notes.unshift(recoveredNote);
                         dataWasPatched = true;
                         
-                        const newRecoveryMessage = `저장되지 않고 삭제되었을 수 있는 노트의 내용을 '${ORPHAN_RECOVERY_FOLDER_NAME}' 폴더에 복구했습니다.`;
-                        // 기존 복구 메시지가 있으면 줄바꿈으로 추가, 없으면 새로 할당
+                        const newRecoveryMessage = `저장되지 않고 삭제되었을 수 있는 노트(${notePatches.length}개)의 내용을 '${UNLINKED_RECOVERY_FOLDER_NAME}' 폴더에 복구했습니다.`;
                         recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${newRecoveryMessage}` : newRecoveryMessage;
                     } else {
-                        console.warn(`내용이 없는 고아 패치를 발견하여 무시합니다 (대상 ID: ${itemId}).`);
+                        console.warn(`내용이 없는 연결 끊긴 패치를 발견하여 무시합니다 (대상 ID: ${itemId}).`);
                     }
                 }
             }
@@ -381,7 +379,16 @@ export const loadData = async () => {
         console.error("Error loading data:", e); 
         showToast("데이터 로딩 중 심각한 오류가 발생했습니다. 개발자 콘솔을 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
     } finally {
-        return { recoveryMessage };
+        // [CRITICAL BUG 수정] 복구 메시지에 줄바꿈이 포함될 수 있으므로, pre-wrap 스타일을 적용
+        if (recoveryMessage) {
+            const preFormattedMessage = document.createElement('pre');
+            preFormattedMessage.style.whiteSpace = 'pre-wrap';
+            preFormattedMessage.style.textAlign = 'left';
+            preFormattedMessage.style.margin = '0';
+            preFormattedMessage.textContent = recoveryMessage;
+            return { recoveryMessage: preFormattedMessage };
+        }
+        return { recoveryMessage: null };
     }
 };
 
