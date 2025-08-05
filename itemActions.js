@@ -51,11 +51,11 @@ export const toYYYYMMDD = (dateInput) => {
     return `${y}-${m}-${d}`;
 };
 
-// 노트 생성 날짜 Set을 다시 빌드합니다. (기능 유지)
+// [버그 수정] 노트 생성 날짜 Set을 다시 빌드합니다. 휴지통에 있는 노트는 달력에 표시하지 않도록 수정합니다.
 export const updateNoteCreationDates = () => {
     state.noteCreationDates.clear();
-    // noteMap과 휴지통에서 모든 노트를 가져옵니다.
-    const allNotes = [...Array.from(state.noteMap.values()).map(e => e.note), ...state.trash.filter(i => i.type === 'note')];
+    // noteMap(활성 폴더에 있는 노트)에서만 모든 노트를 가져옵니다.
+    const allNotes = [...Array.from(state.noteMap.values()).map(e => e.note)];
     
     for (const note of allNotes) {
         if (note.createdAt) {
@@ -414,7 +414,8 @@ export const handleDelete = async (id, type) => {
     );
 };
 
-const performDeleteItem = (id, type) => {
+// [버그 수정] 드래그 앤 드롭으로 휴지통 이동 시 확인 창 없이 바로 삭제하기 위해 함수를 export.
+export const performDeleteItem = (id, type) => {
     return performTransactionalUpdate(latestData => {
         const { folders, trash } = latestData;
         let successMessage = '', postUpdateState = {};

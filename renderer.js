@@ -154,9 +154,14 @@ const createActionButton = ({ className, textContent, title }) => {
     return button;
 };
 
+// [버그 수정] 폴더 패널의 '휴지통' 가상 폴더 자체에 액션 버튼이 나타나지 않도록 수정
 const getActionButtonsConfig = (item, type, isTrashView) => {
     const buttons = [];
     if (isTrashView) {
+        // 휴지통 가상 폴더 자체에는 복원/삭제 버튼을 추가하지 않음
+        if (item.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+            return [];
+        }
         const itemTypeStr = item.type === 'folder' ? '폴더' : '노트';
         buttons.push({ className: 'restore-item-btn', textContent: '♻️', title: `♻️ ${itemTypeStr} 복원` });
         buttons.push({ className: 'perm-delete-item-btn', textContent: '❌', title: '💥 영구 삭제' });
@@ -266,8 +271,15 @@ export const renderFolders = () => {
 export let sortedNotesCache = { sourceNotes: null, searchTerm: null, sortOrder: null, result: null };
 export const clearSortedNotesCache = () => { sortedNotesCache.sourceNotes = null; };
 
+// [버그 수정] 날짜 필터링 시 검색 결과가 없을 때의 메시지 추가
 const getPlaceholderMessage = (viewData) => {
-    if (state.searchTerm) return '🤷‍♂️<br>검색 결과가 없어요.';
+    if (state.searchTerm) {
+        if (viewData.isDateFilteredView) {
+             const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+             return `🤷‍♂️<br>${dateString} 내에서<br>검색 결과가 없어요.`;
+        }
+        return '🤷‍♂️<br>검색 결과가 없어요.';
+    }
     if (viewData.isDateFilteredView) {
         const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
         return `🤷‍♂️<br>${dateString}에 작성된 노트가 없습니다.`;
@@ -279,6 +291,7 @@ const getPlaceholderMessage = (viewData) => {
     return '';
 };
 
+// [버그 수정] 날짜 필터링 시 노트 목록을 가져오는 로직 명확화
 const getActiveViewData = () => {
     if (state.dateFilter) {
         const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
