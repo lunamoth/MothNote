@@ -577,13 +577,8 @@ export const setupImportHandler = () => {
         const reader = new FileReader();
         reader.onload = async event => {
             let overlay = null;
-            
-            // [Critical Bug 수정] 가져오기 작업을 시작하기 전에 쓰기 락을 획득합니다.
-            if (!(await acquireWriteLock(window.tabId))) {
-                showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
-                e.target.value = ''; // 파일 입력을 초기화합니다.
-                return;
-            }
+            // [버그 수정] 락 획득 여부를 추적하는 플래그를 추가합니다.
+            let lockAcquired = false;
 
             try {
                 const importedData = JSON.parse(event.target.result);
@@ -594,6 +589,7 @@ export const setupImportHandler = () => {
                     ? sanitizeSettings(importedData.settings) 
                     : JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
 
+                // [버그 수정] 락 획득 전에 모든 사용자 확인 절차를 먼저 수행합니다.
                 const firstConfirm = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
                     message: "가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong><br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
@@ -603,8 +599,7 @@ export const setupImportHandler = () => {
                 });
 
                 if (!firstConfirm) {
-                    e.target.value = ''; // 사용자가 첫 확인에서 취소
-                    // 락을 획득했지만 작업을 진행하지 않으므로, finally 블록에서 락이 해제됩니다.
+                    e.target.value = ''; // 사용자가 취소하면 락 획득 없이 즉시 종료
                     return;
                 }
 
@@ -621,11 +616,18 @@ export const setupImportHandler = () => {
 
                     if (!finalConfirm) {
                         showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-                        e.target.value = '';
-                        // 락을 획득했지만 작업을 진행하지 않으므로, finally 블록에서 락이 해제됩니다.
+                        e.target.value = ''; // 사용자가 취소하면 락 획득 없이 즉시 종료
                         return;
                     }
                 }
+
+                // [버그 수정] 모든 사용자 확인이 끝난 후, 실제 데이터 쓰기 직전에 락을 획득합니다.
+                if (!(await acquireWriteLock(window.tabId))) {
+                    showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
+                    e.target.value = '';
+                    return;
+                }
+                lockAcquired = true; // 락 획득 성공 플래그 설정
 
                 window.isImporting = true;
                 
@@ -670,8 +672,10 @@ export const setupImportHandler = () => {
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
             } finally {
-                // [Critical Bug 수정] 작업 성공/실패 여부와 관계없이 반드시 락을 해제하고 UI를 정리합니다.
-                await releaseWriteLock(window.tabId);
+                // [버그 수정] 락을 성공적으로 획득한 경우에만 해제를 시도합니다.
+                if (lockAcquired) {
+                    await releaseWriteLock(window.tabId);
+                }
                 window.isImporting = false;
                 if (overlay && overlay.parentElement) {
                     overlay.remove();
