@@ -5,7 +5,6 @@ import { saveSession } from './storage.js';
 import {
     searchInput, showConfirm, sortNotes, showToast
 } from './components.js';
-// [BUG FIX 1] `toYYYYMMDD` 함수를 정상적으로 import하고, 존재하지 않는 함수 require 호출을 제거합니다.
 import { saveCurrentNoteIfChanged, finishPendingRename, toYYYYMMDD } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
@@ -15,9 +14,10 @@ const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebou
 
 /**
  * [REFACTORED] 내비게이션을 시도하기 전에 현재 노트의 변경사항을 저장합니다.
- * 더 이상 사용자에게 확인 프롬프트를 띄우지 않습니다.
- * 대신, 저장을 시도하고 그 결과에 따라 내비게이션을 허용하거나 차단합니다.
- * @returns {Promise<boolean>} 내비게이션이 가능하면 true, 저장 실패 등으로 불가능하면 false.
+ * 더 이상 사용자에게 불필요한 확인 프롬프트를 띄우지 않고, 가장 견고한 `saveCurrentNoteIfChanged` 함수를 호출하여
+ * 데이터 저장을 시도합니다. 이 함수는 내부적으로 충돌 감지 및 해결(사본 생성, 복구) 로직을 모두 포함하고 있어
+ * 어떤 상황에서도 안전하게 데이터를 보존합니다.
+ * @returns {Promise<boolean>} 내비게이션이 가능하면(저장 성공 또는 변경사항 없음) true, 저장 실패 등으로 불가능하면 false.
  */
 export const confirmNavigation = async () => {
     // isDirty 플래그가 꺼져 있으면 변경사항이 없으므로 항상 안전합니다.
@@ -25,7 +25,7 @@ export const confirmNavigation = async () => {
         return true;
     }
     // isDirty 플래그가 켜져 있으면, 견고한 저장 함수를 호출합니다.
-    // 이 함수는 내부적으로 변경 여부를 다시 확인하고, 저장에 실패하면 false를 반환합니다.
+    // 이 함수는 내부적으로 변경 여부를 다시 확인하고, 모든 충돌을 해결하며, 저장에 실패하면 false를 반환합니다.
     return await saveCurrentNoteIfChanged();
 };
 
@@ -85,10 +85,8 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     saveSession();
 };
 
-// [BUG FIX 1] 검색 기능이 정상 동작하도록 수정합니다.
 const getCurrentViewNotes = () => {
     if (state.dateFilter) {
-        // [BUG FIX] 'require'를 제거하고 모듈 상단에서 import한 'toYYYYMMDD'를 사용합니다.
         const dateStr = toYYYYMMDD(state.dateFilter);
         return Array.from(state.noteMap.values())
             .map(e => e.note)

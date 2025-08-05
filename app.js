@@ -290,9 +290,6 @@ class Dashboard {
     _startClocks() { if (!this.internalState.digitalClockIntervalId) { this._updateDigitalClock(); this.internalState.digitalClockIntervalId = setInterval(this._updateDigitalClock.bind(this), 1000); } if (!this.internalState.analogClockAnimationId) this._animateAnalogClock(); }
     _stopClocks() { if (this.internalState.digitalClockIntervalId) { clearInterval(this.internalState.digitalClockIntervalId); this.internalState.digitalClockIntervalId = null; } if (this.internalState.analogClockAnimationId) { cancelAnimationFrame(this.internalState.analogClockAnimationId); this.internalState.analogClockAnimationId = null; } }
     
-    /**
-     * [BUG FIX] 누락되었던 야간 날씨 아이콘 처리 로직을 복원합니다.
-     */
     _getWeatherInfo(wmoCode, isDay = true) {
         let weather = CONSTANTS.DASHBOARD.WMO_MAP[wmoCode] ?? { icon: "❓", text: "알 수 없음" };
         if (!isDay) {
@@ -301,7 +298,6 @@ class Dashboard {
             } else if (wmoCode === 1) { // 대체로 맑음
                 weather = { icon: "☁️🌙", text: "대체로 맑음 (밤)" };
             }
-            // `wmoCode` 2, 3 등은 주간/야간 아이콘이 '☁️'로 동일하므로 특별히 처리하지 않습니다.
         }
         return weather;
     }
@@ -348,6 +344,7 @@ const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITE
  * [REFACTORED] 데이터 동기화 핸들러 (로컬 우선 정책 적용)
  * "로컬 우선" 정책에 따라, 더 이상 자동으로 데이터를 병합하지 않고 사용자에게 변경 사실만 알립니다.
  * 사용자가 직접 작업을 저장하고 동기화할 수 있도록 하여 데이터 유실을 원천적으로 방지합니다.
+ * 이 방식은 복잡한 자동 병합 로직에서 발생하는 수많은 엣지 케이스 버그를 회피하는 가장 안정적인 아키텍처입니다.
  */
 async function handleStorageSync(changes) {
     if (window.isInitializing || window.isImporting || !changes.appState) {
@@ -375,6 +372,8 @@ async function handleStorageSync(changes) {
             e.stopPropagation();
             const saved = await saveCurrentNoteIfChanged();
             if(saved) {
+                // 저장 성공 시, 최신 데이터를 반영하기 위해 페이지를 새로고침합니다.
+                // saveCurrentNoteIfChanged가 충돌을 해결했더라도, 다른 여러 변경사항이 있을 수 있으므로 새로고침이 가장 안전합니다.
                 window.location.reload();
             } else {
                 showToast("저장에 실패하여 동기화할 수 없습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);

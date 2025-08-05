@@ -634,13 +634,42 @@ export async function saveCurrentNoteIfChanged() {
             if (note) { noteToSave = note; parentFolder = folder; break; }
         }
 
+        // [핵심 개선] 편집 중이던 노트가 다른 곳에서 삭제된 경우, 여기서 감지하고 복구 로직으로 전환.
+        // 이 시나리오가 바로 이전 버전의 Critical 버그 원인이었음.
         if (!noteToSave) {
-            console.warn(`트랜잭션 중 노트(ID: ${noteId})를 찾을 수 없습니다.`);
-            return null; // 저장 중단
+            console.warn(`트랜잭션 중 노트(ID: ${noteId})를 찾을 수 없음 (삭제됨). 내용을 새 노트로 복구합니다.`);
+            const allNoteIds = new Set(latestData.folders.flatMap(f => f.notes.map(n => n.id)).concat(latestData.trash.map(t => t.id)));
+            const newConflictNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+            const now = Date.now();
+            
+            const conflictNote = {
+                id: newConflictNoteId,
+                title: `${currentTitle || '제목 없음'} (삭제 후 복구됨 ${new Date(now).toLocaleTimeString('ko-KR')})`,
+                content: currentContent,
+                createdAt: now, updatedAt: now, isPinned: false
+            };
+            
+            // 원본 폴더를 찾을 수 없는 경우, 가장 첫 번째 폴더에 추가
+            const targetFolder = parentFolder || latestData.folders[0];
+            if (!targetFolder) {
+                // 이 경우는 거의 없지만, 만약 폴더가 하나도 없다면 저장 실패
+                showAlert({ title: '복구 실패', message: '작업 내용을 저장할 폴더가 없습니다. 먼저 폴더를 생성해주세요.'});
+                return null;
+            }
+            
+            targetFolder.notes.unshift(conflictNote);
+            targetFolder.updatedAt = now;
+            
+            return {
+                newData: latestData,
+                successMessage: `⚠️ 편집 중인 노트가 삭제되어 새 노트로 안전하게 복구했습니다.`,
+                postUpdateState: { activeNoteId: newConflictNoteId },
+                payload: newConflictNoteId
+            };
         }
 
         // ★★★★★ 데이터 유실 방지 및 아키텍처 교착 상태 해결의 핵심 로직 ★★★★★
-        if (noteToSave.updatedAt !== localVersion) {
+        if (noteToSave.updatedAt > localVersion) {
             console.error(`SAVE CONFLICT DETECTED! Local version ${localVersion} vs Storage version ${noteToSave.updatedAt}. Creating a conflict copy.`);
             
             const allNoteIds = new Set(latestData.folders.flatMap(f => f.notes.map(n => n.id)).concat(latestData.trash.map(t => t.id)));
