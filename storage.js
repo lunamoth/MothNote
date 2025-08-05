@@ -145,18 +145,21 @@ export const loadData = async () => {
         const inFlightData = inFlightTxRaw ? JSON.parse(inFlightTxRaw) : null;
         
         const allPatches = [];
-        const patchKeysToRemove = [];
+        // [CRITICAL BUG FIX] 이 함수에서 성공적으로 처리한 패치 키만 추적하도록 변경
+        const patchKeysProcessedInThisLoad = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
-                patchKeysToRemove.push(key);
                 try {
                     const patchData = JSON.parse(localStorage.getItem(key));
                     if (Array.isArray(patchData)) {
                         allPatches.push(...patchData);
+                        // 성공적으로 파싱하고 병합 목록에 추가한 키만 삭제 대상으로 지정합니다.
+                        patchKeysProcessedInThisLoad.push(key);
                     }
                 } catch (e) {
                     console.error(`비상 백업 데이터 파싱 실패 (키: ${key}):`, e);
+                    // 파싱에 실패한 키는 삭제하지 않고 남겨두어 다음 로드 시 다시 시도할 수 있도록 합니다.
                 }
             }
         }
@@ -314,7 +317,8 @@ export const loadData = async () => {
         }
         
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
-        patchKeysToRemove.forEach(key => localStorage.removeItem(key));
+        // [CRITICAL BUG FIX] 다른 탭의 복구 데이터를 삭제하지 않도록, 이 함수에서 처리한 키만 제거합니다.
+        patchKeysProcessedInThisLoad.forEach(key => localStorage.removeItem(key));
 
         // --- 5. 최종 데이터로 앱 상태 설정 ---
         let finalState = { ...state, ...authoritativeData };
