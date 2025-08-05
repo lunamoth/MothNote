@@ -160,7 +160,19 @@ export const performTransactionalUpdate = async (updateFn) => {
         setState({ currentTransactionId: transactionId });
         await chrome.storage.local.set({ appState: newData });
         
+        // --- [CRITICAL BUG FIX] 트랜잭션 성공 시 관련 임시 데이터를 원자적으로 정리 ---
+        // 1. 진행 중인 트랜잭션 저널링을 제거합니다.
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
+        
+        // 2. 이 탭에서 생성했을 수 있는 실시간 비상 백업 패치를 제거합니다.
+        //    (저장과 패치 제거 사이의 경쟁 상태를 해결)
+        try {
+            const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
+            localStorage.removeItem(backupKey);
+        } catch (e) {
+            console.error("트랜잭션 성공 후 비상 백업 패치 제거 실패:", e);
+        }
+        // --- 정리 끝 ---
         
         setState({
             ...state,
@@ -928,15 +940,9 @@ export async function handleNoteUpdate(isForced = false) {
             return false;
         }
         
-        // --- [CRITICAL BUG FIX] ---
-        // 저장이 성공적으로 완료되었으므로, 실시간으로 기록했던 비상 백업 패치를 삭제합니다.
-        try {
-            const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
-            localStorage.removeItem(backupKey);
-        } catch (e) {
-            console.error("성공 후 비상 백업 패치 삭제에 실패했습니다:", e);
-        }
-        // --- 수정 끝 ---
+        // [CRITICAL BUG FIX] 경쟁 상태를 해결하기 위해, 비상 백업 패치 삭제 로직을
+        // 원자적 업데이트 함수(`performTransactionalUpdate`) 내부로 이동시켰습니다.
+        // 따라서 이 위치에서는 더 이상 패치를 삭제할 필요가 없습니다.
         
         wasSuccessful = true;
         
