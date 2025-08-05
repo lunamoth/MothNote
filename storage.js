@@ -3,6 +3,30 @@ import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from '.
 import { updateNoteCreationDates } from './itemActions.js';
 
 
+// [순환 참조 해결] generateUniqueId를 itemActions.js에서 이곳으로 이동
+/**
+ * 앱의 전체 상태(활성 노트, 휴지통)를 확인하여
+ * 충돌하지 않는 고유한 ID를 생성하고 반환합니다.
+ */
+export const generateUniqueId = (prefix, existingIds) => {
+    // crypto.randomUUID가 있으면 사용 (더 강력한 고유성)
+    if (typeof crypto?.randomUUID === 'function') {
+        let id;
+        do {
+            id = crypto.randomUUID();
+        } while (existingIds.has(id));
+        return id;
+    }
+    
+    // Fallback: 기존 방식보다 고유성을 강화
+    let id;
+    do {
+        id = `${prefix}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    } while (existingIds.has(id));
+    
+    return id;
+};
+
 // --- 분산 락(Distributed Lock) 구현 (기능 유지, 변경 없음) ---
 export async function acquireWriteLock(tabId) {
     const { SS_KEY_WRITE_LOCK, LOCK_TIMEOUT_MS } = CONSTANTS;
@@ -91,14 +115,15 @@ export const loadData = async () => {
         
         // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
         const mainStorageResult = await chrome.storage.local.get('appState');
-        const authoritativeData = mainStorageResult.appState || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
+        const authoritativeData = mainStorageResult.appState; // || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 }; -> 초기 데이터 생성 로직에서 처리
 
         // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
-        // 이는 새로운 아키텍처에서 불필요하며, 오히려 데이터 오염의 원인이 될 수 있습니다.
-
+        
         // 4. 최종 상태(state) 설정 및 UI 초기화
-        let finalState = { ...state, ...authoritativeData };
-        if (authoritativeData && authoritativeData.folders && authoritativeData.folders.length > 0) {
+        let finalState = { ...state };
+        
+        if (authoritativeData && authoritativeData.folders) { // 데이터가 있는 경우
+            Object.assign(finalState, authoritativeData);
             finalState.trash = finalState.trash || [];
             finalState.favorites = new Set(authoritativeData.favorites || []);
 
@@ -123,7 +148,8 @@ export const loadData = async () => {
             setState(finalState);
             buildNoteMap();
 
-            const { findFolder } = await import('./state.js'); // 동적 import로 순환 종속성 회피
+            // 순환참조를 피하기 위해 동적 임포트 사용
+            const { findFolder } = await import('./state.js'); 
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
             const noteExistsInMap = state.noteMap.has(state.activeNoteId);
 
@@ -139,10 +165,12 @@ export const loadData = async () => {
 
         } else { // 데이터가 아예 없는 초기 실행
             const now = Date.now();
-            const { generateUniqueId } = await import('./itemActions.js');
+            // [순환 참조 해결] 이제 이 파일에 있는 함수를 직접 호출
             const fId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, new Set());
-            const nId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, new Set());
-            const newNote = { id: nId, title: "🎉 환영합니다!", content: "MothNote 에 오신 것을 환영합니다! 🦋", createdAt: now, updatedAt: now, isPinned: false };
+            const nId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, new Set([fId]));
+            
+            const { formatDate } = await import('./components.js');
+            const newNote = { id: nId, title: "🎉 환영합니다!", content: `MothNote 에 오신 것을 환영합니다! 🦋\n\n- 왼쪽 패널에서 폴더와 노트를 관리하세요.\n- Alt+N으로 새 노트를, Alt+Shift+N으로 새 폴더를 만들 수 있습니다.\n- 오른쪽 상단의 ⚙️ 아이콘으로 설정을 변경해보세요.`, createdAt: now, updatedAt: now, isPinned: false };
             const newFolder = { id: fId, name: "🌟 첫 시작 폴더", notes: [newNote], createdAt: now, updatedAt: now };
 
             const initialAppState = {
@@ -166,7 +194,6 @@ export const loadData = async () => {
         showToast("데이터 로딩 중 심각한 오류가 발생했습니다. 개발자 콘솔을 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
     } 
     
-    // 복구 메시지는 이제 import 복구 시에만 생성됩니다.
     if (recoveryMessage) {
         const preFormattedMessage = document.createElement('pre');
         preFormattedMessage.style.whiteSpace = 'pre-wrap';
@@ -192,6 +219,7 @@ const sanitizeContentData = data => {
     const usedIds = new Set();
     const idMap = new Map(); 
 
+    // [순환 참조 해결] 이제 이 파일에 있는 함수를 직접 호출
     const getUniqueId = (prefix, id) => {
         const oldId = id; 
         let finalId = String(id ?? `${prefix}-${Date.now()}`).slice(0, 50);
@@ -299,6 +327,7 @@ export const sanitizeSettings = (settingsData) => {
 };
 
 export const handleExport = async (settings) => {
+    // app.js에서 호출하므로 동적 임포트 불필요
     const { handleNoteUpdate, finishPendingRename } = await import('./itemActions.js');
     await finishPendingRename();
     await handleNoteUpdate(true);
@@ -335,10 +364,7 @@ export const handleExport = async (settings) => {
 };
 
 export const handleImport = async () => {
-    const { handleNoteUpdate, finishPendingRename } = await import('./itemActions.js');
-    await finishPendingRename();
-    await handleNoteUpdate(true);
-    
+    // 실제 동작은 app.js에서 처리하므로, 여기서는 클릭 이벤트만 트리거
     importFileInput.click();
 };
 
@@ -382,6 +408,11 @@ export const setupImportHandler = () => {
                     });
                     if (!finalConfirm) { showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR); e.target.value = ''; return; }
                 }
+                
+                // [안정성 강화] 임포트 전 미저장 노트 강제 저장
+                const { handleNoteUpdate, finishPendingRename } = await import('./itemActions.js');
+                await finishPendingRename();
+                await handleNoteUpdate(true);
 
                 if (!(await acquireWriteLock(window.tabId))) {
                     showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);

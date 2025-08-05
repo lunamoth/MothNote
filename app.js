@@ -22,7 +22,8 @@ import {
     updateNoteCreationDates,
     forceResolvePendingRename,
     performTransactionalUpdate,
-    performDeleteItem
+    performDeleteItem,
+    handleAddNoteFromConflict
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -30,12 +31,10 @@ import {
 } from './navigationActions.js';
 
 
-// [HEARTBEAT] 탭 생명주기 관리를 위한 상수 추가 (기능 유지)
 const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
-const HEARTBEAT_INTERVAL = 5000; // 5초마다 생존 신호 보냄
+const HEARTBEAT_INTERVAL = 5000;
 let heartbeatIntervalId = null;
 
-// [HEARTBEAT] 현재 탭이 살아있음을 알리는 함수 (기능 유지)
 const registerTab = () => {
     try {
         const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
@@ -46,7 +45,6 @@ const registerTab = () => {
     }
 };
 
-// [HEARTBEAT] 탭이 닫힐 때 등록을 해제하는 함수 (기능 유지)
 const deregisterTab = () => {
     try {
         const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
@@ -57,7 +55,6 @@ const deregisterTab = () => {
     }
 };
 
-// --- 설정 관련 로직 --- (기능 유지, 변경 없음)
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
 
@@ -68,6 +65,7 @@ const settingsZenMaxInput = document.getElementById('settings-zen-max-input');
 
 const applySettings = (settings) => {
     const root = document.documentElement;
+    if (!settings) return;
     root.style.setProperty('--column-folders-width', `${settings.layout.col1}%`);
     root.style.setProperty('--column-notes-width', `${settings.layout.col2}%`);
     root.style.setProperty('--zen-max-width', `${settings.zenMode.maxWidth}px`);
@@ -93,6 +91,7 @@ const loadAndApplySettings = () => {
 };
 
 const openSettingsModal = async () => {
+    await finishPendingRename();
     await handleNoteUpdate(true);
 
     settingsCol1Width.value = appSettings.layout.col1;
@@ -208,7 +207,7 @@ const handleWeatherCitySearch = async () => {
                     showToast(CONSTANTS.MESSAGES.SUCCESS.WEATHER_LOCATION_UPDATED);
                 });
                 settingsWeatherCityResults.appendChild(li);
-            });
+});
             settingsWeatherCityResults.style.display = 'block';
         } else {
             settingsWeatherCityResults.style.display = 'none';
@@ -226,7 +225,8 @@ const setupSettingsModal = () => {
     settingsSaveBtn.addEventListener('click', handleSettingsSave);
     settingsResetBtn.addEventListener('click', handleSettingsReset);
     settingsExportBtn.addEventListener('click', () => handleExport(appSettings));
-    settingsImportBtn.addEventListener('click', handleImport);
+    // [안정성 강화] await 제거. handleImport는 동기 함수(클릭 트리거)
+    settingsImportBtn.addEventListener('click', () => handleImport());
 
     settingsModal.addEventListener('close', () => {
         if (!isSavingSettings) { applySettings(appSettings); }
@@ -257,10 +257,9 @@ const setupSettingsModal = () => {
 
     settingsWeatherCitySearchBtn.addEventListener('click', handleWeatherCitySearch);
     settingsWeatherCitySearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleWeatherCitySearch(); } });
-    document.addEventListener('click', (e) => { if (!settingsWeatherCitySearch.contains(e.target) && !settingsWeatherCityResults.contains(e.target)) { settingsWeatherCityResults.style.display = 'none'; } });
+    document.addEventListener('click', (e) => { if (settingsWeatherCityResults && !settingsWeatherCitySearch.contains(e.target) && !settingsWeatherCityResults.contains(e.target)) { settingsWeatherCityResults.style.display = 'none'; } });
 };
 
-// --- 대시보드 클래스 --- (기능 유지, 변경 없음)
 class Dashboard {
     constructor() {
         this.dom = {
@@ -303,8 +302,6 @@ class Dashboard {
     _setupCalendarEvents() { if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.prevMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1); this.renderCalendar(); }; this.dom.nextMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1); this.renderCalendar(); }; this.dom.calendarMonthYear.onclick = async () => { const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate }); if (result) { this.internalState.currentDate = new Date(result.year, result.month, 1); this.renderCalendar(); } }; this.dom.calendarGrid.onclick = async e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { if (!(await confirmNavigation())) return; const newFilterDate = new Date(target.dataset.date); const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime(); searchInput.value = ''; if (isSameDate) { setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' }); } else { this.internalState.currentDate = newFilterDate; const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date); const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder); setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' }); this.renderCalendar(); } } }; this.dom.calendarGrid.addEventListener('mouseover', e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음'); if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`; } }); }
 }
 
-
-// --- 전역 변수 및 초기화 --- (기능 유지)
 const tabId = crypto.randomUUID();
 window.tabId = tabId;
 
@@ -330,34 +327,49 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
-// [아키텍처 리팩토링] 데이터 동기화 및 충돌 처리 로직 재설계
-// 이 함수는 이제 모든 데이터 변경이 UI에 반영되는 유일한 통로 역할을 합니다.
 async function handleStorageSync(changes) {
-    // 초기화 중, 가져오기 중, 또는 관련 변경사항이 없으면 무시
     if (window.isInitializing || window.isImporting || !changes.appState) {
         return;
     }
 
     const { newValue } = changes.appState;
     const isSelfChange = newValue.transactionId && newValue.transactionId === state.currentTransactionId;
+    if (isSelfChange) {
+        return;
+    }
 
-    // [핵심 변경] '데이터 충돌'로 인한 강제 새로고침 로직을 완전히 제거합니다.
-    // 사용자가 입력 중이더라도 다른 탭의 변경사항은 백그라운드에서 조용히 동기화됩니다.
-    // 이는 최상의 사용자 경험을 제공하고, 복잡한 상태 병합 문제를 원천적으로 차단합니다.
+    if (state.isDirty && state.dirtyNoteId) {
+        const dirtyNoteId = state.dirtyNoteId;
+        const newNoteMap = new Map(newValue.folders.flatMap(f => f.notes).map(n => [n.id, n]));
+        
+        if (!newNoteMap.has(dirtyNoteId)) {
+            console.error(`CRITICAL CONFLICT: Unsaved changes for note ${dirtyNoteId} which was deleted or moved elsewhere.`);
+
+            const userChoice = await showConfirmModal({
+                title: '💥 데이터 충돌: 노트 변경됨',
+                message: "현재 수정 중인 노트가 다른 탭에서 삭제 또는 이동되었습니다. 저장되지 않은 내용을 어떻게 할까요?",
+                confirmText: '📝 새 노트로 저장',
+                cancelText: '🗑️ 변경사항 버리기',
+                confirmButtonType: 'confirm'
+            });
+
+            if (userChoice) {
+                await handleAddNoteFromConflict(noteTitleInput.value, noteContentTextarea.value);
+                showToast("✅ 미저장 내용이 새 노트로 안전하게 저장되었습니다.");
+            } else {
+                setState({ isDirty: false, dirtyNoteId: null });
+            }
+        }
+    }
+
+    console.log("Storage change detected. Reconciling local state safely.");
     
-    console.log("Storage change detected. Reconciling local state.");
-
-    // [핵심 변경] 새 상태 객체를 생성합니다. 로컬 state와 병합하는 대신,
-    // Storage의 newValue(진실)를 기준으로 로컬 UI 상태만 유지하며 재구성합니다.
     const newState = {
-        // --- 1. 데이터는 항상 Storage의 `newValue`를 그대로 덮어씁니다. ---
         folders: newValue.folders,
         trash: newValue.trash,
         favorites: new Set(newValue.favorites || []),
         lastSavedTimestamp: newValue.lastSavedTimestamp,
         totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
-
-        // --- 2. UI/세션 상태는 현재 탭의 로컬 `state` 값을 유지합니다. ---
         activeFolderId: state.activeFolderId,
         activeNoteId: state.activeNoteId,
         noteSortOrder: state.noteSortOrder,
@@ -366,54 +378,43 @@ async function handleStorageSync(changes) {
         preSearchActiveNoteId: state.preSearchActiveNoteId,
         dateFilter: state.dateFilter,
         renamingItemId: state.renamingItemId,
-        
-        // --- 3. 실시간 상태 플래그도 로컬 값을 유지합니다. ---
         isDirty: state.isDirty,
         dirtyNoteId: state.dirtyNoteId,
         isPerformingOperation: state.isPerformingOperation,
         currentTransactionId: state.currentTransactionId,
-        
-        // 캐시 데이터는 어차피 아래에서 재생성되므로 유지할 필요 없습니다.
         _virtualFolderCache: state._virtualFolderCache,
         noteMap: state.noteMap,
         noteCreationDates: state.noteCreationDates,
     };
 
-    // --- 4. 유지한 UI 상태가 새 데이터에서도 유효한지 검증하고 보정합니다. ---
     const allNoteIds = new Set(newState.folders.flatMap(f => f.notes).map(n => n.id));
     const allFolderIds = new Set(newState.folders.map(f => f.id));
     Object.values(CONSTANTS.VIRTUAL_FOLDERS).forEach(vf => allFolderIds.add(vf.id));
 
     if (!allFolderIds.has(newState.activeFolderId)) {
-        console.warn(`활성 폴더(${newState.activeFolderId})가 새 상태에 없어 초기화합니다.`);
         newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-        newState.activeNoteId = null; // 폴더가 사라지면 노트 선택도 초기화
+        newState.activeNoteId = null;
     }
 
     if (newState.activeNoteId && !allNoteIds.has(newState.activeNoteId)) {
-        console.warn(`활성 노트(${newState.activeNoteId})가 새 상태에 없어 초기화합니다.`);
         newState.activeNoteId = null;
     }
     
-    // 이름 변경 중이던 아이템이 다른 탭에서 삭제된 경우
     if (newState.renamingItemId) {
         const itemExists = allFolderIds.has(newState.renamingItemId) || allNoteIds.has(newState.renamingItemId) || newState.trash.some(item => item.id === newState.renamingItemId);
         if (!itemExists) {
-            forceResolvePendingRename(); // UI 강제 종료
+            forceResolvePendingRename();
             newState.renamingItemId = null;
         }
     }
 
-    // --- 5. 최종적으로 재구성된 상태를 적용합니다. ---
     setState(newState);
 
-    // --- 6. 파생 데이터를 다시 빌드하고 UI를 전체 렌더링합니다. ---
     buildNoteMap();
     updateNoteCreationDates();
-    clearSortedNotesCache(); // 정렬 캐시 비우기
-    if (dashboard) dashboard.renderCalendar(true); // 달력 강제 업데이트
+    clearSortedNotesCache();
+    if (dashboard) dashboard.renderCalendar(true);
 
-    // --- 7. 사용자에게 변경사항을 알립니다 (자신의 변경은 제외). ---
     if (!isSelfChange) {
         showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
     }
@@ -426,17 +427,13 @@ const setupGlobalEventListeners = () => {
         if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
     });
 
-    // 이 핸들러는 이제 '데이터 동기화 충돌'이 아닌 '사용자 작업 손실' 방지 목적으로만 작동합니다.
     window.addEventListener('beforeunload', (e) => {
         if (window.isImporting) {
             return;
         }
-
         if (state.renamingItemId) {
             finishPendingRename();
         }
-        
-        // 저장되지 않은 텍스트가 있을 때만 브라우저 네이티브 경고창을 띄웁니다.
         if (state.isDirty) {
             e.preventDefault();
             e.returnValue = ''; 
@@ -445,7 +442,6 @@ const setupGlobalEventListeners = () => {
     
     window.addEventListener('keydown', handleGlobalKeyDown);
 
-    // chrome.storage.onChanged 리스너는 이제 시스템의 심장 역할을 합니다.
     chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName === 'local' && changes.appState) {
             handleStorageSync(changes);
@@ -459,12 +455,16 @@ const init = async () => {
         heartbeatIntervalId = setInterval(registerTab, HEARTBEAT_INTERVAL);
 
         loadAndApplySettings();
+        
+        // DOM 요소에 대한 이벤트 리스너 설정
         setupEventListeners();
         setupFeatureToggles();
         initializeDragAndDrop();
         setupImportHandler();
         setupGlobalEventListeners();
         setupRippleEffect();
+        
+        // 상태 변경 시 렌더링 함수 호출
         subscribe(renderAll);
         
         let prevState = { ...state };
@@ -476,14 +476,20 @@ const init = async () => {
             prevState = { ...state };
         });
 
+        // 데이터 로딩 (가장 중요)
         const { recoveryMessage } = await loadData();
         if (recoveryMessage) {
             showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
         }
         
+        // 데이터 로딩 후 대시보드 초기화
         dashboard = new Dashboard();
         dashboard.init();
         setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
+
+    } catch (e) {
+        console.error("Initialization failed critically:", e);
+        showToast("앱 초기화 중 심각한 오류가 발생했습니다. 확장 프로그램을 재설치해야 할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
     } finally {
         window.isInitializing = false;
     }
