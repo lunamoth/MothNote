@@ -116,6 +116,27 @@ export const performTransactionalUpdate = async (updateFn) => {
         setState({ currentTransactionId: transactionId });
         await chrome.storage.local.set({ appState: newData });
         
+        // --- BUG FIX ---
+        // 로컬 state를 즉시 동기화합니다.
+        // handleStorageSync는 자기 자신의 변경은 무시하므로, 여기서 수동으로 상태를 업데이트해야 합니다.
+        setState({
+            folders: newData.folders,
+            trash: newData.trash,
+            favorites: new Set(newData.favorites || []),
+            lastSavedTimestamp: newData.lastSavedTimestamp,
+            totalNoteCount: newData.folders.reduce((sum, f) => sum + f.notes.length, 0)
+        });
+        buildNoteMap();
+        updateNoteCreationDates();
+        clearSortedNotesCache();
+        // 대시보드 캘린더도 업데이트가 필요할 수 있습니다.
+        if (calendarRenderer) {
+            // true를 전달하여 그리드를 강제로 다시 그리게 합니다.
+            // 노트 생성/삭제는 노트 유무 표시를 바꿔야 하기 때문입니다.
+            calendarRenderer(true);
+        }
+        // --- END OF BUG FIX ---
+        
         if (postUpdateState) setState(postUpdateState);
         if (successMessage) showToast(successMessage);
         
