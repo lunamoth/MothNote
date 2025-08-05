@@ -67,9 +67,14 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     
-    const messageSpan = document.createElement('span');
-    messageSpan.textContent = message;
-    toast.appendChild(messageSpan);
+    // [Critical 버그 수정] 메시지가 HTML 요소일 경우 그대로 추가
+    if (message instanceof Node) {
+        toast.appendChild(message);
+    } else {
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = message;
+        toast.appendChild(messageSpan);
+    }
     
     // [Critical 버그 수정] 지속 시간이 0이면, 닫기 버튼이 있는 영구 토스트를 생성
     if (duration === 0) {

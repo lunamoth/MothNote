@@ -823,10 +823,24 @@ async function _performSave(noteId, titleToSave, contentToSave) {
         }
         if (!noteToSave) return null;
 
-        // [CRITICAL BUG 2 FIX] 사용자의 의도적인 제목 삭제를 존중하기 위해 자동 제목 생성 로직을 제거합니다.
-        // 이제 사용자가 제목을 비워두면 빈 제목으로 저장됩니다.
+        // [기능 복원] 사용자가 제목을 비워두면 노트 내용의 일부를 사용해 자동으로 제목을 생성합니다.
+        let finalTitle = titleToSave;
+        const contentToSaveTrimmed = contentToSave.trim();
+
+        if (!finalTitle.trim() && contentToSaveTrimmed) {
+            const firstLine = contentToSaveTrimmed.split('\n')[0].trim();
+            finalTitle = firstLine || contentToSaveTrimmed; // 첫 줄이 있으면 사용, 없으면 전체 내용 사용
+
+            const hasKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(finalTitle);
+            const maxLength = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;
+
+            if (finalTitle.length > maxLength) {
+                finalTitle = finalTitle.substring(0, maxLength) + '...';
+            }
+        }
+        
         const now = Date.now();
-        noteToSave.title = titleToSave; // 사용자가 제공한 제목(빈 문자열 포함)을 그대로 사용
+        noteToSave.title = finalTitle; // 복원된 로직으로 생성된 제목을 사용
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = now;
         

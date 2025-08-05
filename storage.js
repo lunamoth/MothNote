@@ -345,7 +345,8 @@ export const loadData = async () => {
 
         // --- 5. 최종 데이터로 앱 상태 설정 ---
         let finalState = { ...state, ...authoritativeData };
-        if (authoritativeData && authoritativeData.folders) {
+        // [기능 복원] 초기 데이터 생성 로직 조건 수정
+        if (authoritativeData && authoritativeData.folders && authoritativeData.folders.length > 0) {
             finalState.trash = finalState.trash || [];
             finalState.favorites = new Set(authoritativeData.favorites || []);
 
