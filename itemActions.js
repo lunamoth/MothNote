@@ -1,5 +1,4 @@
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-// [핵심 수정] 분산 락(Distributed Lock) 관련 함수를 storage.js에서 가져옵니다.
 import { acquireWriteLock, releaseWriteLock } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
@@ -20,7 +19,6 @@ let globalSaveLock = Promise.resolve();
  * 충돌하지 않는 고유한 ID를 생성하고 반환합니다.
  */
 const generateUniqueId = (prefix, existingIds) => {
-    const basePrefix = prefix || CONSTANTS.ID_PREFIX.NOTE;
     // crypto.randomUUID가 있으면 사용 (더 강력한 고유성)
     if (typeof crypto?.randomUUID === 'function') {
         let id;
@@ -30,10 +28,10 @@ const generateUniqueId = (prefix, existingIds) => {
         return id;
     }
     
-    // Fallback: 기존 방식
+    // Fallback: 기존 방식보다 고유성을 강화
     let id;
     do {
-        id = `${basePrefix}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        id = `${prefix}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     } while (existingIds.has(id));
     
     return id;
@@ -51,12 +49,9 @@ export const toYYYYMMDD = (dateInput) => {
     return `${y}-${m}-${d}`;
 };
 
-// [버그 수정] 노트 생성 날짜 Set을 다시 빌드합니다. 휴지통에 있는 노트는 달력에 표시하지 않도록 수정합니다.
+// 휴지통에 있는 노트를 제외하고 달력에 표시할 노트 생성 날짜 Set을 다시 빌드합니다. (기능 유지)
 export const updateNoteCreationDates = () => {
     state.noteCreationDates.clear();
-    // noteMap(활성 폴더에 있는 노트)에서만 모든 노트를 가져옵니다.
-    // noteMap은 buildNoteMap()에 의해 state.folders(휴지통 제외) 기준으로 생성되므로,
-    // 이 로직은 자연스럽게 휴지통에 있는 노트를 제외하여 경쟁 상태를 방지합니다.
     const allNotes = [...Array.from(state.noteMap.values()).map(e => e.note)];
     
     for (const note of allNotes) {
@@ -90,7 +85,6 @@ export const finishPendingRename = async () => {
             renamingElement.blur(); // blur 이벤트가 _handleRenameEnd를 트리거
             await pendingRenamePromise; // _handleRenameEnd가 완료될 때까지 기다림
         } else {
-            // 엘먼트가 사라진 경우 강제 종료
             forceResolvePendingRename();
         }
     }
@@ -103,17 +97,17 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
-// [근본적인 아키텍처 수정] 모든 데이터 수정의 유일한 진입점.
-// 원자성(All-or-Nothing)을 보장하고, 성공 시 자신의 흔적(백업 파일)을 스스로 정리합니다.
+// [아키텍처 리팩토링] 모든 데이터 수정의 유일한 진입점.
+// 이 함수의 역할은 이제 'chrome.storage.local에 원자적으로 쓰기'에 집중됩니다.
 export const performTransactionalUpdate = async (updateFn) => {
-    // 1. 분산 락(Distributed Lock) 획득 시도 - 여러 탭 간의 동시 쓰기 방지
+    // 1. 분산 락(Distributed Lock) 획득
     let lockAcquired = false;
-    for (let i = 0; i < 5; i++) { // 최대 5번 재시도
+    for (let i = 0; i < 5; i++) {
         if (await acquireWriteLock(window.tabId)) {
             lockAcquired = true;
             break;
         }
-        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 200)); // 랜덤 백오프
+        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 200));
     }
 
     if (!lockAcquired) {
@@ -131,15 +125,18 @@ export const performTransactionalUpdate = async (updateFn) => {
     try {
         setState({ isPerformingOperation: true });
 
-        // 3. [핵심] 항상 chrome.storage에서 직접 최신 데이터를 읽어 트랜잭션을 시작합니다.
+        // 3. 항상 chrome.storage에서 직접 최신 데이터를 읽어 트랜잭션을 시작
         const storageResult = await chrome.storage.local.get('appState');
         const latestData = storageResult.appState || { folders: [], trash: [], favorites: [] };
-        const dataCopy = JSON.parse(JSON.stringify(latestData)); // 안전한 수정을 위해 깊은 복사
+        const dataCopy = JSON.parse(JSON.stringify(latestData)); 
 
         // 4. 전달된 함수로 데이터 변경 로직 적용
         const result = await updateFn(dataCopy);
         
-        if (result === null) { // 함수가 null을 반환하면 작업 취소로 간주
+        if (result === null) { 
+            await releaseWriteLock(window.tabId);
+            releaseLocalLock();
+            setState({ isPerformingOperation: false });
             return false;
         }
 
@@ -148,31 +145,24 @@ export const performTransactionalUpdate = async (updateFn) => {
         // 5. 트랜잭션 ID를 부여하여 자신의 변경사항임을 식별
         const transactionId = `${window.tabId}-${Date.now()}`;
         newData.transactionId = transactionId;
-        const timestamp = Date.now();
-        newData.lastSavedTimestamp = timestamp;
+        newData.lastSavedTimestamp = Date.now();
         
+        // 자신의 트랜잭션 ID를 로컬 state에 먼저 기록합니다.
+        // 이렇게 하면 storage.onChanged 이벤트 발생 시 자신의 변경임을 즉시 알 수 있습니다.
         setState({ currentTransactionId: transactionId });
 
-        // 6. chrome.storage에 최종 데이터 저장 (이것이 유일한 '커밋' 지점)
+        // 6. [역할의 핵심] chrome.storage에 최종 데이터를 저장. 이것이 유일한 '커밋' 지점.
         await chrome.storage.local.set({ appState: newData });
         
-        // 7. [리팩토링] 로컬 스토리지 백업 로직이 제거되었으므로, 관련 정리 코드도 필요 없어짐.
+        // 7. [핵심 변경] 로컬 state의 데이터 부분을 직접 업데이트하는 로직을 제거합니다.
+        // 모든 데이터 업데이트는 storage.onChanged 이벤트를 통해 handleStorageSync가 처리하도록 위임합니다.
+        // 이를 통해 모든 상태 업데이트 경로가 하나로 통일됩니다.
         
-        // 8. 로컬 state를 성공적으로 커밋된 데이터로 업데이트하고 UI 렌더링
-        setState({
-            ...state,
-            folders: newData.folders,
-            trash: newData.trash,
-            favorites: new Set(newData.favorites || []),
-            lastSavedTimestamp: timestamp,
-            totalNoteCount: newData.folders.reduce((sum, f) => sum + f.notes.length, 0),
-            ...postUpdateState
-        });
-        
-        buildNoteMap();
-        updateNoteCreationDates();
-        clearSortedNotesCache();
-        calendarRenderer(true);
+        // 단, UI 즉시 반응이 필요한 postUpdateState(예: activeFolderId 변경)는
+        // 로컬에서 먼저 처리하여 사용자 경험을 향상시킵니다.
+        if (postUpdateState) {
+            setState(postUpdateState);
+        }
 
         if (successMessage) {
             showToast(successMessage);
@@ -191,7 +181,7 @@ export const performTransactionalUpdate = async (updateFn) => {
         }
         success = false;
     } finally {
-        // 9. [핵심] 성공/실패 여부와 관계없이 반드시 모든 락을 해제합니다.
+        // 9. 성공/실패 여부와 관계없이 반드시 모든 락을 해제합니다.
         await releaseWriteLock(window.tabId);
         setState({ isPerformingOperation: false });
         releaseLocalLock();
@@ -242,14 +232,16 @@ export const handleAddFolder = async () => {
 
     const updateLogic = (latestData) => {
         const trimmedName = name.trim();
-        // 트랜잭션 시작 시점의 최신 데이터로 중복 검사
         if (latestData.folders.some(f => f.name.toLowerCase() === trimmedName.toLowerCase())) {
             showAlert({ title: '오류', message: `'${trimmedName}' 폴더가 방금 다른 곳에서 생성되었습니다. 다른 이름으로 다시 시도해주세요.`});
             return null; // 트랜잭션 취소
         }
 
         const now = Date.now();
-        const newFolderId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
+        // [버그 수정] 고유 ID 생성을 위해 모든 기존 ID 수집
+        const allFolderIds = new Set(latestData.folders.map(f => f.id));
+        const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
+
         const newFolder = { id: newFolderId, name: trimmedName, notes: [], createdAt: now, updatedAt: now };
         latestData.folders.push(newFolder);
         
@@ -263,6 +255,8 @@ export const handleAddFolder = async () => {
     const success = await performTransactionalUpdate(updateLogic);
 
     if (success) {
+        // changeActiveFolder는 postUpdateState에 의해 UI가 먼저 반응한 후,
+        // storage 이벤트에 의해 전체 데이터가 동기화된 후 최종적으로 UI를 완성합니다.
         await changeActiveFolder(state.activeFolderId, { force: true });
         setTimeout(() => {
             const newFolderEl = folderList.querySelector(`[data-id="${state.activeFolderId}"]`);
@@ -299,13 +293,15 @@ export const handleAddNote = async () => {
             }
 
             const now = Date.now();
-            const newNoteId = `${CONSTANTS.ID_PREFIX.NOTE}${now}`;
             
-            // [기능 복원] 중복 제목 넘버링 기능 복원
+            // [버그 수정] 고유 ID 생성을 위해 모든 기존 ID 수집
+            const allNoteIds = new Set();
+            latestData.folders.forEach(f => f.notes.forEach(n => allNoteIds.add(n.id)));
+            const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+            
             let baseTitle = `${formatDate(now)}의 노트`;
             let finalTitle = baseTitle;
             let counter = 2;
-            // 현재 폴더 내에서만 중복 검사
             while (activeFolder.notes.some(note => note.title === finalTitle)) {
                 finalTitle = `${baseTitle} (${counter++})`;
             }
@@ -416,7 +412,6 @@ export const handleDelete = async (id, type) => {
     );
 };
 
-// [버그 수정] 드래그 앤 드롭으로 휴지통 이동 시 확인 창 없이 바로 삭제하기 위해 함수를 export.
 export const performDeleteItem = (id, type) => {
     return performTransactionalUpdate(latestData => {
         const { folders, trash } = latestData;
@@ -592,7 +587,7 @@ export const handlePermanentlyDeleteItem = async (id) => {
             let postUpdateState = {};
             if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
             if (state.activeNoteId === id) {
-                const trashItems = state.trash; // use state for UI calculation
+                const trashItems = state.trash; 
                 postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, trashItems);
             }
             
@@ -645,7 +640,7 @@ export const handleEmptyTrash = async () => {
     );
 };
 
-// [리팩토링] handleNoteUpdate에서 localStorage 비상 백업 로직을 완전히 제거
+
 let debounceTimer = null;
 export async function handleNoteUpdate(isForced = false) {
     if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || editorContainer.style.display === 'none') {
@@ -656,6 +651,7 @@ export async function handleNoteUpdate(isForced = false) {
     const noteId = state.activeNoteId;
     if (!noteId) return true;
     
+    // [중요] 최신 데이터를 state에서 가져옵니다. (렌더링을 통해 항상 최신 상태)
     const { item: activeNote } = findNote(noteId);
     if (!activeNote) return true;
     
@@ -663,30 +659,25 @@ export async function handleNoteUpdate(isForced = false) {
     const currentContent = noteContentTextarea.value;
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
     
-    // 강제 저장이 아닐 때 (사용자 입력 시)
     if (!isForced) {
-        // 변경 사항이 있을 때만 isDirty 플래그 설정 및 debounce 타이머 관리
         if (hasChanged) {
             if (!state.isDirty) {
                 setState({ isDirty: true, dirtyNoteId: noteId });
                 updateSaveStatus('dirty');
             }
-            // debounce 타이머 재설정
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
         }
         return true;
     }
     
-    // 강제 저장일 때 (debounce 만료 또는 페이지 이동/닫기 시)
     clearTimeout(debounceTimer);
 
-    // 저장되지 않은 변경사항이 없으면 저장할 필요 없음
     if (!state.isDirty) {
         return true;
     }
     
-    const noteIdToSave = state.dirtyNoteId; // isDirty 설정 시 저장된 noteId 사용
+    const noteIdToSave = state.dirtyNoteId;
     const titleToSave = currentTitle;
     const contentToSave = currentContent;
 
@@ -717,7 +708,8 @@ export async function handleNoteUpdate(isForced = false) {
     const wasSuccessful = await performTransactionalUpdate(updateLogic);
     
     if (wasSuccessful) {
-        // 저장 후, UI에 추가적인 변경이 없다면 dirty 상태 해제
+        // 저장이 성공하면, UI에 추가적인 변경이 없는 경우에만 dirty 상태를 해제합니다.
+        // 실제 데이터 업데이트는 storage.onChanged 이벤트가 처리합니다.
         if (noteTitleInput.value === titleToSave && noteContentTextarea.value === contentToSave) {
             setState({ isDirty: false, dirtyNoteId: null });
             updateSaveStatus('saved');
@@ -797,7 +789,9 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 
     const success = await performTransactionalUpdate(updateLogic);
     if (!success) {
-        setState({ renamingItemId: null }); // 실패 시 UI를 원래 이름으로 되돌리기
+        // 실패 시, state를 갱신하지 않고 렌더러가 storage.onChanged를 통해
+        // 어차피 원래 이름으로 되돌릴 것이므로 여기서는 UI 상태만 초기화
+        setState({ renamingItemId: null });
     }
 };
 

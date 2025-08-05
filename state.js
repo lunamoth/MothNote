@@ -3,20 +3,23 @@ export const CONSTANTS = {
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
-    // [리팩토링] 비상 백업 시스템이 제거되었으므로 관련 상수를 삭제합니다.
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1',
-    LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // 사용되지 않지만, 만약을 위해 유지
+    // [리팩토링] 데이터 충돌 시 강제 새로고침 로직이 제거되었으므로 관련 상수를 삭제합니다.
+    // LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // 더 이상 사용되지 않음
+    
     // --- 분산 락 관련 상수 ---
-    SS_KEY_WRITE_LOCK: 'mothnote_session_write_lock_v1', // Session Storage에 저장될 락의 키
-    LOCK_TIMEOUT_MS: 8000, // 8초 후 락이 자동으로 만료되도록 설정 (데드락 방지)
+    SS_KEY_WRITE_LOCK: 'mothnote_session_write_lock_v1',
+    LOCK_TIMEOUT_MS: 8000,
+    
     // --- 설정 관련 상수 ---
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',
     DEFAULT_SETTINGS: {
-        layout: { col1: 10, col2: 10 }, // percentages
+        layout: { col1: 10, col2: 10 },
         editor: { fontFamily: `-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", sans-serif`, fontSize: 17 },
-        weather: { lat: 37.5660, lon: 126.9784 }, // Default: Seoul
-        zenMode: { maxWidth: 850 } // pixels
+        weather: { lat: 37.5660, lon: 126.9784 },
+        zenMode: { maxWidth: 850 }
     },
+
     // --- 가상 폴더 및 UI 관련 상수 (기능 유지) ---
     VIRTUAL_FOLDERS: {
         ALL:    { id: 'all-notes-virtual-id', name: '모든 노트', displayName: '📚 모든 노트', icon: '📚', canAddNote: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note) },
@@ -47,7 +50,7 @@ export const CONSTANTS = {
     DEBOUNCE_DELAY: {
         KEY_NAV: 200,
         SEARCH: 300,
-        SAVE: 500, // 저장 딜레이는 약간 길게 설정하여 잦은 저장을 방지
+        SAVE: 500,
         WEATHER_SEARCH: 500
     },
     EDITOR: {
@@ -122,13 +125,13 @@ export const CONSTANTS = {
 };
 
 export let state = {
-    // --- 핵심 데이터 ---
+    // --- 핵심 데이터 (The Source of Truth in memory for this tab) ---
     folders: [],
     trash: [],
     favorites: new Set(),
     lastSavedTimestamp: null,
 
-    // --- UI/세션 상태 ---
+    // --- UI/세션 상태 (This tab's local UI state) ---
     activeFolderId: null,
     activeNoteId: null,
     searchTerm: '',
@@ -138,19 +141,19 @@ export let state = {
     dateFilter: null,
     renamingItemId: null,
 
-    // --- 파생/캐시 데이터 ---
+    // --- 파생/캐시 데이터 (Derived from core data) ---
     noteMap: new Map(),
     totalNoteCount: 0,
     noteCreationDates: new Set(),
     _virtualFolderCache: { all: null, recent: null, favorites: null, trash: null },
 
-    // --- 실시간 상태 플래그 ---
+    // --- 실시간 상태 플래그 (Real-time flags for this tab) ---
     isDirty: false,
     dirtyNoteId: null,
     // [리팩토링] pendingChanges는 더 이상 사용되지 않습니다.
-    pendingChanges: null,
+    // pendingChanges: null,
     isPerformingOperation: false,
-    // [추가] 자신의 변경사항을 식별하기 위한 트랜잭션 ID
+    // 자신의 변경사항을 식별하기 위한 트랜잭션 ID
     currentTransactionId: null
 };
 
@@ -179,15 +182,12 @@ export const setState = (newState) => {
 
 // --- 데이터 검색 헬퍼 (기능 유지, 최적화) ---
 const _findNoteInState = (id) => {
-    // noteMap을 사용하여 O(1) 시간 복잡도로 노트 검색
     const entry = state.noteMap.get(id);
     if (!entry) return { item: null, folder: null, index: -1 };
     
-    // 폴더 검색은 여전히 O(n)이지만, 폴더 수는 노트 수보다 훨씬 적음
     const { item: folder } = _findFolderInState(entry.folderId);
     if (!folder) return { item: null, folder: null, index: -1 };
     
-    // 폴더 내 노트 인덱스 검색
     const index = folder.notes.findIndex(n => n.id === id);
     return { item: entry.note, folder, index };
 };
@@ -206,8 +206,7 @@ const _findInVirtualFolders = (id) => {
     const virtualFolderDef = Object.values(CONSTANTS.VIRTUAL_FOLDERS).find(vf => vf.id === id);
     if (!virtualFolderDef) return null;
 
-    // 캐시된 가상 폴더 데이터 사용
-    const cacheKey = virtualFolderDef.id.split('-')[0]; // 'all', 'recent', 'favorites', 'trash'
+    const cacheKey = virtualFolderDef.id.split('-')[0];
     let notes = state._virtualFolderCache[cacheKey];
     if (!notes) {
         notes = virtualFolderDef.getNotes(state);

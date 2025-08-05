@@ -21,8 +21,8 @@ import {
     toYYYYMMDD,
     updateNoteCreationDates,
     forceResolvePendingRename,
-    performTransactionalUpdate, // 드래그 앤 드롭에서 사용하기 위해 import
-    performDeleteItem // [버그 수정] 드래그로 휴지통 이동 시 확인창 없이 삭제하기 위해 import
+    performTransactionalUpdate,
+    performDeleteItem
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -330,49 +330,93 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
-// [근본적인 아키텍처 수정] 데이터 동기화 및 충돌 처리 로직 개선
+// [아키텍처 리팩토링] 데이터 동기화 및 충돌 처리 로직 재설계
+// 이 함수는 이제 모든 데이터 변경이 UI에 반영되는 유일한 통로 역할을 합니다.
 async function handleStorageSync(changes) {
-    if (window.isInitializing || !changes.appState) return;
-    
-    const { newValue } = changes.appState;
-    if (newValue.transactionId && newValue.transactionId === state.currentTransactionId) {
-        return; // 자기 자신의 변경사항은 무시
-    }
-
-    if (state.renamingItemId) {
-        forceResolvePendingRename();
-    }
-
-    if (state.isDirty) {
-        console.warn("Data conflict detected!");
-        editorContainer.classList.add(CONSTANTS.CLASSES.READONLY);
-        noteTitleInput.readOnly = true; noteContentTextarea.readOnly = true;
-        
-        // [리팩토링] 이제 데이터 손실 위험이 없으므로, 비상 백업에 대한 언급을 제거하고 새로고침만 안내.
-        await showConfirmModal({
-            title: '⚠️ 데이터 동기화 충돌',
-            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 자동으로 저장되지 않았습니다.</strong>',
-            isHtml: true, confirmText: '🔄 지금 새로고침', hideCancelButton: true
-        });
-        
-        window.location.reload();
+    // 초기화 중, 가져오기 중, 또는 관련 변경사항이 없으면 무시
+    if (window.isInitializing || window.isImporting || !changes.appState) {
         return;
     }
 
-    // 충돌이 없을 경우, 다른 탭의 변경사항을 현재 탭에 조용히 적용
-    console.log("Received data from another tab. Updating local state...");
-    setState({
-        ...state, // 현재 UI 상태는 유지
-        ...newValue, // 다른 탭의 데이터 변경사항만 적용
-        favorites: new Set(newValue.favorites || []),
-        totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
-        isDirty: false, dirtyNoteId: null,
-    });
+    const { newValue } = changes.appState;
+    const isSelfChange = newValue.transactionId && newValue.transactionId === state.currentTransactionId;
+
+    // [핵심 변경] '데이터 충돌'로 인한 강제 새로고침 로직을 완전히 제거합니다.
+    // 사용자가 입력 중이더라도 다른 탭의 변경사항은 백그라운드에서 조용히 동기화됩니다.
+    // 이는 최상의 사용자 경험을 제공하고, 복잡한 상태 병합 문제를 원천적으로 차단합니다.
     
+    console.log("Storage change detected. Reconciling local state.");
+
+    // [핵심 변경] 새 상태 객체를 생성합니다. 로컬 state와 병합하는 대신,
+    // Storage의 newValue(진실)를 기준으로 로컬 UI 상태만 유지하며 재구성합니다.
+    const newState = {
+        // --- 1. 데이터는 항상 Storage의 `newValue`를 그대로 덮어씁니다. ---
+        folders: newValue.folders,
+        trash: newValue.trash,
+        favorites: new Set(newValue.favorites || []),
+        lastSavedTimestamp: newValue.lastSavedTimestamp,
+        totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
+
+        // --- 2. UI/세션 상태는 현재 탭의 로컬 `state` 값을 유지합니다. ---
+        activeFolderId: state.activeFolderId,
+        activeNoteId: state.activeNoteId,
+        noteSortOrder: state.noteSortOrder,
+        lastActiveNotePerFolder: state.lastActiveNotePerFolder,
+        searchTerm: state.searchTerm,
+        preSearchActiveNoteId: state.preSearchActiveNoteId,
+        dateFilter: state.dateFilter,
+        renamingItemId: state.renamingItemId,
+        
+        // --- 3. 실시간 상태 플래그도 로컬 값을 유지합니다. ---
+        isDirty: state.isDirty,
+        dirtyNoteId: state.dirtyNoteId,
+        isPerformingOperation: state.isPerformingOperation,
+        currentTransactionId: state.currentTransactionId,
+        
+        // 캐시 데이터는 어차피 아래에서 재생성되므로 유지할 필요 없습니다.
+        _virtualFolderCache: state._virtualFolderCache,
+        noteMap: state.noteMap,
+        noteCreationDates: state.noteCreationDates,
+    };
+
+    // --- 4. 유지한 UI 상태가 새 데이터에서도 유효한지 검증하고 보정합니다. ---
+    const allNoteIds = new Set(newState.folders.flatMap(f => f.notes).map(n => n.id));
+    const allFolderIds = new Set(newState.folders.map(f => f.id));
+    Object.values(CONSTANTS.VIRTUAL_FOLDERS).forEach(vf => allFolderIds.add(vf.id));
+
+    if (!allFolderIds.has(newState.activeFolderId)) {
+        console.warn(`활성 폴더(${newState.activeFolderId})가 새 상태에 없어 초기화합니다.`);
+        newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+        newState.activeNoteId = null; // 폴더가 사라지면 노트 선택도 초기화
+    }
+
+    if (newState.activeNoteId && !allNoteIds.has(newState.activeNoteId)) {
+        console.warn(`활성 노트(${newState.activeNoteId})가 새 상태에 없어 초기화합니다.`);
+        newState.activeNoteId = null;
+    }
+    
+    // 이름 변경 중이던 아이템이 다른 탭에서 삭제된 경우
+    if (newState.renamingItemId) {
+        const itemExists = allFolderIds.has(newState.renamingItemId) || allNoteIds.has(newState.renamingItemId) || newState.trash.some(item => item.id === newState.renamingItemId);
+        if (!itemExists) {
+            forceResolvePendingRename(); // UI 강제 종료
+            newState.renamingItemId = null;
+        }
+    }
+
+    // --- 5. 최종적으로 재구성된 상태를 적용합니다. ---
+    setState(newState);
+
+    // --- 6. 파생 데이터를 다시 빌드하고 UI를 전체 렌더링합니다. ---
     buildNoteMap();
     updateNoteCreationDates();
-    if (dashboard) dashboard.renderCalendar(true);
-    showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
+    clearSortedNotesCache(); // 정렬 캐시 비우기
+    if (dashboard) dashboard.renderCalendar(true); // 달력 강제 업데이트
+
+    // --- 7. 사용자에게 변경사항을 알립니다 (자신의 변경은 제외). ---
+    if (!isSelfChange) {
+        showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
+    }
 }
 
 
@@ -382,27 +426,26 @@ const setupGlobalEventListeners = () => {
         if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
     });
 
-    // [리팩토링] beforeunload 핸들러의 역할을 '브라우저 네이티브 경고'로 단순화하고, 비상 백업 로직을 완전히 제거.
+    // 이 핸들러는 이제 '데이터 동기화 충돌'이 아닌 '사용자 작업 손실' 방지 목적으로만 작동합니다.
     window.addEventListener('beforeunload', (e) => {
-        // 데이터 가져오기 중에는 경고 없이 페이지를 떠나도록 허용
         if (window.isImporting) {
             return;
         }
 
-        // 이름 변경 중인 항목이 있으면 강제로 완료 시도
         if (state.renamingItemId) {
             finishPendingRename();
         }
         
-        // 저장되지 않은 노트가 있다면, 브라우저의 기본 경고창을 띄운다.
+        // 저장되지 않은 텍스트가 있을 때만 브라우저 네이티브 경고창을 띄웁니다.
         if (state.isDirty) {
-            e.preventDefault(); // 표준에 따라 필요
-            e.returnValue = ''; // 대부분의 최신 브라우저에서 이 메시지는 무시되지만, 호환성을 위해 포함
+            e.preventDefault();
+            e.returnValue = ''; 
         }
     });
     
     window.addEventListener('keydown', handleGlobalKeyDown);
 
+    // chrome.storage.onChanged 리스너는 이제 시스템의 심장 역할을 합니다.
     chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName === 'local' && changes.appState) {
             handleStorageSync(changes);

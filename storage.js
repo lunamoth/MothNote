@@ -1,13 +1,9 @@
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from './components.js';
-import { updateNoteCreationDates, toYYYYMMDD } from './itemActions.js';
+import { updateNoteCreationDates } from './itemActions.js';
 
-// [HEARTBEAT] 다른 탭의 활성 상태를 확인하기 위한 키 (기능 유지)
-const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
 
-export let isSavingLocally = false;
-
-// --- 분산 락(Distributed Lock) 구현 --- (기능 유지, 변경 없음)
+// --- 분산 락(Distributed Lock) 구현 (기능 유지, 변경 없음) ---
 export async function acquireWriteLock(tabId) {
     const { SS_KEY_WRITE_LOCK, LOCK_TIMEOUT_MS } = CONSTANTS;
     const newLock = { tabId, timestamp: Date.now() };
@@ -16,7 +12,6 @@ export async function acquireWriteLock(tabId) {
         const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
         let currentLock = result[SS_KEY_WRITE_LOCK];
 
-        // 데드락 방지를 위해 만료된 락은 강제 해제
         if (currentLock && (Date.now() - currentLock.timestamp > LOCK_TIMEOUT_MS)) {
             console.warn(`만료된 쓰기 락을 발견했습니다 (소유자: ${currentLock.tabId}). 락을 강제로 해제합니다.`);
             currentLock = null;
@@ -25,7 +20,6 @@ export async function acquireWriteLock(tabId) {
         if (!currentLock || currentLock.tabId === tabId) {
             await chrome.storage.session.set({ [SS_KEY_WRITE_LOCK]: newLock });
             
-            // 내가 락을 설정한 후, 다시 읽어서 정말로 내 락인지 확인
             const verificationResult = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
             if (verificationResult[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
                 return true;
@@ -52,30 +46,6 @@ export async function releaseWriteLock(tabId) {
 // --- 락 구현 끝 ---
 
 
-// [수정] saveData는 이제 직접 사용되지 않지만, 다른 곳에서 참조할 수 있어 유지합니다.
-// 모든 저장은 performTransactionalUpdate를 통해 이루어집니다.
-export const saveData = async () => {
-    isSavingLocally = true;
-    try {
-        const timestamp = Date.now();
-        const dataToSave = { 
-            folders: state.folders, 
-            trash: state.trash,
-            favorites: Array.from(state.favorites),
-            lastSavedTimestamp: timestamp
-        };
-        await chrome.storage.local.set({ appState: dataToSave });
-        setState({ lastSavedTimestamp: timestamp });
-        return true;
-    } catch (e) {
-        console.error("Error saving state:", e);
-        showToast('데이터 저장에 실패했습니다. 저장 공간을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
-        return false;
-    } finally {
-        isSavingLocally = false;
-    }
-};
-
 // 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)
 export const saveSession = () => {
     if (window.isInitializing) return;
@@ -91,7 +61,8 @@ export const saveSession = () => {
     }
 };
 
-// [리팩토링] loadData에서 localStorage 기반 비상 백업 복구 로직을 완전히 제거.
+// [아키텍처 리팩토링] loadData에서 localStorage 기반 비상 백업 복구 로직을 완전히 제거하고,
+// chrome.storage.local을 유일한 데이터 소스로 사용하도록 단순화합니다.
 export const loadData = async () => {
     let recoveryMessage = null;
 
@@ -106,7 +77,7 @@ export const loadData = async () => {
                 const importPayload = JSON.parse(incompleteImportRaw);
                 await chrome.storage.local.set({ appState: importPayload.appState });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(importPayload.settings));
-                localStorage.removeItem(CONSTANTS.LS_KEY); // 세션 초기화
+                localStorage.removeItem(CONSTANTS.LS_KEY);
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                 window.location.reload();
                 return; // 복구 후 즉시 종료
@@ -118,12 +89,13 @@ export const loadData = async () => {
             }
         }
         
-        // 2. 주 저장소에서 데이터 로드 (이제 이것이 유일한 데이터 소스)
+        // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
         const mainStorageResult = await chrome.storage.local.get('appState');
         const authoritativeData = mainStorageResult.appState || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
 
-        // 3. [완전 제거] '죽은 탭'의 비상 백업(uncommitted patches) 수집 및 복구 로직
-        
+        // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
+        // 이는 새로운 아키텍처에서 불필요하며, 오히려 데이터 오염의 원인이 될 수 있습니다.
+
         // 4. 최종 상태(state) 설정 및 UI 초기화
         let finalState = { ...state, ...authoritativeData };
         if (authoritativeData && authoritativeData.folders && authoritativeData.folders.length > 0) {
@@ -167,9 +139,10 @@ export const loadData = async () => {
 
         } else { // 데이터가 아예 없는 초기 실행
             const now = Date.now();
-            const fId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
-            const nId = `${CONSTANTS.ID_PREFIX.NOTE}${now + 1}`;
-            const newNote = { id: nId, title: "🎉 환영합니다!", content: "MothNote 에 오신 것을 환영합니다! 🦋", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
+            const { generateUniqueId } = await import('./itemActions.js');
+            const fId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, new Set());
+            const nId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, new Set());
+            const newNote = { id: nId, title: "🎉 환영합니다!", content: "MothNote 에 오신 것을 환영합니다! 🦋", createdAt: now, updatedAt: now, isPinned: false };
             const newFolder = { id: fId, name: "🌟 첫 시작 폴더", notes: [newNote], createdAt: now, updatedAt: now };
 
             const initialAppState = {
@@ -208,6 +181,7 @@ export const loadData = async () => {
 
 // --- 데이터 가져오기/내보내기 및 정제 로직 --- (기능 유지, 변경 없음)
 const escapeHtml = str => {
+    if (typeof str !== 'string') return '';
     const tempDiv = document.createElement('div');
     tempDiv.textContent = str;
     return tempDiv.innerHTML;
@@ -242,7 +216,6 @@ const sanitizeContentData = data => {
             updatedAt: Number(n.updatedAt) || Date.now(),
             isPinned: !!n.isPinned,
         };
-        // isFavorite는 최상위에서 처리하므로 여기서 제거
         if (isTrash) {
             note.originalFolderId = idMap.get(n.originalFolderId) || n.originalFolderId;
             note.type = 'note';
@@ -264,6 +237,7 @@ const sanitizeContentData = data => {
     });
 
     const sanitizedTrash = Array.isArray(data.trash) ? data.trash.reduce((acc, item) => {
+        if (!item || !item.type) return acc;
         if (item.type === 'folder') {
             const folderId = getUniqueId('folder', item.id);
             const folder = {
@@ -428,11 +402,10 @@ export const setupImportHandler = () => {
                     settings: sanitizedSettings
                 };
 
-                // 임시 저장 -> 주 저장소 저장 -> 임시 저장 제거 (원자적 패턴)
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
                 await chrome.storage.local.set({ appState: importPayload.appState });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                localStorage.removeItem(CONSTANTS.LS_KEY); // 세션 초기화
+                localStorage.removeItem(CONSTANTS.LS_KEY);
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
