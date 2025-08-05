@@ -164,14 +164,10 @@ export const performTransactionalUpdate = async (updateFn) => {
         // 1. 진행 중인 트랜잭션 저널링을 제거합니다.
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
         
-        // 2. 이 탭에서 생성했을 수 있는 실시간 비상 백업 패치를 제거합니다.
-        //    (저장과 패치 제거 사이의 경쟁 상태를 해결)
-        try {
-            const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
-            localStorage.removeItem(backupKey);
-        } catch (e) {
-            console.error("트랜잭션 성공 후 비상 백업 패치 제거 실패:", e);
-        }
+        // 2. [수정] 실시간 비상 백업 패치(uncommitted) 제거 로직을 `handleNoteUpdate`로 이동시켰습니다.
+        //    이 함수는 이제 어떤 패치도 삭제하지 않습니다.
+        //    이렇게 하면 저장 작업 중 발생한 추가 편집 내용이 담긴 패치가
+        //    실수로 삭제되는 데이터 유실 버그를 막을 수 있습니다.
         // --- 정리 끝 ---
         
         setState({
@@ -940,20 +936,27 @@ export async function handleNoteUpdate(isForced = false) {
             return false;
         }
         
-        // [CRITICAL BUG FIX] 경쟁 상태를 해결하기 위해, 비상 백업 패치 삭제 로직을
-        // 원자적 업데이트 함수(`performTransactionalUpdate`) 내부로 이동시켰습니다.
-        // 따라서 이 위치에서는 더 이상 패치를 삭제할 필요가 없습니다.
-        
         wasSuccessful = true;
         
         // 저장이 완료된 후, UI가 다시 변경되었는지 확인 (저장 중 사용자가 추가 입력한 경우)
         const isStillDirtyAfterSave = noteTitleInput.value !== dataToSave.title || noteContentTextarea.value !== dataToSave.content;
 
         if (isStillDirtyAfterSave) {
-            // 새로운 변경사항으로 다시 dirty 상태 설정 시작
+            // [CRITICAL BUG FIX] 저장 중에 새로운 편집이 발생했습니다.
+            // localStorage의 비상 백업 패치는 이 새로운 내용을 담고 있으므로, **절대 삭제하면 안됩니다.**
+            // 대신, 새로운 저장 사이클을 시작하여 이 최신 내용을 처리하도록 합니다.
             handleNoteUpdate(false);
         } else {
-            // 완전히 저장되고 추가 변경 없음
+            // [CRITICAL BUG FIX] 완전히 저장되었고 추가 변경이 없습니다.
+            // 이제 우리가 방금 저장한 내용과 동일한 내용의 비상 백업 패치를 안전하게 삭제할 수 있습니다.
+            try {
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
+                localStorage.removeItem(backupKey);
+            } catch (e) {
+                console.error("저장 완료 후 비상 백업 패치 제거 실패:", e);
+            }
+            
+            // 상태를 완전히 깨끗하게 정리합니다.
             setState({ isDirty: false, dirtyNoteId: null, pendingChanges: null });
             updateSaveStatus('saved');
         }
