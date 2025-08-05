@@ -29,47 +29,7 @@ export const generateUniqueId = (prefix, existingIds) => {
     return id;
 };
 
-// --- 분산 락(Distributed Lock) 구현 (기능 유지, 변경 없음) ---
-export async function acquireWriteLock(tabId) {
-    const { SS_KEY_WRITE_LOCK, LOCK_TIMEOUT_MS } = CONSTANTS;
-    const newLock = { tabId, timestamp: Date.now() };
-
-    try {
-        const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
-        let currentLock = result[SS_KEY_WRITE_LOCK];
-
-        if (currentLock && (Date.now() - currentLock.timestamp > LOCK_TIMEOUT_MS)) {
-            console.warn(`만료된 쓰기 락을 발견했습니다 (소유자: ${currentLock.tabId}). 락을 강제로 해제합니다.`);
-            currentLock = null;
-        }
-
-        if (!currentLock || currentLock.tabId === tabId) {
-            await chrome.storage.session.set({ [SS_KEY_WRITE_LOCK]: newLock });
-            
-            const verificationResult = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
-            if (verificationResult[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
-                return true;
-            }
-        }
-    } catch (e) {
-        console.error("쓰기 락 획득 중 오류 발생:", e);
-    }
-
-    return false;
-}
-
-export async function releaseWriteLock(tabId) {
-    const { SS_KEY_WRITE_LOCK } = CONSTANTS;
-    try {
-        const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
-        if (result[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
-            await chrome.storage.session.remove(SS_KEY_WRITE_LOCK);
-        }
-    } catch (e) {
-        console.error("쓰기 락 해제 중 오류 발생:", e);
-    }
-}
-// --- 락 구현 끝 ---
+// [REMOVED] 멀티탭 동기화를 위한 분산 락(Distributed Lock) 관련 함수를 모두 제거했습니다.
 
 
 // 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)

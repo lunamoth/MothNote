@@ -72,6 +72,9 @@ export const setCalendarRenderer = (renderer) => {
 
 // [SIMPLIFIED] 탭 간 경쟁을 고려하지 않는 단순화된 데이터 업데이트 함수
 export const performTransactionalUpdate = async (updateFn) => {
+    // [주석 추가] 아래의 globalSaveLock은 멀티탭 동기화 기능이 아닙니다.
+    // 단일 탭 내에서 노트 저장, 폴더 삭제 등 여러 비동기 작업이 동시에 실행될 때
+    // 데이터 충돌을 막기 위한 안전장치이므로 단일 탭 환경에서도 유용합니다.
     await globalSaveLock;
     let releaseLocalLock;
     globalSaveLock = new Promise(resolve => { releaseLocalLock = resolve; });

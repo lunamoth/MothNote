@@ -289,8 +289,7 @@ class Dashboard {
     _setupCalendarEvents() { if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.prevMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1); this.renderCalendar(); }; this.dom.nextMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1); this.renderCalendar(); }; this.dom.calendarMonthYear.onclick = async () => { const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate }); if (result) { this.internalState.currentDate = new Date(result.year, result.month, 1); this.renderCalendar(); } }; this.dom.calendarGrid.onclick = async e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { if (!(await confirmNavigation())) return; const newFilterDate = new Date(target.dataset.date); const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime(); searchInput.value = ''; if (isSameDate) { setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' }); } else { this.internalState.currentDate = newFilterDate; const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date); const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder); setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' }); this.renderCalendar(); } } }; this.dom.calendarGrid.addEventListener('mouseover', e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음'); if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`; } }); }
 }
 
-const tabId = crypto.randomUUID();
-window.tabId = tabId;
+// [REMOVED] 멀티탭 동기화를 위한 tabId 로직 제거
 
 window.isInitializing = true;
 window.isImporting = false;
@@ -333,19 +332,24 @@ const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITE
 
 // [SIMPLIFIED] 멀티탭 동기화 로직 제거
 const setupGlobalEventListeners = () => {
+    // [주석 추가] 아래 이벤트 리스너들은 멀티탭 동기화 기능이 아닙니다.
+    // 사용자가 탭을 닫거나 다른 곳으로 이동할 때 데이터 유실을 방지하는 중요한 로직으로,
+    // 단일 탭 환경에서도 매우 유용합니다.
+
     window.addEventListener('unload', () => {
         // 탭이 닫힐 때 현재 세션 정보 저장
         saveSession();
     });
     
-    // 페이지가 보이지 않게 될 때, 변경사항 저장
+    // 사용자가 탭을 벗어났을 때(hidden) 데이터를 자동 저장하여 유실을 방지합니다. 단일 탭 환경에서도 매우 유용한 기능입니다.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             saveCurrentNoteIfChanged();
             finishPendingRename();
         }
     });
-
+    
+    // 탭/창을 닫기 직전에 저장되지 않은 변경사항이 있으면 경고를 표시하고, 데이터 유실을 최소화하기 위해 마지막 저장을 시도합니다. 단일 탭 환경에서도 필수적인 데이터 보호 로직입니다.
     window.addEventListener('beforeunload', (e) => {
         // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실 방지 로직
         // 탭이 닫히기 직전에 'isDirty' 상태(저장되지 않은 변경사항이 있음)이면,
