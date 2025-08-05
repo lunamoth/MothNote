@@ -6,7 +6,7 @@ import {
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
     editorContainer,
     addNoteBtn,
-    formatDate // [기능 복원] formatDate 함수를 import합니다.
+    formatDate
 } from './components.js';
 import { updateSaveStatus, clearSortedNotesCache } from './renderer.js';
 import { changeActiveFolder, confirmNavigation } from './navigationActions.js';
@@ -55,6 +55,8 @@ export const toYYYYMMDD = (dateInput) => {
 export const updateNoteCreationDates = () => {
     state.noteCreationDates.clear();
     // noteMap(활성 폴더에 있는 노트)에서만 모든 노트를 가져옵니다.
+    // noteMap은 buildNoteMap()에 의해 state.folders(휴지통 제외) 기준으로 생성되므로,
+    // 이 로직은 자연스럽게 휴지통에 있는 노트를 제외하여 경쟁 상태를 방지합니다.
     const allNotes = [...Array.from(state.noteMap.values()).map(e => e.note)];
     
     for (const note of allNotes) {

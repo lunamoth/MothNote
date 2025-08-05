@@ -113,6 +113,7 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
         modalInput.placeholder = placeholder;
 
         // --- 2. 이벤트 핸들러 정의 ---
+        // 핸들러는 이 Promise 스코프 내에서 정의되어 외부 상태에 영향을 주지 않음
         let hasUserInput = false;
         const runValidation = (force = false) => {
             if (!validationFn) return true;
@@ -132,27 +133,34 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
             runValidation();
         };
 
+        // 확인 버튼 클릭 시, 유효성 검사를 통과해야만 모달을 닫도록 처리
         const handleConfirmClick = (e) => {
             if (validationFn && !runValidation(true)) {
-                e.preventDefault();
+                e.preventDefault(); // <form method="dialog">의 기본 동작(모달 닫기)을 막음
                 return;
             }
-            modal.close('confirm');
+            modal.close('confirm'); // 유효성 통과 시 'confirm' 값으로 모달 닫기
         };
 
+        // 취소 관련 버튼은 항상 'cancel' 값으로 모달을 닫음
         const handleCancelClick = () => modal.close('cancel');
         
         const handleKeydown = (e) => {
             if (e.key === 'Enter') {
-                e.preventDefault();
-                modalConfirmBtn.click();
+                e.preventDefault(); // 기본 form 제출 동작 방지
+                modalConfirmBtn.click(); // 정의된 확인 버튼 로직을 그대로 실행
             } else if (e.key === 'Escape') {
+                // Escape는 dialog의 기본 동작으로 cancel 이벤트와 close 이벤트를 발생시키므로,
+                // handleClose가 자동으로 처리함. 여기서는 handleCancelClick을 명시적으로 호출하여 일관성 유지.
                 handleCancelClick();
             }
         };
 
+        // [핵심 안정성] 'close' 이벤트를 유일한 Promise 종료 지점으로 사용.
+        // 어떤 방식(버튼 클릭, ESC 키, form 제출 등)으로든 모달이 닫히면 항상 호출됨.
         const handleClose = () => {
             // --- 4. 리스너 정리 ---
+            // 이 모달 인스턴스를 위해 추가된 모든 이벤트 리스너를 깨끗하게 제거하여 메모리 누수 방지
             modalConfirmBtn.removeEventListener('click', handleConfirmClick);
             modalCancelBtn.removeEventListener('click', handleCancelClick);
             modalCloseBtn.removeEventListener('click', handleCancelClick);
@@ -160,13 +168,15 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
             modalInput.removeEventListener('keydown', handleKeydown);
             modal.removeEventListener('close', handleClose);
             
+            // --- 5. 결과 반환 ---
+            // modal.returnValue 값을 기반으로 Promise의 결과를 결정
             let result = null;
             if (modal.returnValue === 'confirm') {
                 if (type === CONSTANTS.MODAL_TYPE.PROMPT) result = modalInput.value;
                 else if (message instanceof Node && message.querySelector('select')) result = message.querySelector('select').value;
                 else result = true;
             }
-            resolve(result);
+            resolve(result); // Promise를 최종적으로 해결
         };
         
         // --- 3. 리스너 연결 ---
