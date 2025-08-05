@@ -588,9 +588,9 @@ export const handleEmptyTrash = async () => {
 
 
 /**
- * [NEW] 최종 저장을 담당하는 견고한 함수.
- * 사용자의 작업 흐름(컨텍스트)이 전환될 때 호출되어 데이터 무결성을 보장합니다.
- * @returns {Promise<boolean>} 저장에 성공했거나 변경사항이 없으면 true, 실패하면 false를 반환합니다.
+ * [REFACTORED] 최종 저장을 담당하는 견고한 함수.
+ * 데이터 무결성을 보장하기 위해, 저장하려는 노트의 버전을 확인하여 '덮어쓰기'를 방지합니다.
+ * @returns {Promise<boolean>} 저장에 성공했거나 변경사항이 없으면 true, 실패(충돌 포함)하면 false를 반환합니다.
  */
 export async function saveCurrentNoteIfChanged() {
     if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || !state.activeNoteId) {
@@ -601,14 +601,16 @@ export async function saveCurrentNoteIfChanged() {
     const { item: activeNote } = findNote(noteId);
     if (!activeNote) {
         console.warn(`saveCurrentNoteIfChanged: Note with ID ${noteId} not found in state.`);
-        return true; // 노트가 없는 경우, 더 이상 진행할 수 없으므로 성공으로 처리하여 다른 작업을 막지 않음.
+        return true;
     }
     
+    // [보완] 현재 UI의 값과 로컬 state의 노트 버전을 캡처합니다.
     const currentTitle = noteTitleInput.value;
     const currentContent = noteContentTextarea.value;
+    const localVersion = activeNote.updatedAt; // 사용자가 보고 있던 버전(타임스탬프)
+    
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
     
-    // isDirty 플래그가 꺼져 있더라도, 만약을 위해 실제 내용을 비교.
     if (!hasChanged && !state.isDirty) {
         return true;
     }
@@ -617,32 +619,42 @@ export async function saveCurrentNoteIfChanged() {
 
     const { success } = await performTransactionalUpdate(latestData => {
         let noteToSave, parentFolder;
+        // 트랜잭션 내부에서 최신 스토리지 데이터 기준의 노트를 찾습니다.
         for (const folder of latestData.folders) {
             noteToSave = folder.notes.find(n => n.id === noteId);
             if (noteToSave) { parentFolder = folder; break; }
         }
 
         if (!noteToSave) {
-            console.warn(`저장하려던 노트(ID: ${noteId})를 다른 트랜잭션에서 찾을 수 없습니다.`);
-            return null; // 트랜잭션 취소
+            console.warn(`저장하려던 노트(ID: ${noteId})를 다른 트랜잭션에서 찾을 수 없습니다. (아마도 삭제됨)`);
+            return null;
         }
+
+        // ★★★★★ 덮어쓰기 방지 (핵심 로직) ★★★★★
+        // 내가 보고 있던 버전과 스토리지의 실제 버전이 다르면, 다른 탭에서 먼저 수정한 것입니다.
+        if (noteToSave.updatedAt !== localVersion) {
+            console.error(`SAVE CONFLICT: Local version ${localVersion} does not match storage version ${noteToSave.updatedAt}. Aborting save.`);
+            showToast("⚠️ 다른 탭에서 노트가 변경되어 저장할 수 없습니다!", CONSTANTS.TOAST_TYPE.ERROR, 0);
+            return null; // 저장 작업을 즉시 중단합니다.
+        }
+        // ★★★★★ 덮어쓰기 방지 끝 ★★★★★
 
         const now = Date.now();
         noteToSave.title = currentTitle;
         noteToSave.content = currentContent;
-        noteToSave.updatedAt = now;
+        noteToSave.updatedAt = now; // 새로운 버전(타임스탬프)으로 업데이트
         if (parentFolder) parentFolder.updatedAt = now;
         
         return { newData: latestData, successMessage: null, postUpdateState: {} };
     });
     
     if (success) {
-        // 저장이 성공하면, UI 피드백 상태를 확실히 초기화합니다.
         setState({ isDirty: false, dirtyNoteId: null });
         updateSaveStatus('saved');
     } else {
+        // 실패는 충돌 또는 기타 오류일 수 있습니다.
         updateSaveStatus('dirty');
-        showToast("노트 저장에 실패했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        // 실패 메시지는 충돌 시 이미 표시되었으므로 여기서는 추가로 표시하지 않을 수 있습니다.
     }
 
     return success;
@@ -684,7 +696,7 @@ export function handleUserInput() {
         if (state.isDirty && state.dirtyNoteId === state.activeNoteId) {
             saveCurrentNoteIfChanged();
         }
-    }, CONSTANTS.DEBOUNCE_DELAY.SAVE_FEEDBACK);
+    }, CONSTANTS.DEBOUNCE_DELAY.SAVE);
 }
 
 

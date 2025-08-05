@@ -344,6 +344,10 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
+/**
+ * [REFACTORED] 데이터 동기화 핸들러.
+ * 복잡한 병합 로직을 제거하고, "사용자 작업 시 동기화 금지" 규칙을 적용하여 안정성을 확보합니다.
+ */
 async function handleStorageSync(changes) {
     if (window.isInitializing || window.isImporting || !changes.appState) {
         return;
@@ -355,38 +359,27 @@ async function handleStorageSync(changes) {
         return;
     }
 
-    if (state.isDirty && state.dirtyNoteId) {
-        const dirtyNoteId = state.dirtyNoteId;
-        const newNoteMap = new Map(newValue.folders.flatMap(f => f.notes).map(n => [n.id, n]));
-        
-        if (!newNoteMap.has(dirtyNoteId)) {
-            console.error(`CRITICAL CONFLICT: Unsaved changes for note ${dirtyNoteId} which was deleted or moved elsewhere.`);
-
-            const userChoice = await showConfirmModal({
-                title: '💥 데이터 충돌: 노트 변경됨',
-                message: "현재 수정 중인 노트가 다른 탭에서 삭제 또는 이동되었습니다. 저장되지 않은 내용을 어떻게 할까요?",
-                confirmText: '📝 새 노트로 저장',
-                cancelText: '🗑️ 변경사항 버리기',
-                confirmButtonType: 'confirm'
-            });
-
-            if (userChoice) {
-                await handleAddNoteFromConflict(noteTitleInput.value, noteContentTextarea.value);
-                showToast("✅ 미저장 내용이 새 노트로 안전하게 저장되었습니다.");
-            } else {
-                setState({ isDirty: false, dirtyNoteId: null });
-            }
-        }
+    // ★★★★★ 동기화 안정성 확보 (핵심 로직) ★★★★★
+    // 현재 탭에서 사용자가 노트를 수정 중(isDirty)일 경우, 자동으로 데이터를 덮어쓰지 않습니다.
+    // 이는 데이터 유실을 방지하는 가장 중요한 안전장치입니다.
+    if (state.isDirty) {
+        console.warn(`SYNC IGNORED: Remote change for transaction ${newValue.transactionId} received, but local state is dirty. Sync will be postponed.`);
+        showToast("다른 탭에서 변경사항이 감지되었습니다. 현재 작업을 저장하면 동기화됩니다.", CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
+        return; // 여기서 함수를 종료하여 위험한 자동 병합을 막습니다.
     }
+    // ★★★★★ 동기화 안정성 확보 끝 ★★★★★
 
-    console.log("Storage change detected. Reconciling local state safely.");
+    console.log("Storage change detected. Safely reconciling local state.");
     
+    // 사용자가 작업 중이 아닐 때만, 안전하게 로컬 상태를 최신 데이터로 업데이트합니다.
     const newState = {
         folders: newValue.folders,
         trash: newValue.trash,
         favorites: new Set(newValue.favorites || []),
         lastSavedTimestamp: newValue.lastSavedTimestamp,
         totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
+        
+        // UI 상태는 현재 탭의 것을 그대로 유지합니다.
         activeFolderId: state.activeFolderId,
         activeNoteId: state.activeNoteId,
         noteSortOrder: state.noteSortOrder,
@@ -397,13 +390,9 @@ async function handleStorageSync(changes) {
         renamingItemId: state.renamingItemId,
         isDirty: state.isDirty,
         dirtyNoteId: state.dirtyNoteId,
-        isPerformingOperation: state.isPerformingOperation,
-        currentTransactionId: state.currentTransactionId,
-        _virtualFolderCache: state._virtualFolderCache,
-        noteMap: state.noteMap,
-        noteCreationDates: state.noteCreationDates,
     };
 
+    // 유효성 검사: 현재 활성 폴더/노트가 새 데이터에도 존재하는지 확인
     const allNoteIds = new Set(newState.folders.flatMap(f => f.notes).map(n => n.id));
     const allFolderIds = new Set(newState.folders.map(f => f.id));
     Object.values(CONSTANTS.VIRTUAL_FOLDERS).forEach(vf => allFolderIds.add(vf.id));
@@ -425,16 +414,14 @@ async function handleStorageSync(changes) {
         }
     }
 
+    // 최종 상태 업데이트 및 UI 다시 그리기
     setState(newState);
-
     buildNoteMap();
     updateNoteCreationDates();
     clearSortedNotesCache();
     if (dashboard) dashboard.renderCalendar(true);
 
-    if (!isSelfChange) {
-        showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
-    }
+    showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
 }
 
 
