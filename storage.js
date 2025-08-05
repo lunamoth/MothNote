@@ -576,9 +576,15 @@ export const setupImportHandler = () => {
 
         const reader = new FileReader();
         reader.onload = async event => {
-            // [개선] 로딩 인디케이터를 위한 변수 선언
             let overlay = null;
             
+            // [Critical Bug 수정] 가져오기 작업을 시작하기 전에 쓰기 락을 획득합니다.
+            if (!(await acquireWriteLock(window.tabId))) {
+                showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
+                e.target.value = ''; // 파일 입력을 초기화합니다.
+                return;
+            }
+
             try {
                 const importedData = JSON.parse(event.target.result);
                 const sanitizedContent = sanitizeContentData(importedData);
@@ -598,11 +604,10 @@ export const setupImportHandler = () => {
 
                 if (!firstConfirm) {
                     e.target.value = ''; // 사용자가 첫 확인에서 취소
+                    // 락을 획득했지만 작업을 진행하지 않으므로, finally 블록에서 락이 해제됩니다.
                     return;
                 }
 
-                // --- [CRITICAL BUG 수정] 데이터 손실 방지를 위한 2차 확인 로직 ---
-                // 가져올 데이터가 비어있는지 확인합니다.
                 const isDataEmpty = sanitizedContent.folders.length === 0 && sanitizedContent.trash.length === 0;
 
                 if (isDataEmpty) {
@@ -614,18 +619,16 @@ export const setupImportHandler = () => {
                         confirmButtonType: 'danger'
                     });
 
-                    // 사용자가 최종 확인에서 취소하면 작업을 중단합니다.
                     if (!finalConfirm) {
                         showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                         e.target.value = '';
+                        // 락을 획득했지만 작업을 진행하지 않으므로, finally 블록에서 락이 해제됩니다.
                         return;
                     }
                 }
-                // --- 수정 끝 ---
 
                 window.isImporting = true;
                 
-                // [개선] 세련된 로딩 인디케이터 생성
                 overlay = document.createElement('div');
                 overlay.className = 'import-overlay';
                 overlay.innerHTML = `
@@ -638,7 +641,6 @@ export const setupImportHandler = () => {
 
                 const rebuiltFavorites = new Set(sanitizedContent.favorites);
 
-                // [Critical Bug 수정] 가져올 모든 데이터를 하나의 페이로드로 묶습니다.
                 const importPayload = {
                     appState: {
                         folders: sanitizedContent.folders,
@@ -649,14 +651,14 @@ export const setupImportHandler = () => {
                     settings: sanitizedSettings
                 };
 
-                // [Critical Bug 수정] 1. 실제 데이터를 덮어쓰기 전, 복구를 위한 플래그를 localStorage에 저장합니다.
+                // 1. 실제 데이터를 덮어쓰기 전, 복구를 위한 플래그를 localStorage에 저장합니다.
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
 
-                // [Critical Bug 수정] 2. 실제 데이터 덮어쓰기 작업을 수행합니다.
+                // 2. 실제 데이터 덮어쓰기 작업을 수행합니다. (이제 락으로 보호됩니다)
                 await chrome.storage.local.set({ appState: importPayload.appState });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                 
-                // [Critical Bug 수정] 3. 모든 작업이 성공적으로 끝난 후, 세션 정보와 복구 플래그를 정리합니다.
+                // 3. 모든 작업이 성공적으로 끝난 후, 세션 정보와 복구 플래그를 정리합니다.
                 localStorage.removeItem(CONSTANTS.LS_KEY);
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
@@ -667,13 +669,13 @@ export const setupImportHandler = () => {
 
             } catch (err) {
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
-                // [개선] 에러 발생 시에도 오버레이가 있다면 제거
+            } finally {
+                // [Critical Bug 수정] 작업 성공/실패 여부와 관계없이 반드시 락을 해제하고 UI를 정리합니다.
+                await releaseWriteLock(window.tabId);
+                window.isImporting = false;
                 if (overlay && overlay.parentElement) {
                     overlay.remove();
                 }
-            } finally {
-                window.isImporting = false;
-                // [수정] 작업이 끝나면 입력 필드를 초기화하여 동일한 파일을 다시 선택할 수 있도록 합니다.
                 e.target.value = '';
             }
         };
