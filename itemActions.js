@@ -815,14 +815,10 @@ async function _performSave(noteId, titleToSave, contentToSave) {
         }
         if (!noteToSave) return null;
 
-        let finalTitle = titleToSave;
-        if (!finalTitle.trim() && contentToSave.trim()) {
-            const firstLine = contentToSave.trim().split('\n')[0];
-            finalTitle = firstLine.substring(0, CONSTANTS.AUTO_TITLE_LENGTH_KOR) + (firstLine.length > CONSTANTS.AUTO_TITLE_LENGTH_KOR ? '...' : '');
-        }
-
+        // [CRITICAL BUG 2 FIX] 사용자의 의도적인 제목 삭제를 존중하기 위해 자동 제목 생성 로직을 제거합니다.
+        // 이제 사용자가 제목을 비워두면 빈 제목으로 저장됩니다.
         const now = Date.now();
-        noteToSave.title = finalTitle;
+        noteToSave.title = titleToSave; // 사용자가 제공한 제목(빈 문자열 포함)을 그대로 사용
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = now;
         

@@ -249,48 +249,11 @@ export const loadData = async () => {
                     }
                     dataWasPatched = true;
                 } 
-                // Case 2: 아이템이 기준 데이터에 없음 (데이터 유실 방지를 위한 '복원' 로직)
+                // [CRITICAL BUG 1 FIX] Case 2: 아이템이 기준 데이터에 없음 (의도적으로 영구 삭제된 경우)
                 else {
-                    console.warn(`패치를 적용할 아이템(ID: ${itemId})을 찾지 못했습니다. 영구 손실을 방지하기 위해 항목을 복원합니다.`);
-                    
-                    const itemType = rename_patch?.itemType || (note_patch ? CONSTANTS.ITEM_TYPE.NOTE : null);
-                    if (!itemType) continue; // 타입 정보가 없으면 복원 불가
-
-                    const RECOVERY_FOLDER_NAME = '복구된 항목';
-                    let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                    if (!recoveryFolder) {
-                        const now = Date.now();
-                        recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-recovered-item`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                        authoritativeData.folders.unshift(recoveryFolder);
-                    }
-                    
-                    const timestamp = rename_patch?.timestamp || note_patch?.data?.updatedAt || Date.now();
-
-                    if (itemType === CONSTANTS.ITEM_TYPE.FOLDER) {
-                        const resurrectedFolder = {
-                            id: itemId,
-                            name: rename_patch.newName,
-                            notes: [],
-                            createdAt: timestamp,
-                            updatedAt: timestamp
-                        };
-                        authoritativeData.folders.unshift(resurrectedFolder);
-                        recoveryMessage = `저장되지 않았던 폴더 '${resurrectedFolder.name}'을(를) 복원했습니다.`;
-                    } else { // NOTE
-                        const resurrectedNote = {
-                            id: itemId,
-                            title: rename_patch?.newName || note_patch?.data?.title || '복구된 노트',
-                            // [CRITICAL BUG FIX] note_patch의 내용을 우선적으로 사용하고, 없을 때만 boilerplate 텍스트 사용
-                            content: note_patch?.data?.content || `(이 노트는 비정상 종료로부터 복구되었으며, 이름만 복원되었을 수 있습니다.)`,
-                            createdAt: note_patch?.data?.createdAt || timestamp,
-                            updatedAt: timestamp,
-                            isPinned: false,
-                            isFavorite: false
-                        };
-                        recoveryFolder.notes.unshift(resurrectedNote);
-                        recoveryMessage = `저장되지 않았던 노트 '${resurrectedNote.title}'을(를) '${RECOVERY_FOLDER_NAME}' 폴더로 복원했습니다.`;
-                    }
-                    dataWasPatched = true;
+                    // 이 패치는 영구적으로 삭제된 항목에 대한 것이므로, '고아(orphaned)' 패치로 간주하고 무시합니다.
+                    // 데이터를 복원하지 않음으로써 사용자의 삭제 의도를 존중하고, 데이터 부활 버그를 방지합니다.
+                    console.warn(`무효화된(orphaned) 패치를 발견하여 무시합니다 (대상 ID: ${itemId}). 해당 항목은 영구적으로 삭제된 것으로 보입니다.`);
                 }
             }
 
