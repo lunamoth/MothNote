@@ -139,8 +139,6 @@ export const performTransactionalUpdate = async (updateFn) => {
 
         const { newData, successMessage, postUpdateState } = result;
         
-        // --- [Critical Bug Fix] 기존의 낙관적 잠금 로직은 이제 분산 락으로 대체되었으므로 제거합니다. ---
-        
         // --- 저널링 로직 (데이터 손실 방지) ---
         try {
             localStorage.setItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX, JSON.stringify(newData));
@@ -160,15 +158,20 @@ export const performTransactionalUpdate = async (updateFn) => {
         setState({ currentTransactionId: transactionId });
         await chrome.storage.local.set({ appState: newData });
         
-        // --- [CRITICAL BUG FIX] 트랜잭션 성공 시 관련 임시 데이터를 원자적으로 정리 ---
-        // 1. 진행 중인 트랜잭션 저널링을 제거합니다.
+        // --- [근본적인 아키텍처 수정] ---
+        // 트랜잭션이 성공적으로 스토리지에 기록된 직후, 관련된 임시 데이터를 원자적으로 정리합니다.
+        // 1. 진행 중인 트랜잭션 저널링(in-flight)을 제거합니다.
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
         
-        // 2. [수정] 실시간 비상 백업 패치(uncommitted) 제거 로직을 `handleNoteUpdate`로 이동시켰습니다.
-        //    이 함수는 이제 어떤 패치도 삭제하지 않습니다.
-        //    이렇게 하면 저장 작업 중 발생한 추가 편집 내용이 담긴 패치가
-        //    실수로 삭제되는 데이터 유실 버그를 막을 수 있습니다.
-        // --- 정리 끝 ---
+        // 2. 이 탭이 생성한 모든 비상 백업 패치(uncommitted)를 제거합니다.
+        // `loadData`가 죽은 탭의 백업만 복구하므로, 살아있는 현재 탭의 백업을 여기서 지우는 것이 안전합니다.
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(`${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`)) {
+                localStorage.removeItem(key);
+            }
+        }
+        // --- 수정 끝 ---
         
         setState({
             ...state,
@@ -258,7 +261,6 @@ export const handleAddFolder = async () => {
 
         const now = Date.now();
         const newFolderId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
-        // [수정] 새 폴더 생성 시 타임스탬프 추가
         const newFolder = { id: newFolderId, name: trimmedName, notes: [], createdAt: now, updatedAt: now };
         latestData.folders.push(newFolder);
         
@@ -329,7 +331,6 @@ export const handleAddNote = async () => {
             const newNote = { id: uniqueId, title: newTitle, content: "", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             
             activeFolder.notes.unshift(newNote);
-            // [수정] 노트 추가 시 폴더의 updatedAt 갱신
             activeFolder.updatedAt = now;
 
             const newLastActiveMap = { ...state.lastActiveNotePerFolder, [currentActiveFolderId]: uniqueId };
@@ -387,7 +388,6 @@ export const handlePinNote = (id) => _withNoteAction(id, (note, folder, data) =>
     note.isPinned = !note.isPinned;
     const now = Date.now();
     note.updatedAt = now;
-    // [수정] 노트 상태 변경 시 폴더의 updatedAt 갱신
     folder.updatedAt = now;
     return {
         newData: data,
@@ -400,7 +400,6 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
     note.isFavorite = !note.isFavorite;
     const now = Date.now();
     note.updatedAt = now;
-    // [수정] 노트 상태 변경 시 폴더의 updatedAt 갱신
     folder.updatedAt = now;
     
     if (note.isFavorite) {
@@ -416,7 +415,6 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
     };
 });
 
-// [CRITICAL BUG FIX] 트랜잭션 내 비동기 사용자 입력 로직 해결
 export const handleRestoreItem = async (id) => {
     await finishPendingRename();
 
@@ -427,7 +425,6 @@ export const handleRestoreItem = async (id) => {
     let finalFolderName = itemToRestore.name;
     let targetFolderId = null;
 
-    // --- 트랜잭션 시작 전, 필요한 모든 사용자 입력 수집 ---
     if (itemToRestore.type === 'folder') {
         if (state.folders.some(f => f.name === itemToRestore.name)) {
             const newName = await showPrompt({
@@ -441,7 +438,7 @@ export const handleRestoreItem = async (id) => {
                     return { isValid: true };
                 }
             });
-            if (!newName) return; // 사용자가 취소
+            if (!newName) return; 
             finalFolderName = newName.trim();
         }
     } else if (itemToRestore.type === 'note') {
@@ -451,24 +448,22 @@ export const handleRestoreItem = async (id) => {
                 title: '🤔 원본 폴더를 찾을 수 없음',
                 message: '이 노트의 원본 폴더가 없거나 휴지통에 있습니다. 복원할 폴더를 선택해주세요.'
             });
-            if (!newFolderId) return; // 사용자가 취소
+            if (!newFolderId) return;
             targetFolderId = newFolderId;
         } else {
             targetFolderId = originalFolder.id;
         }
     }
-    // --- 사용자 입력 수집 완료 ---
 
     const updateLogic = (latestData) => {
         const { folders, trash } = latestData;
         const itemIndexInTx = trash.findIndex(item => item.id === id);
-        if (itemIndexInTx === -1) return null; // 다른 탭에서 이미 복원/삭제됨
+        if (itemIndexInTx === -1) return null;
 
         const [itemToRestoreInTx] = trash.splice(itemIndexInTx, 1);
         const now = Date.now();
 
         if (itemToRestoreInTx.type === 'folder') {
-            // 트랜잭션 내에서 최종 유효성 검사
             if (folders.some(f => f.name === finalFolderName)) {
                 showAlert({ title: '오류', message: `'${finalFolderName}' 폴더가 방금 다른 곳에서 생성되었습니다. 다른 이름으로 다시 시도해주세요.`});
                 return null;
@@ -487,7 +482,6 @@ export const handleRestoreItem = async (id) => {
                 delete note.deletedAt; delete note.type; delete note.originalFolderId;
             });
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
-            // [수정] 복원된 폴더의 updatedAt 갱신
             itemToRestoreInTx.updatedAt = now;
             folders.unshift(itemToRestoreInTx);
             return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name), postUpdateState: {} };
@@ -504,13 +498,8 @@ export const handleRestoreItem = async (id) => {
                 itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
             }
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type; delete itemToRestoreInTx.originalFolderId;
-
-            // [Critical Bug Fix] 노트 복원 시, 해당 노트의 `updatedAt` 타임스탬프를 갱신합니다.
-            // 이렇게 해야 '수정일 순 정렬' 및 '최근 노트' 기능이 정상적으로 동작합니다.
             itemToRestoreInTx.updatedAt = now;
-
             targetFolderInTx.notes.unshift(itemToRestoreInTx);
-            // [수정] 노트가 복원된 폴더의 updatedAt 갱신
             targetFolderInTx.updatedAt = now;
             return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title), postUpdateState: {} };
         }
@@ -551,7 +540,7 @@ const performDeleteItem = (id, type) => {
             clearTimeout(debounceTimer);
             postUpdateState.isDirty = false;
             postUpdateState.dirtyNoteId = null;
-            postUpdateState.pendingChanges = null; // [아키텍처 수정] pendingChanges 초기화
+            postUpdateState.pendingChanges = null;
             updateSaveStatus('saved');
         }
 
@@ -562,7 +551,6 @@ const performDeleteItem = (id, type) => {
             const [folderToMove] = latestData.folders.splice(folderIndex, 1);
             folderToMove.type = 'folder';
             folderToMove.deletedAt = now;
-            // [수정] 휴지통으로 이동하는 폴더의 updatedAt 갱신
             folderToMove.updatedAt = now;
             latestData.trash.unshift(folderToMove);
             
@@ -595,7 +583,6 @@ const performDeleteItem = (id, type) => {
             noteToMove.deletedAt = now;
             latestData.trash.unshift(noteToMove);
             
-            // [수정] 노트가 삭제된 폴더의 updatedAt 갱신
             if (sourceFolder) {
                 sourceFolder.updatedAt = now;
             }
@@ -619,12 +606,12 @@ const performDeleteItem = (id, type) => {
 export const handlePermanentlyDeleteItem = async (id) => {
     await finishPendingRename();
 
-    const { item } = findNote(id) || findFolder(id); // find in trash
-    if (!item) { // Already deleted in another tab
+    const { item } = findNote(id) || findFolder(id);
+    if (!item) {
         const itemIndexInState = state.trash.findIndex(i => i.id === id);
         if (itemIndexInState > -1) {
             state.trash.splice(itemIndexInState, 1);
-            setState({ trash: [...state.trash] }); // Force render
+            setState({ trash: [...state.trash] });
         }
         return;
     }
@@ -730,7 +717,6 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
                 const note = folder.notes.find(n => n.id === id);
                 if (note) { 
                     itemToRename = note; 
-                    // [수정] 노트 이름 변경 시, 상위 폴더의 updatedAt도 갱신
                     folder.updatedAt = now;
                     break;
                 }
@@ -747,7 +733,6 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             itemToRename.name = newName;
-            // [수정] 폴더 이름 변경 시 updatedAt 갱신
             itemToRename.updatedAt = now;
         } else {
             itemToRename.title = newName;
@@ -759,7 +744,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 
     const success = await performTransactionalUpdate(updateLogic);
     if (!success) {
-        setState({ renamingItemId: null }); // Re-render with original name
+        setState({ renamingItemId: null });
     }
 };
 
@@ -805,7 +790,6 @@ export const startRename = (liElement, type) => {
     }, 0);
 };
 
-// --- '열쇠' 방식 저장 관리 로직 ---
 let debounceTimer = null;
 
 async function _performSave(noteId, titleToSave, contentToSave) {
@@ -823,13 +807,12 @@ async function _performSave(noteId, titleToSave, contentToSave) {
         }
         if (!noteToSave) return null;
 
-        // [기능 복원] 사용자가 제목을 비워두면 노트 내용의 일부를 사용해 자동으로 제목을 생성합니다.
         let finalTitle = titleToSave;
         const contentToSaveTrimmed = contentToSave.trim();
 
         if (!finalTitle.trim() && contentToSaveTrimmed) {
             const firstLine = contentToSaveTrimmed.split('\n')[0].trim();
-            finalTitle = firstLine || contentToSaveTrimmed; // 첫 줄이 있으면 사용, 없으면 전체 내용 사용
+            finalTitle = firstLine || contentToSaveTrimmed;
 
             const hasKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(finalTitle);
             const maxLength = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;
@@ -840,11 +823,10 @@ async function _performSave(noteId, titleToSave, contentToSave) {
         }
         
         const now = Date.now();
-        noteToSave.title = finalTitle; // 복원된 로직으로 생성된 제목을 사용
+        noteToSave.title = finalTitle;
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = now;
         
-        // [수정] 노트 내용 저장 시, 상위 폴더의 updatedAt도 갱신
         if (parentFolder) {
             parentFolder.updatedAt = now;
         }
@@ -855,19 +837,12 @@ async function _performSave(noteId, titleToSave, contentToSave) {
     return performTransactionalUpdate(updateLogic);
 }
 
-// [CRITICAL BUG FIX] 노트 수정 후 원상 복구 시, 변경 내용이 저장되는 데이터 유실 버그 수정
 export async function handleNoteUpdate(isForced = false) {
-    if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY)) {
-        clearTimeout(debounceTimer);
-        return true;
-    }
-
-    if (editorContainer.style.display === 'none') {
+    if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || editorContainer.style.display === 'none') {
         clearTimeout(debounceTimer);
         return true;
     }
     
-    // 강제 저장이 아닌 'input' 또는 'blur' 이벤트로 인한 호출
     if (!isForced) {
         const noteId = state.activeNoteId;
         if (!noteId) return true;
@@ -877,18 +852,13 @@ export async function handleNoteUpdate(isForced = false) {
         
         const currentTitle = noteTitleInput.value;
         const currentContent = noteContentTextarea.value;
-        
         const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
         
-        // [수정] 한번 dirty 상태가 되면, 원래대로 되돌리는 변경까지 감지하여 저장 로직을 재시작합니다.
-        // 이것이 Critical 데이터 유실 버그를 막습니다.
         if (state.isDirty || hasChanged) {
-            // isDirty가 false였다면, 처음 변경이 시작된 것
             if (!state.isDirty) {
                 setState({ isDirty: true, dirtyNoteId: noteId });
             }
             
-            // UI 변경 사항을 즉시 state.pendingChanges에 반영
             const pendingData = {
                 title: currentTitle,
                 content: currentContent,
@@ -896,22 +866,18 @@ export async function handleNoteUpdate(isForced = false) {
             };
             setState({ pendingChanges: pendingData });
 
-            // --- [CRITICAL BUG FIX] ---
-            // 변경 사항이 감지되는 즉시, 비정상 종료에 대비하여 비상 백업 패치를 localStorage에 기록합니다.
-            // 이 패치는 저장이 성공적으로 완료되면 즉시 삭제됩니다.
             try {
                 const patch = {
                     type: 'note_patch',
                     noteId: noteId,
                     data: pendingData
                 };
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
-                localStorage.setItem(backupKey, JSON.stringify([patch])); // loadData는 패치 배열을 기대합니다.
+                // 현재 탭과 관련된 모든 비상 백업을 하나의 키 아래에 배열로 저장
+                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-note`;
+                localStorage.setItem(backupKey, JSON.stringify([patch]));
             } catch (e) {
                 console.error("실시간 비상 백업 패치 저장에 실패했습니다:", e);
-                // 이 경우 저장 공간 부족 등 심각한 문제일 수 있으므로 사용자에게 알릴 수 있습니다.
             }
-            // --- 수정 끝 ---
 
             updateSaveStatus('dirty');
             clearTimeout(debounceTimer);
@@ -920,7 +886,6 @@ export async function handleNoteUpdate(isForced = false) {
         return true;
     }
     
-    // 강제 저장 실행 (debouncer 또는 다른 액션에 의해 호출됨)
     clearTimeout(debounceTimer);
     if (!state.isDirty || !state.pendingChanges) {
         return true;
@@ -943,6 +908,8 @@ export async function handleNoteUpdate(isForced = false) {
     let wasSuccessful = false;
     try {
         window.isSavingInProgress = true;
+        // _performSave는 내부적으로 performTransactionalUpdate를 호출합니다.
+        // performTransactionalUpdate는 성공 시 관련 비상 백업을 모두 삭제합니다.
         const success = await _performSave(noteIdToSave, dataToSave.title, dataToSave.content);
         
         if (!success) {
@@ -956,28 +923,20 @@ export async function handleNoteUpdate(isForced = false) {
         const isStillDirtyAfterSave = noteTitleInput.value !== dataToSave.title || noteContentTextarea.value !== dataToSave.content;
 
         if (isStillDirtyAfterSave) {
-            // [CRITICAL BUG FIX] 저장 중에 새로운 편집이 발생했습니다.
-            // localStorage의 비상 백업 패치는 이 새로운 내용을 담고 있으므로, **절대 삭제하면 안됩니다.**
-            // 대신, 새로운 저장 사이클을 시작하여 이 최신 내용을 처리하도록 합니다.
+            // [근본적인 수정] 저장 중에 새로운 편집이 발생했습니다.
+            // 비상 백업 패치는 이 새로운 내용을 담고 있으므로, 삭제하지 않고
+            // 새로운 저장 주기를 시작하여 이 최신 내용을 처리하도록 합니다.
             handleNoteUpdate(false);
         } else {
-            // [CRITICAL BUG FIX] 완전히 저장되었고 추가 변경이 없습니다.
-            // 이제 우리가 방금 저장한 내용과 동일한 내용의 비상 백업 패치를 안전하게 삭제할 수 있습니다.
-            try {
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}`;
-                localStorage.removeItem(backupKey);
-            } catch (e) {
-                console.error("저장 완료 후 비상 백업 패치 제거 실패:", e);
-            }
-            
-            // 상태를 완전히 깨끗하게 정리합니다.
+            // [근본적인 수정] 저장이 완료되었고 추가 변경이 없습니다.
+            // performTransactionalUpdate가 이미 백업을 삭제했으므로, 여기서는 상태만 정리합니다.
             setState({ isDirty: false, dirtyNoteId: null, pendingChanges: null });
             updateSaveStatus('saved');
         }
 
     } catch (e) {
         console.error("Save failed:", e);
-        updateSaveStatus('dirty'); // 실패 시 다시 dirty 상태로
+        updateSaveStatus('dirty');
         wasSuccessful = false;
     } finally {
         window.isSavingInProgress = false;
