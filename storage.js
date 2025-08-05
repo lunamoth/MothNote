@@ -93,31 +93,18 @@ export const loadData = async () => {
     let recoveryMessage = null;
 
     try {
-        // 1. 비정상적인 가져오기 작업 복구 (이 로직은 그대로 유지)
-        const incompleteImportRaw = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-        if (incompleteImportRaw) {
-            console.warn("완료되지 않은 가져오기 작업 감지. 복구를 시작합니다...");
-            recoveryMessage = "이전 가져오기 작업이 완료되지 않아 자동으로 복구했습니다.";
-
-            try {
-                const importPayload = JSON.parse(incompleteImportRaw);
-                await chrome.storage.local.set({ appState: importPayload.appState });
-                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(importPayload.settings));
-                localStorage.removeItem(CONSTANTS.LS_KEY);
-                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-                window.location.reload();
-                return; // 복구 후 즉시 종료
-
-            } catch (err) {
-                console.error("가져오기 복구 실패:", err);
-                showToast("데이터 가져오기 복구에 실패했습니다. 개발자 콘솔을 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
-                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-            }
+        // 1. [BUG FIX] 치명적 오류 복구: 불안정한 가져오기(Import) 작업 롤백
+        const backupResult = await chrome.storage.local.get('appState_backup');
+        if (backupResult.appState_backup) {
+            console.warn("완료되지 않은 가져오기 작업 감지. 이전 데이터로 롤백합니다.");
+            await chrome.storage.local.set({ appState: backupResult.appState_backup });
+            await chrome.storage.local.remove('appState_backup');
+            recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
         }
         
         // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
         const mainStorageResult = await chrome.storage.local.get('appState');
-        const authoritativeData = mainStorageResult.appState; // || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 }; -> 초기 데이터 생성 로직에서 처리
+        const authoritativeData = mainStorageResult.appState;
 
         // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
         
@@ -328,10 +315,7 @@ export const sanitizeSettings = (settingsData) => {
     return sanitized;
 };
 
-// [BUG FIX 2] 데이터 내보내기(백업) 기능을 수정합니다.
 export const handleExport = async (settings) => {
-    // [BUG FIX] 존재하지 않는 함수 대신 'saveCurrentNoteIfChanged'를 호출하여
-    // 내보내기 전 현재 노드의 변경사항이 안전하게 저장되도록 합니다.
     const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
     await finishPendingRename();
     await saveCurrentNoteIfChanged();
@@ -372,7 +356,6 @@ export const handleImport = async () => {
     importFileInput.click();
 };
 
-// [BUG FIX 3] 데이터 가져오기(복원) 기능을 수정합니다.
 export const setupImportHandler = () => {
     importFileInput.onchange = async e => {
         const file = e.target.files[0];
@@ -386,7 +369,7 @@ export const setupImportHandler = () => {
 
         const reader = new FileReader();
         reader.onload = async event => {
-            let overlay = null; let lockAcquired = false;
+            let overlay = null;
 
             try {
                 const importedData = JSON.parse(event.target.result);
@@ -414,17 +397,11 @@ export const setupImportHandler = () => {
                     if (!finalConfirm) { showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR); e.target.value = ''; return; }
                 }
                 
-                // [BUG FIX] 존재하지 않는 함수 대신 'saveCurrentNoteIfChanged'를 호출하여
-                // 가져오기 전 현재 노드의 변경사항이 안전하게 저장되도록 합니다.
                 const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
                 await finishPendingRename();
                 await saveCurrentNoteIfChanged();
 
-                if (!(await acquireWriteLock(window.tabId))) {
-                    showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
-                    e.target.value = ''; return;
-                }
-                lockAcquired = true; window.isImporting = true;
+                window.isImporting = true;
                 
                 overlay = document.createElement('div');
                 overlay.className = 'import-overlay';
@@ -432,26 +409,34 @@ export const setupImportHandler = () => {
                 document.body.appendChild(overlay);
 
                 const importPayload = {
-                    appState: {
-                        folders: sanitizedContent.folders, trash: sanitizedContent.trash,
-                        favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
-                    },
-                    settings: sanitizedSettings
+                    folders: sanitizedContent.folders, trash: sanitizedContent.trash,
+                    favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
                 };
 
-                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
-                await chrome.storage.local.set({ appState: importPayload.appState });
+                // [BUG FIX] 트랜잭션 보장: 1. 백업 생성
+                const currentDataResult = await chrome.storage.local.get('appState');
+                if (currentDataResult.appState) {
+                    await chrome.storage.local.set({ 'appState_backup': currentDataResult.appState });
+                }
+
+                // [BUG FIX] 트랜잭션 보장: 2. 데이터 덮어쓰기
+                await chrome.storage.local.set({ appState: importPayload });
+
+                // [BUG FIX] 트랜잭션 보장: 3. 성공 시 백업 제거 및 정리
+                await chrome.storage.local.remove('appState_backup');
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                 localStorage.removeItem(CONSTANTS.LS_KEY);
-                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                 setTimeout(() => window.location.reload(), 500);
 
             } catch (err) {
-                showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR);
+                // [BUG FIX] 에러 발생 시, 롤백 로직이 다음 앱 실행 시 자동으로 처리함
+                console.error("Import failed critically:", err);
+                showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR, 0);
+                // 에러 발생 시 리로드하여 loadData의 복구 로직 실행
+                setTimeout(() => window.location.reload(), 1000);
             } finally {
-                if (lockAcquired) await releaseWriteLock(window.tabId);
                 window.isImporting = false;
                 if (overlay?.parentElement) overlay.remove();
                 e.target.value = '';

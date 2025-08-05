@@ -463,6 +463,7 @@ export const handleRestoreItem = async (id) => {
 
         const [itemToRestoreInTx] = trash.splice(itemIndexInTx, 1);
         const now = Date.now();
+        let hadIdCollision = false;
 
         if (itemToRestoreInTx.type === 'folder') {
             if (folders.some(f => f.name === finalFolderName)) {
@@ -475,11 +476,42 @@ export const handleRestoreItem = async (id) => {
             if (allFolderIds.has(itemToRestoreInTx.id)) {
                 itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
             }
-            itemToRestoreInTx.notes.forEach(note => { delete note.deletedAt; delete note.type; delete note.originalFolderId; });
+
+            // --- [BUG FIX] 노트 ID 충돌 검사 및 해결 로직 추가 ---
+            const allExistingNoteIds = new Set();
+            folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
+            const favoritesSet = new Set(latestData.favorites || []);
+            
+            itemToRestoreInTx.notes.forEach(note => {
+                if (allExistingNoteIds.has(note.id)) {
+                    const oldId = note.id;
+                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingNoteIds);
+                    note.id = newId;
+                    allExistingNoteIds.add(newId);
+                    
+                    // 즐겨찾기 목록에서도 ID 업데이트
+                    if (favoritesSet.has(oldId)) {
+                        favoritesSet.delete(oldId);
+                        favoritesSet.add(newId);
+                    }
+                    hadIdCollision = true;
+                }
+                allExistingNoteIds.add(note.id); // 복원되는 노트 ID도 추후 충돌 검사를 위해 추가
+                
+                delete note.deletedAt; delete note.type; delete note.originalFolderId; 
+            });
+            latestData.favorites = Array.from(favoritesSet);
+            // --- [BUG FIX] 끝 ---
+
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
             itemToRestoreInTx.updatedAt = now;
             folders.unshift(itemToRestoreInTx);
-            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name), postUpdateState: {} };
+            return {
+                newData: latestData,
+                successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name),
+                postUpdateState: {},
+                payload: { hadIdCollision }
+            };
 
         } else if (itemToRestoreInTx.type === 'note') {
             const targetFolderInTx = folders.find(f => f.id === targetFolderId);
@@ -488,16 +520,42 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
+            // [개선] 단일 노트 복원 시에도 ID 충돌 검사
+            const allExistingNoteIds = new Set();
+            folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
+            if (allExistingNoteIds.has(itemToRestoreInTx.id)) {
+                 const oldId = itemToRestoreInTx.id;
+                 const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingNoteIds);
+                 itemToRestoreInTx.id = newId;
+                 
+                 const favoritesSet = new Set(latestData.favorites || []);
+                 if (favoritesSet.has(oldId)) {
+                     favoritesSet.delete(oldId);
+                     favoritesSet.add(newId);
+                     latestData.favorites = Array.from(favoritesSet);
+                 }
+                 hadIdCollision = true;
+            }
+
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type; delete itemToRestoreInTx.originalFolderId;
             itemToRestoreInTx.updatedAt = now;
             targetFolderInTx.notes.unshift(itemToRestoreInTx);
             targetFolderInTx.updatedAt = now;
-            return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title), postUpdateState: {} };
+            return {
+                newData: latestData,
+                successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title),
+                postUpdateState: {},
+                payload: { hadIdCollision }
+            };
         }
         return null;
     };
 
-    await performTransactionalUpdate(updateLogic);
+    const { success, payload } = await performTransactionalUpdate(updateLogic);
+
+    if (success && payload?.hadIdCollision) {
+        showToast("일부 노트의 ID가 충돌하여 자동으로 수정되었습니다.", CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
+    }
 };
 
 export const handlePermanentlyDeleteItem = async (id) => {
