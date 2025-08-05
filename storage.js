@@ -3,6 +3,9 @@ import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from '.
 // [수정] itemActions.js에서 updateNoteCreationDates 함수를 추가로 가져옵니다.
 import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemActions.js';
 
+// [HEARTBEAT] app.js의 키와 동일한 키
+const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
+
 // [추가] 현재 탭에서 저장 중인지 여부를 나타내는 플래그. export하여 다른 모듈에서 참조할 수 있게 합니다.
 export let isSavingLocally = false;
 
@@ -143,23 +146,44 @@ export const loadData = async () => {
 
         const inFlightTxRaw = localStorage.getItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
         const inFlightData = inFlightTxRaw ? JSON.parse(inFlightTxRaw) : null;
+
+        // [HEARTBEAT] 현재 살아있는 탭 목록을 가져옵니다.
+        let activeTabs = {};
+        try {
+            activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
+        } catch (e) {
+            console.error("활성 탭 목록 읽기 실패:", e);
+        }
         
         const allPatches = [];
         // [CRITICAL BUG FIX] 이 함수에서 성공적으로 처리한 패치 키만 추적하도록 변경
         const patchKeysProcessedInThisLoad = [];
+        
+        // [HEARTBEAT 수정] localStorage를 순회하며 "죽은 탭"의 백업만 수집합니다.
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
-                try {
-                    const patchData = JSON.parse(localStorage.getItem(key));
-                    if (Array.isArray(patchData)) {
-                        allPatches.push(...patchData);
-                        // 성공적으로 파싱하고 병합 목록에 추가한 키만 삭제 대상으로 지정합니다.
-                        patchKeysProcessedInThisLoad.push(key);
+                // 키에서 tabId를 추출합니다 (접두사를 제거하여).
+                const backupTabId = key.substring(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX.length).split('-')[0];
+                
+                // 자신의 백업이거나, 죽은 탭의 백업일 경우에만 처리 대상으로 삼습니다.
+                if (backupTabId === window.tabId || !activeTabs[backupTabId]) {
+                    if (!activeTabs[backupTabId]) {
+                         console.warn(`죽은 탭(${backupTabId})의 백업 데이터 '${key}'를 발견했습니다. 복구를 시도합니다.`);
                     }
-                } catch (e) {
-                    console.error(`비상 백업 데이터 파싱 실패 (키: ${key}):`, e);
-                    // 파싱에 실패한 키는 삭제하지 않고 남겨두어 다음 로드 시 다시 시도할 수 있도록 합니다.
+                    try {
+                        const patchData = JSON.parse(localStorage.getItem(key));
+                        if (Array.isArray(patchData)) {
+                            allPatches.push(...patchData);
+                            // 성공적으로 파싱하고 병합 목록에 추가한 키만 삭제 대상으로 지정합니다.
+                            patchKeysProcessedInThisLoad.push(key);
+                        }
+                    } catch (e) {
+                        console.error(`비상 백업 데이터 파싱 실패 (키: ${key}):`, e);
+                        // 파싱에 실패한 키는 삭제하지 않고 남겨두어 다음 로드 시 다시 시도할 수 있도록 합니다.
+                    }
+                } else {
+                    console.log(`활성 탭(${backupTabId})의 백업 데이터 '${key}'는 건너뜁니다.`);
                 }
             }
         }
@@ -315,7 +339,8 @@ export const loadData = async () => {
         }
         
         localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
-        // [CRITICAL BUG FIX] 다른 탭의 복구 데이터를 삭제하지 않도록, 이 함수에서 처리한 키만 제거합니다.
+        
+        // [HEARTBEAT 수정] 이 부분은 이제 "죽은 탭"과 "자기 자신"의 백업만 안전하게 정리합니다.
         patchKeysProcessedInThisLoad.forEach(key => localStorage.removeItem(key));
 
         // --- 5. 최종 데이터로 앱 상태 설정 ---

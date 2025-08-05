@@ -28,6 +28,33 @@ import {
 } from './navigationActions.js';
 
 
+// [HEARTBEAT] 탭 생명주기 관리를 위한 상수 추가
+const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
+const HEARTBEAT_INTERVAL = 5000; // 5초마다 생존 신호 보냄
+let heartbeatIntervalId = null;
+
+// [HEARTBEAT] 현재 탭이 살아있음을 알리는 함수
+const registerTab = () => {
+    try {
+        const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
+        activeTabs[window.tabId] = Date.now();
+        sessionStorage.setItem(HEARTBEAT_KEY, JSON.stringify(activeTabs));
+    } catch (e) {
+        console.error("탭 등록 실패:", e);
+    }
+};
+
+// [HEARTBEAT] 탭이 닫힐 때 등록을 해제하는 함수
+const deregisterTab = () => {
+    try {
+        const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
+        delete activeTabs[window.tabId];
+        sessionStorage.setItem(HEARTBEAT_KEY, JSON.stringify(activeTabs));
+    } catch (e) {
+        console.error("탭 등록 해제 실패:", e);
+    }
+};
+
 // --- 설정 관련 로직 ---
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
@@ -1255,7 +1282,12 @@ async function handleStorageSync(changes) {
 }
 
 const setupGlobalEventListeners = () => {
-    window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') handleNoteUpdate(true); });
+    // [HEARTBEAT] visibilitychange 대신 unload 사용
+    window.addEventListener('unload', () => {
+        handleNoteUpdate(true); // 탭 닫기 직전 최종 저장 시도
+        deregisterTab(); // 생존 신호 목록에서 자신을 제거
+        if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+    });
 
     // [CRITICAL BUG FIX] beforeunload 핸들러 로직 수정 및 단순화
     // 이제 노트 편집 내용은 handleNoteUpdate에서 실시간으로 백업되므로,
@@ -1306,6 +1338,10 @@ const setupGlobalEventListeners = () => {
 };
 
 const init = async () => {
+    // [HEARTBEAT] init 시작 시 탭 등록 및 주기적 갱신 시작
+    registerTab();
+    heartbeatIntervalId = setInterval(registerTab, HEARTBEAT_INTERVAL);
+
     loadAndApplySettings();
 
     setupEventListeners();
