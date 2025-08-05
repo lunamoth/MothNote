@@ -2,11 +2,12 @@ import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from './components.js';
 import { handleNoteUpdate, updateNoteCreationDates, toYYYYMMDD } from './itemActions.js';
 
+// [HEARTBEAT] 다른 탭의 활성 상태를 확인하기 위한 키 (기능 유지)
 const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
 
 export let isSavingLocally = false;
 
-// --- [Critical Bug Fix] 탭 간 쓰기 충돌 방지를 위한 분산 락(Distributed Lock) 구현 ---
+// --- 분산 락(Distributed Lock) 구현 --- (기능 유지, 변경 없음)
 export async function acquireWriteLock(tabId) {
     const { SS_KEY_WRITE_LOCK, LOCK_TIMEOUT_MS } = CONSTANTS;
     const newLock = { tabId, timestamp: Date.now() };
@@ -15,6 +16,7 @@ export async function acquireWriteLock(tabId) {
         const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
         let currentLock = result[SS_KEY_WRITE_LOCK];
 
+        // 데드락 방지를 위해 만료된 락은 강제 해제
         if (currentLock && (Date.now() - currentLock.timestamp > LOCK_TIMEOUT_MS)) {
             console.warn(`만료된 쓰기 락을 발견했습니다 (소유자: ${currentLock.tabId}). 락을 강제로 해제합니다.`);
             currentLock = null;
@@ -23,6 +25,7 @@ export async function acquireWriteLock(tabId) {
         if (!currentLock || currentLock.tabId === tabId) {
             await chrome.storage.session.set({ [SS_KEY_WRITE_LOCK]: newLock });
             
+            // 내가 락을 설정한 후, 다시 읽어서 정말로 내 락인지 확인
             const verificationResult = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
             if (verificationResult[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
                 return true;
@@ -49,6 +52,8 @@ export async function releaseWriteLock(tabId) {
 // --- 락 구현 끝 ---
 
 
+// [수정] saveData는 이제 사용되지 않지만, 다른 곳에서 참조할 수 있어 유지합니다.
+// 모든 저장은 performTransactionalUpdate를 통해 이루어집니다.
 export const saveData = async () => {
     isSavingLocally = true;
     try {
@@ -71,6 +76,7 @@ export const saveData = async () => {
     }
 };
 
+// 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)
 export const saveSession = () => {
     localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
         f: state.activeFolderId,
@@ -80,10 +86,13 @@ export const saveSession = () => {
     }));
 };
 
+// [근본적인 아키텍처 수정] loadData 함수를 단순화하고 역할을 명확히 합니다.
+// 이제 이 함수는 1) 비정상적인 가져오기 복구, 2) '죽은 탭'의 비상 백업 복구만 책임집니다.
 export const loadData = async () => {
     let recoveryMessage = null;
 
     try {
+        // 1. 비정상적인 가져오기 작업 복구 (가장 높은 우선순위)
         const incompleteImportRaw = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
         if (incompleteImportRaw) {
             console.warn("완료되지 않은 가져오기 작업 감지. 복구를 시작합니다...");
@@ -93,10 +102,10 @@ export const loadData = async () => {
                 const importPayload = JSON.parse(incompleteImportRaw);
                 await chrome.storage.local.set({ appState: importPayload.appState });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(importPayload.settings));
-                localStorage.removeItem(CONSTANTS.LS_KEY); 
+                localStorage.removeItem(CONSTANTS.LS_KEY); // 세션 초기화
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                 window.location.reload();
-                return;
+                return; // 복구 후 즉시 종료
 
             } catch (err) {
                 console.error("가져오기 복구 실패:", err);
@@ -105,12 +114,14 @@ export const loadData = async () => {
             }
         }
         
+        // 2. 주 저장소에서 데이터 로드
         const mainStorageResult = await chrome.storage.local.get('appState');
-        const mainData = mainStorageResult.appState;
+        let authoritativeData = mainStorageResult.appState || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
 
-        const inFlightTxRaw = localStorage.getItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
-        const inFlightData = inFlightTxRaw ? JSON.parse(inFlightTxRaw) : null;
+        // 3. [단순화] 'in-flight' 저널링 로직 제거
+        // 분산 락과 원자적 트랜잭션으로 대체되었으므로 더 이상 필요하지 않습니다.
 
+        // 4. '죽은 탭'의 비상 백업(uncommitted patches) 수집 및 복구
         let activeTabs = {};
         try {
             activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
@@ -126,10 +137,10 @@ export const loadData = async () => {
             if (key && key.startsWith(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX)) {
                 const backupTabId = key.substring(CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX.length).split('-')[0];
                 
-                if (backupTabId === window.tabId || !activeTabs[backupTabId]) {
-                    if (!activeTabs[backupTabId]) {
-                         console.warn(`죽은 탭(${backupTabId})의 백업 데이터 '${key}'를 발견했습니다. 복구를 시도합니다.`);
-                    }
+                // [핵심] 현재 탭의 백업이나 다른 활성 탭의 백업은 건너뜁니다.
+                // 오직 '죽은 탭'(비정상 종료된 탭)의 백업만 복구 대상으로 삼습니다.
+                if (backupTabId !== window.tabId && !activeTabs[backupTabId]) {
+                    console.warn(`죽은 탭(${backupTabId})의 비상 백업 데이터 '${key}'를 발견했습니다. 복구를 시도합니다.`);
                     try {
                         const patchData = JSON.parse(localStorage.getItem(key));
                         if (Array.isArray(patchData)) {
@@ -139,27 +150,19 @@ export const loadData = async () => {
                     } catch (e) {
                         console.error(`비상 백업 데이터 파싱 실패 (키: ${key}):`, e);
                     }
-                } else {
-                    console.log(`활성 탭(${backupTabId})의 백업 데이터 '${key}'는 건너뜁니다.`);
                 }
             }
         }
         
-        let authoritativeData = mainData || { folders: [], trash: [], favorites: [], lastSavedTimestamp: 0 };
-        
-        if (inFlightData) {
-            authoritativeData = inFlightData;
-            recoveryMessage = "이전에 완료되지 않은 작업이 복구되었습니다.";
-            console.warn("완료되지 않은 트랜잭션(저널)을 발견하여, 해당 데이터를 기준으로 복구를 시작합니다.");
-        }
-
+        // 5. 수집된 패치를 주 데이터에 병합
         if (allPatches.length > 0) {
             let dataWasPatched = false;
             
+            // 패치를 항목 ID별로 그룹화
             const patchesByItemId = new Map();
             for (const patch of allPatches) {
-                if (!patch.itemId && !patch.noteId) continue;
                 const itemId = patch.itemId || patch.noteId;
+                if (!itemId) continue;
 
                 if (!patchesByItemId.has(itemId)) {
                     patchesByItemId.set(itemId, []);
@@ -170,112 +173,56 @@ export const loadData = async () => {
             console.warn(`${patchesByItemId.size}개 항목에 대한 저장되지 않은 변경사항(패치)을 발견했습니다. 데이터 병합을 시도합니다.`);
 
             for (const [itemId, patchGroup] of patchesByItemId.entries()) {
-                let itemToUpdate = null, isInTrash = false;
+                // 패치 그룹을 시간순으로 정렬
+                patchGroup.sort((a, b) => (a.timestamp || a.data?.updatedAt || 0) - (b.timestamp || b.data?.updatedAt || 0));
+                const latestPatch = patchGroup[patchGroup.length - 1]; // 가장 최신 패치만 적용
+
+                let itemToUpdate = null;
                 
+                // 폴더/노트/휴지통에서 항목 찾기
                 for (const folder of authoritativeData.folders) {
+                    if (folder.id === itemId) { itemToUpdate = folder; break; }
                     const note = folder.notes.find(n => n.id === itemId);
                     if (note) { itemToUpdate = note; break; }
                 }
                 if (!itemToUpdate) {
-                    const folder = authoritativeData.folders.find(f => f.id === itemId);
-                    if (folder) { itemToUpdate = folder; }
-                }
-                if (!itemToUpdate) {
                     const trashedItem = authoritativeData.trash.find(t => t.id === itemId);
-                    if (trashedItem) { itemToUpdate = trashedItem; isInTrash = true; }
+                    if (trashedItem) { itemToUpdate = trashedItem; }
                 }
 
-                const getTimestamp = p => p.timestamp || p.data?.updatedAt || 0;
-                patchGroup.sort((a, b) => getTimestamp(a) - getTimestamp(b));
-                
                 if (itemToUpdate) {
-                    let isFirstPatchApplied = false;
+                    // 항목이 존재하고, 패치가 더 최신인 경우에만 업데이트
+                    const itemLastUpdated = itemToUpdate.updatedAt || 0;
+                    const patchTimestamp = latestPatch.timestamp || latestPatch.data?.updatedAt || 0;
                     
-                    for (const patch of patchGroup) {
-                        const { type, data, newName, timestamp, itemType } = patch;
-                        const itemLastUpdated = itemToUpdate.updatedAt || 0;
-                        const patchTimestamp = timestamp || data?.updatedAt || 0;
-                        
-                        if (!isFirstPatchApplied && itemLastUpdated < patchTimestamp) {
-                            if (type === 'note_patch' && data) {
-                                Object.assign(itemToUpdate, data);
-                                recoveryMessage = `저장되지 않았던 노트 '${data.title}'의 변경사항을 복구했습니다.`;
-                            }
-                            if (type === 'rename_patch' && newName) {
-                                if (itemType === CONSTANTS.ITEM_TYPE.FOLDER) itemToUpdate.name = newName;
-                                else itemToUpdate.title = newName;
-                                itemToUpdate.updatedAt = timestamp;
-                                recoveryMessage = `이름이 변경되지 않았던 '${newName}' 항목을 복구했습니다.`;
-                            }
-                            isFirstPatchApplied = true;
-                        } 
-                        else {
-                            if (type === 'note_patch' && data && !isInTrash) {
-                                // [근본적인 수정] 중복 노트 생성을 막기 위한 최종 방어 로직
-                                // 복제 노트를 만들기 전, 내용이 정말 다른지 확인합니다.
-                                const isContentIdentical = (itemToUpdate.title === data.title && itemToUpdate.content === data.content);
-
-                                if (isContentIdentical) {
-                                    console.log(`내용이 동일한 중복 패치를 발견하여 건너뜁니다 (ID: ${itemId}).`);
-                                    continue; // 중복이므로 충돌 처리 없이 다음 패치로 넘어감
-                                }
-                                // 내용이 다를 경우에만 충돌로 간주하고 복구 노트를 생성합니다.
-                                console.warn(`데이터 충돌 감지 (ID: ${itemId}). 덮어쓰기를 방지하기 위해 복구 노트를 생성합니다.`);
-                                const RECOVERY_FOLDER_NAME = '⚠️ 충돌 복구된 노트';
-                                let recoveryFolder = authoritativeData.folders.find(f => f.name === RECOVERY_FOLDER_NAME);
-                                if (!recoveryFolder) {
-                                    const now = Date.now();
-                                    recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-conflict`, name: RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
-                                    authoritativeData.folders.unshift(recoveryFolder);
-                                }
-                                const conflictedNote = { ...data, id: `${itemId}-conflict-${Date.now()}`, title: `[충돌] ${data.title}`, isPinned: false, isFavorite: false };
-                                recoveryFolder.notes.unshift(conflictedNote);
-
-                                const newRecoveryMessage = `'${data.title}' 노트의 데이터 충돌이 감지되어 '${RECOVERY_FOLDER_NAME}' 폴더에 안전하게 복구했습니다.`;
-                                recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${newRecoveryMessage}` : newRecoveryMessage;
-                            }
+                    if (itemLastUpdated < patchTimestamp) {
+                        if (latestPatch.type === 'note_patch' && latestPatch.data) {
+                            Object.assign(itemToUpdate, latestPatch.data);
+                            recoveryMessage = (recoveryMessage ? recoveryMessage + "\n" : "") + `저장되지 않았던 노트 '${latestPatch.data.title}'의 변경사항을 복구했습니다.`;
                         }
+                        if (latestPatch.type === 'rename_patch' && latestPatch.newName) {
+                            if (latestPatch.itemType === CONSTANTS.ITEM_TYPE.FOLDER) itemToUpdate.name = latestPatch.newName;
+                            else itemToUpdate.title = latestPatch.newName;
+                            itemToUpdate.updatedAt = latestPatch.timestamp;
+                            recoveryMessage = (recoveryMessage ? recoveryMessage + "\n" : "") + `이름이 변경되지 않았던 '${latestPatch.newName}' 항목을 복구했습니다.`;
+                        }
+                        dataWasPatched = true;
                     }
-                    dataWasPatched = true;
-                } 
-                else {
-                    console.warn(`연결이 끊긴(unlinked) 패치를 발견하여 복구를 시도합니다 (대상 ID: ${itemId}).`);
-
-                    const notePatches = patchGroup.filter(p => p.type === 'note_patch' && p.data);
-                    
-                    if (notePatches.length > 0) {
+                } else {
+                    // 항목이 존재하지 않는 경우 (예: 노트는 생성되었지만 폴더 정보가 저장되기 전에 탭이 닫힌 경우)
+                    // '연결 끊긴 노트'로 복구
+                    if (latestPatch.type === 'note_patch' && latestPatch.data) {
                         const UNLINKED_RECOVERY_FOLDER_NAME = '⚠️ 연결 끊긴 노트 복구';
                         let recoveryFolder = authoritativeData.folders.find(f => f.name === UNLINKED_RECOVERY_FOLDER_NAME);
-                        
                         if (!recoveryFolder) {
                             const now = Date.now();
-                            recoveryFolder = { 
-                                id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-unlinked-recovery`, 
-                                name: UNLINKED_RECOVERY_FOLDER_NAME, 
-                                notes: [], 
-                                createdAt: now, 
-                                updatedAt: now 
-                            };
+                            recoveryFolder = { id: `${CONSTANTS.ID_PREFIX.FOLDER}${now}-unlinked`, name: UNLINKED_RECOVERY_FOLDER_NAME, notes: [], createdAt: now, updatedAt: now };
                             authoritativeData.folders.unshift(recoveryFolder);
                         }
-                        
-                        for (const note_patch of notePatches) {
-                             const recoveredNote = {
-                                ...note_patch.data,
-                                id: `${itemId}-unlinked-${Date.now()}-${Math.random()}`,
-                                title: `[복구됨] ${note_patch.data.title || '제목 없음'}`,
-                                isPinned: false,
-                                isFavorite: false,
-                            };
-                            recoveryFolder.notes.unshift(recoveredNote);
-                        }
-
+                        const recoveredNote = { ...latestPatch.data, id: `${itemId}-recovered-${Date.now()}` };
+                        recoveryFolder.notes.unshift(recoveredNote);
                         dataWasPatched = true;
-                        
-                        const newRecoveryMessage = `저장되지 않고 삭제되었을 수 있는 노트(${notePatches.length}개)의 내용을 '${UNLINKED_RECOVERY_FOLDER_NAME}' 폴더에 복구했습니다.`;
-                        recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${newRecoveryMessage}` : newRecoveryMessage;
-                    } else {
-                        console.warn(`내용이 없는 연결 끊긴 패치를 발견하여 무시합니다 (대상 ID: ${itemId}).`);
+                        recoveryMessage = (recoveryMessage ? recoveryMessage + "\n" : "") + `'${UNLINKED_RECOVERY_FOLDER_NAME}' 폴더에 연결이 끊긴 노트를 복구했습니다.`;
                     }
                 }
             }
@@ -285,14 +232,15 @@ export const loadData = async () => {
             }
         }
         
-        if (authoritativeData !== mainData) {
+        // 6. 복구/병합된 데이터를 스토리지에 최종 저장하고 임시 파일 정리
+        if (allPatches.length > 0) {
             await chrome.storage.local.set({ appState: authoritativeData });
             console.log("복구/병합된 데이터를 스토리지에 최종 저장했습니다.");
         }
         
-        localStorage.removeItem(CONSTANTS.LS_KEY_IN_FLIGHT_TX);
         patchKeysProcessedInThisLoad.forEach(key => localStorage.removeItem(key));
 
+        // 7. 최종 상태(state) 설정 및 UI 초기화
         let finalState = { ...state, ...authoritativeData };
         if (authoritativeData && authoritativeData.folders && authoritativeData.folders.length > 0) {
             finalState.trash = finalState.trash || [];
@@ -332,38 +280,31 @@ export const loadData = async () => {
                 setState({ activeNoteId: firstNoteId });
             }
 
-        } else {
+        } else { // 데이터가 아예 없는 초기 실행
             const now = Date.now();
             const fId = `${CONSTANTS.ID_PREFIX.FOLDER}${now}`;
             const nId = `${CONSTANTS.ID_PREFIX.NOTE}${now + 1}`;
             const newNote = { id: nId, title: "🎉 환영합니다!", content: "MothNote 에 오신 것을 환영합니다! 🦋", createdAt: now, updatedAt: now, isPinned: false, isFavorite: false };
             const newFolder = { id: fId, name: "🌟 첫 시작 폴더", notes: [newNote], createdAt: now, updatedAt: now };
 
-            const transactionId = Date.now() + Math.random();
-            const initialAppStateForStorage = {
+            const initialAppState = {
                 folders: [newFolder],
                 trash: [],
                 favorites: [],
-                lastSavedTimestamp: now,
-                transactionId: transactionId
+                lastSavedTimestamp: now
             };
             
-            const initialStateForState = {
+            setState({
                 ...state,
-                folders: [newFolder],
-                trash: [],
+                ...initialAppState,
                 favorites: new Set(),
                 activeFolderId: fId,
                 activeNoteId: nId,
                 totalNoteCount: 1,
-                lastSavedTimestamp: now,
-                currentTransactionId: transactionId
-            };
-            setState(initialStateForState);
+            });
             
             buildNoteMap();
-            
-            await chrome.storage.local.set({ appState: initialAppStateForStorage });
+            await chrome.storage.local.set({ appState: initialAppState });
         }
 
         updateNoteCreationDates();
@@ -386,6 +327,7 @@ export const loadData = async () => {
 };
 
 
+// --- 데이터 가져오기/내보내기 및 정제 로직 --- (기능 유지, 변경 없음)
 const escapeHtml = str => {
     const tempDiv = document.createElement('div');
     tempDiv.textContent = str;
@@ -506,7 +448,6 @@ export const sanitizeSettings = (settingsData) => {
 
     return sanitized;
 };
-
 
 export const handleExport = async (settings) => {
     if (state.renamingItemId) {
@@ -640,23 +581,21 @@ export const setupImportHandler = () => {
                 `;
                 document.body.appendChild(overlay);
 
-                const rebuiltFavorites = new Set(sanitizedContent.favorites);
-
                 const importPayload = {
                     appState: {
                         folders: sanitizedContent.folders,
                         trash: sanitizedContent.trash,
-                        favorites: Array.from(rebuiltFavorites),
+                        favorites: Array.from(new Set(sanitizedContent.favorites)),
                         lastSavedTimestamp: Date.now()
                     },
                     settings: sanitizedSettings
                 };
 
+                // 임시 저장 -> 주 저장소 저장 -> 임시 저장 제거 (원자적 패턴)
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, JSON.stringify(importPayload));
                 await chrome.storage.local.set({ appState: importPayload.appState });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                
-                localStorage.removeItem(CONSTANTS.LS_KEY);
+                localStorage.removeItem(CONSTANTS.LS_KEY); // 세션 초기화
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);

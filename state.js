@@ -3,12 +3,13 @@ export const CONSTANTS = {
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
-    // [Critical 버그 수정] 비상 백업 데이터 키를 고유 식별자와 결합할 '접두사'로 변경
+    // [근본적인 아키텍처 수정] 비상 백업 데이터 키를 고유 식별자와 결합할 '접두사'로 변경
     LS_KEY_UNCOMMITTED_PREFIX: 'mothnote_uncommitted_prefix_v1', 
-    LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1', // [Critical 버그 수정] 가져오기 임시 데이터 키 추가
-    LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // [Critical 버그 수정] 데이터 충돌 감지 플래그
-    LS_KEY_IN_FLIGHT_TX: 'mothnote_inflight_transaction_v1', // [수정] 진행 중인 트랜잭션을 위한 저널링 키 추가
-    // --- [Critical Bug Fix] 분산 락 관련 상수 추가 ---
+    LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1',
+    LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // 사용되지 않지만, 만약을 위해 유지
+    // [근본적인 아키텍처 수정] 저널링 키 제거. 분산 락과 원자적 트랜잭션으로 대체되어 더 이상 필요 없음.
+    // LS_KEY_IN_FLIGHT_TX: 'mothnote_inflight_transaction_v1',
+    // --- 분산 락 관련 상수 ---
     SS_KEY_WRITE_LOCK: 'mothnote_session_write_lock_v1', // Session Storage에 저장될 락의 키
     LOCK_TIMEOUT_MS: 8000, // 8초 후 락이 자동으로 만료되도록 설정 (데드락 방지)
     // --- 설정 관련 상수 ---
@@ -19,7 +20,7 @@ export const CONSTANTS = {
         weather: { lat: 37.5660, lon: 126.9784 }, // Default: Seoul
         zenMode: { maxWidth: 850 } // pixels
     },
-    // --- 끝 ---
+    // --- 가상 폴더 및 UI 관련 상수 (기능 유지) ---
     VIRTUAL_FOLDERS: {
         ALL:    { id: 'all-notes-virtual-id', name: '모든 노트', displayName: '📚 모든 노트', icon: '📚', canAddNote: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note) },
         RECENT: { id: 'recent-notes-virtual-id', name: '최근 노트', displayName: '🕒 최근 노트', icon: '🕒', canAddNote: false, isSortable: false, getNotes: (state) => state.folders.flatMap(f => f.notes).sort((a,b) => b.updatedAt - a.updatedAt).slice(0, CONSTANTS.RECENT_NOTES_COUNT) },
@@ -79,11 +80,11 @@ export const CONSTANTS = {
             nextMonthBtn: 'next-month-btn',
         },
         WMO_MAP: {
-            0: { icon: "☀️", text: "맑음" }, 1: { icon: "🌤️", text: "대체로 맑음" }, 2: { icon: "🌥️", text: "구름 조금" }, 3: { icon: "☁️", text: "흐림" }, 45: { icon: "🌫️", text: "안개" }, 48: { icon: "🌫️", text: "짙은 안개" }, 51: { icon: "🌦️", text: "가랑비" }, 53: { icon: "🌦️", text: "가랑비" }, 55: { icon: "🌦️", text: "강한 가랑비" }, 56: { icon: "🥶💧", text: "어는 가랑비" }, 57: { icon: "🥶💧", text: "강한 어는 가랑비" }, 61: { icon: "🌧️", text: "비" }, 63: { icon: "🌧️", text: "비" }, 65: { icon: "🌧️", text: "강한 비" }, 66: { icon: "🥶🌧️", text: "어는 비" }, 67: { icon: "🥶🌧️", text: "강한 어는 비" }, 71: { icon: "❄️", text: "눈" }, 73: { icon: "❄️", text: "눈" }, 75: { icon: "❄️", text: "강한 눈" }, 77: { icon: "🌨️", text: "싸락눈" }, 80: { icon: "🌧️", text: "소나기" }, 81: { icon: "🌧️", text: "소나기" }, 82: { icon: "⛈️", text: "강한 소나기" }, 85: { icon: "🌨️", text: "소낙눈" }, 86: { icon: "🌨️", text: "강한 소낙눈" }, 95: { icon: "⛈️", text: "뇌우" }, 96: { icon: "⛈️🧊", text: "뇌우 (우박 동반)" }, 99: { icon: "⛈️🧊", text: "강한 뇌우 (우박 동반)" },
+            0: { icon: "☀️", text: "맑음" }, 1: { icon: "🌤️", text: "대체로 맑음" }, 2: { icon: "🌥️", text: "구름 조금" }, 3: { icon: "☁️", text: "흐림" }, 45: { icon: "🌫️", text: "안개" }, 48: { icon: "🌫️", text: "짙은 안개" }, 51: { icon: "🌦️", text: "가랑비" }, 53: { icon: "🌦️", text: "가랑비" }, 55: { icon: "🌦️", text: "강한 가랑비" }, 56: { icon: "🥶💧", text: "어는 가랑비" }, 57: { icon: "🥶💧", text: "강한 어는 가랑비" }, 61: { icon: "🌧️", text: "비" }, 63: { icon: "🌧️", text: "비" }, 65: { icon: "🌧️", text: "강한 비" }, 66: { icon: "🥶🌧️", text: "어는 비" }, 67: { icon: "🥶🌧️", text: "강한 어는 비" }, 71: { icon: "❄️", text: "눈" }, 73: { icon: "❄️", text: "눈" }, 75: { icon: "❄️", text: "강한 눈" }, 77: { icon: "🌨️", text: "싸락눈" }, 80: { icon: "🌧️", text: "소나기" }, 81: { icon: "🌧️", text: "소나기" }, 82: { icon: "⛈️", text: "강한 소나기" }, 85: { icon: "🌨️", text: "소낙눈" }, 86: { icon: "🌨️", "text": "강한 소낙눈" }, 95: { icon: "⛈️", text: "뇌우" }, 96: { icon: "⛈️🧊", text: "뇌우 (우박 동반)" }, 99: { icon: "⛈️🧊", text: "강한 뇌우 (우박 동반)" },
         }
     },
     AUTO_TITLE_LENGTH: 100,
-    AUTO_TITLE_LENGTH_KOR: 50, // [추가] 한글 기준 자동 제목 길이 상수
+    AUTO_TITLE_LENGTH_KOR: 50,
     RECENT_NOTES_COUNT: 10,
     TOAST_DURATION: 4000,
     PLACEHOLDER_EMOJIS: [
@@ -103,7 +104,6 @@ export const CONSTANTS = {
             NOTE_MOVED_TO_TRASH: name => `🗑️ '${name}' 노트를 휴지통으로 이동했습니다.`,
             ITEM_RESTORED_FOLDER: name => `♻️ 📁 '${name}' 폴더와 노트를 복원했습니다.`,
             ITEM_RESTORED_NOTE: name => `♻️ 📝 '${name}' 노트를 복원했습니다.`,
-            PERM_DELETE_FOLDER_SUCCESS: '💥 폴더와 포함된 노트를 영구적으로 삭제했습니다.',
             PERM_DELETE_ITEM_SUCCESS: '💥 항목을 영구적으로 삭제했습니다.',
             EMPTY_TRASH_SUCCESS: '🗑️ 휴지통을 비웠습니다.',
             NOTE_MOVED_SUCCESS: (noteTitle, folderName) => `✅ '${noteTitle}' 노트를 '${folderName}' 폴더로 이동했습니다.`,
@@ -138,31 +138,41 @@ export const CONSTANTS = {
 };
 
 export let state = {
+    // --- 핵심 데이터 ---
     folders: [],
     trash: [],
     favorites: new Set(),
+    lastSavedTimestamp: null,
+
+    // --- UI/세션 상태 ---
     activeFolderId: null,
     activeNoteId: null,
     searchTerm: '',
     noteSortOrder: 'updatedAt_desc',
-    noteMap: new Map(),
-    isDirty: false,
-    dirtyNoteId: null,
-    // [아키텍처 수정] UI의 편집 내용을 즉시 반영하기 위한 임시 버퍼
-    pendingChanges: null,
-    isPerformingOperation: false,
-    totalNoteCount: 0,
-    renamingItemId: null,
     lastActiveNotePerFolder: {},
     preSearchActiveNoteId: null,
-    _virtualFolderCache: { all: null, recent: null, favorites: null, trash: null },
-    noteCreationDates: new Set(),
     dateFilter: null,
-    lastSavedTimestamp: null,
-    // [추가] 자기 자신의 변경사항을 식별하기 위한 트랜잭션 ID
+    renamingItemId: null,
+
+    // --- 파생/캐시 데이터 ---
+    noteMap: new Map(),
+    totalNoteCount: 0,
+    noteCreationDates: new Set(),
+    _virtualFolderCache: { all: null, recent: null, favorites: null, trash: null },
+
+    // --- 실시간 상태 플래그 ---
+    isDirty: false,
+    dirtyNoteId: null,
+    // [근본적인 아키텍처 수정] pendingChanges는 더 이상 '신뢰의 출처'가 아닙니다.
+    // handleNoteUpdate에서 저장 시점의 UI 값을 임시로 담는 용도로만 사용됩니다.
+    // UI(`textarea`)가 항상 최신 상태를 가집니다.
+    pendingChanges: null,
+    isPerformingOperation: false,
+    // [추가] 자신의 변경사항을 식별하기 위한 트랜잭션 ID
     currentTransactionId: null
 };
 
+// --- 구독 및 상태 변경 알림 로직 (기능 유지) ---
 const subscribers = new Set();
 export const subscribe = (callback) => {
     subscribers.add(callback);
@@ -171,10 +181,8 @@ export const subscribe = (callback) => {
 const notify = () => subscribers.forEach(callback => callback());
 
 export const buildNoteMap = () => {
-    state._virtualFolderCache.all = null;
-    state._virtualFolderCache.recent = null;
-    state._virtualFolderCache.favorites = null;
-    state._virtualFolderCache.trash = null;
+    // 캐시 초기화
+    state._virtualFolderCache = { all: null, recent: null, favorites: null, trash: null };
 
     state.noteMap.clear();
     for (const folder of state.folders) {
@@ -189,10 +197,13 @@ export const setState = (newState) => {
     notify();
 };
 
+// --- 데이터 검색 헬퍼 (기능 유지, 최적화) ---
 const _findNoteInState = (id) => {
+    // noteMap을 사용하여 O(1) 시간 복잡도로 노트 검색
     const entry = state.noteMap.get(id);
     if (!entry) return { item: null, folder: null, index: -1 };
     
+    // 폴더 검색은 여전히 O(n)이지만, 폴더 수는 노트 수보다 훨씬 적음
     const { item: folder } = _findFolderInState(entry.folderId);
     if (!folder) return { item: null, folder: null, index: -1 };
     
@@ -214,17 +225,12 @@ const _findInVirtualFolders = (id) => {
     const virtualFolderDef = Object.values(CONSTANTS.VIRTUAL_FOLDERS).find(vf => vf.id === id);
     if (!virtualFolderDef) return null;
 
-    let notes;
-    const cacheKey = virtualFolderDef.id === CONSTANTS.VIRTUAL_FOLDERS.ALL.id ? 'all' : 
-                     virtualFolderDef.id === CONSTANTS.VIRTUAL_FOLDERS.RECENT.id ? 'recent' :
-                     virtualFolderDef.id === CONSTANTS.VIRTUAL_FOLDERS.FAVORITES.id ? 'favorites' :
-                     virtualFolderDef.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id ? 'trash' : null;
-
-    if (cacheKey && state._virtualFolderCache[cacheKey]) {
-        notes = state._virtualFolderCache[cacheKey];
-    } else {
+    // 캐시된 가상 폴더 데이터 사용
+    const cacheKey = virtualFolderDef.id.split('-')[0]; // 'all', 'recent', 'favorites', 'trash'
+    let notes = state._virtualFolderCache[cacheKey];
+    if (!notes) {
         notes = virtualFolderDef.getNotes(state);
-        if (cacheKey) state._virtualFolderCache[cacheKey] = notes;
+        state._virtualFolderCache[cacheKey] = notes;
     }
     
     return { 
@@ -238,11 +244,12 @@ const findItem = (id, type) => {
 
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
         const virtualResult = _findInVirtualFolders(id);
-        if (virtualResult) return virtualResult;
+        if (virtualResult) return { ...virtualResult, isInTrash: false };
     }
 
     const { item: trashedItem, index: trashIndex } = _findInTrash(id);
     if (trashedItem) {
+        // 휴지통에 있는 폴더와 노트 모두 여기서 처리
         return { item: trashedItem, index: trashIndex, folder: null, isInTrash: true };
     }
 

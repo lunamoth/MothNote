@@ -28,12 +28,12 @@ import {
 } from './navigationActions.js';
 
 
-// [HEARTBEAT] 탭 생명주기 관리를 위한 상수 추가
+// [HEARTBEAT] 탭 생명주기 관리를 위한 상수 추가 (기능 유지)
 const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
 const HEARTBEAT_INTERVAL = 5000; // 5초마다 생존 신호 보냄
 let heartbeatIntervalId = null;
 
-// [HEARTBEAT] 현재 탭이 살아있음을 알리는 함수
+// [HEARTBEAT] 현재 탭이 살아있음을 알리는 함수 (기능 유지)
 const registerTab = () => {
     try {
         const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
@@ -44,7 +44,7 @@ const registerTab = () => {
     }
 };
 
-// [HEARTBEAT] 탭이 닫힐 때 등록을 해제하는 함수
+// [HEARTBEAT] 탭이 닫힐 때 등록을 해제하는 함수 (기능 유지)
 const deregisterTab = () => {
     try {
         const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
@@ -55,7 +55,7 @@ const deregisterTab = () => {
     }
 };
 
-// --- 설정 관련 로직 ---
+// --- 설정 관련 로직 --- (기능 유지, 변경 없음)
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
 
@@ -339,7 +339,7 @@ const setupSettingsModal = () => {
     });
 };
 
-// --- 대시보드 클래스 ---
+// --- 대시보드 클래스 --- (기능 유지, 변경 없음)
 class Dashboard {
     constructor() {
         this.dom = {
@@ -648,16 +648,16 @@ class Dashboard {
 }
 
 
-// --- 전역 변수 ---
+// --- 전역 변수 및 초기화 --- (기능 유지)
 const tabId = crypto.randomUUID();
-// [CRITICAL BUG FIX] 다른 모듈에서 현재 탭 ID에 접근할 수 있도록 window 객체에 할당합니다.
 window.tabId = tabId;
 
-// [BUG FIX] 앱 초기화 중 storage 이벤트를 무시하기 위한 플래그
 window.isInitializing = true;
+window.isImporting = false; // [추가] import 중 beforeunload 방지 플래그
 
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
+// ... (setupRippleEffect, handleTextareaKeyDown, handleItemActionClick, handleListClick 등 UI 관련 핸들러는 변경 없음)
 const setupRippleEffect = () => {
     document.body.addEventListener('click', (e) => {
         const button = e.target.closest('.ripple-effect');
@@ -788,7 +788,8 @@ const setupDragAndDrop = (listElement, type) => {
             return;
         }
         
-        const updateLogic = (latestData) => {
+        const { performTransactionalUpdate } = await import('./itemActions.js');
+        await performTransactionalUpdate((latestData) => {
             const { folders } = latestData;
             const fromIdx = folders.findIndex(item => item.id === draggedId);
             if (fromIdx === -1) return null;
@@ -798,14 +799,10 @@ const setupDragAndDrop = (listElement, type) => {
             if (toIdx === -1) folders.push(draggedItem);
             else folders.splice(toIdx, 0, draggedItem);
             
-            // [수정] 폴더 순서 변경 시, 이동된 폴더의 updatedAt 갱신
             draggedItem.updatedAt = Date.now();
 
             return { newData: latestData, successMessage: null, postUpdateState: {} };
-        };
-
-        const { performTransactionalUpdate } = await import('./itemActions.js');
-        await performTransactionalUpdate(updateLogic);
+        });
         setState({});
     });
     listElement.addEventListener('dragend', () => {
@@ -866,7 +863,8 @@ const setupNoteToFolderDrop = () => {
             const { item: note } = findNote(noteId);
             if (note && !note.isFavorite) await handleToggleFavorite(noteId);
         } else {
-             const updateLogic = (latestData) => {
+            const { performTransactionalUpdate } = await import('./itemActions.js');
+            await performTransactionalUpdate((latestData) => {
                 const { folders } = latestData;
                 let noteToMove, sourceFolder;
                 for (const folder of folders) {
@@ -884,7 +882,6 @@ const setupNoteToFolderDrop = () => {
                 noteToMove.updatedAt = now;
                 targetFolder.notes.unshift(noteToMove);
                 
-                // [수정] 노트 이동 시, 소스 및 타겟 폴더의 updatedAt 모두 갱신
                 sourceFolder.updatedAt = now;
                 targetFolder.updatedAt = now;
 
@@ -893,14 +890,12 @@ const setupNoteToFolderDrop = () => {
                     successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name),
                     postUpdateState: {}
                 };
-            };
-            const { performTransactionalUpdate } = await import('./itemActions.js');
-            await performTransactionalUpdate(updateLogic);
+            });
             setState({});
         }
     });
 };
-
+// ... (나머지 UI 핸들러는 변경 없음)
 const _focusAndScrollToListItem = (listElement, itemId) => {
     const itemEl = listElement.querySelector(`[data-id="${itemId}"]`);
     if (itemEl) {
@@ -1142,33 +1137,26 @@ const initializeDragAndDrop = () => {
     setupNoteToFolderDrop();
 };
 
+// [근본적인 아키텍처 수정] 데이터 동기화 및 충돌 처리 로직 개선
 async function handleStorageSync(changes) {
-    // [BUG FIX] 앱 초기화 중에는 모든 storage 이벤트를 무시합니다.
     if (window.isInitializing) {
-        return;
+        return; // 초기화 중에는 무시
     }
     
     const { newValue } = changes.appState;
     if (newValue.transactionId && newValue.transactionId === state.currentTransactionId) {
-        return;
+        return; // 자기 자신의 변경사항은 무시
     }
 
     if (state.renamingItemId) {
-        const newAllItemIds = new Set();
-        newValue.folders.forEach(f => {
-            newAllItemIds.add(f.id);
-            f.notes.forEach(n => newAllItemIds.add(n.id));
-        });
-        newValue.trash.forEach(t => newAllItemIds.add(t.id));
-        if (!newAllItemIds.has(state.renamingItemId)) {
-            forceResolvePendingRename();
-        }
+        forceResolvePendingRename(); // 다른 탭의 변경으로 이름 변경 강제 종료
     }
 
-    // [아키텍처 수정] 데이터 충돌 시 UI 잠금 및 새로고침 강제
-    if (state.isDirty || state.renamingItemId) {
+    // [핵심] 충돌 감지: 다른 탭이 저장했는데, 현재 탭에 저장되지 않은 변경사항(isDirty)이 있는가?
+    if (state.isDirty) {
         console.warn("Data conflict detected! Another tab saved data while this tab has unsaved changes. Locking UI and forcing a reload to ensure data integrity.");
 
+        // UI 잠금
         editorContainer.classList.add(CONSTANTS.CLASSES.READONLY);
         noteTitleInput.readOnly = true;
         noteContentTextarea.readOnly = true;
@@ -1176,110 +1164,39 @@ async function handleStorageSync(changes) {
         addNoteBtn.disabled = true;
         settingsBtn.disabled = true;
 
-        let backupSucceeded = false;
+        // [핵심] 추가 백업이 필요 없다!
+        // `handleNoteUpdate(false)`가 이미 최신 UI 상태를 localStorage에 백업하고 있으므로,
+        // 여기서는 사용자에게 알리고 새로고침만 유도하면 된다.
         
-        try {
-            const patches = [];
-            
-            // [버그 수정] 데이터 유실 방지를 위해 state.pendingChanges 대신 UI에서 직접 최신 데이터를 읽어옵니다.
-            if (state.isDirty && state.dirtyNoteId) {
-                patches.push({
-                    type: 'note_patch',
-                    noteId: state.dirtyNoteId,
-                    data: {
-                        title: noteTitleInput.value,
-                        content: noteContentTextarea.value,
-                        updatedAt: Date.now()
-                    }
-                });
-            }
-
-            if (state.renamingItemId) {
-                const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
-                if (renamingElement) {
-                    patches.push({
-                        type: 'rename_patch',
-                        itemId: state.renamingItemId,
-                        itemType: renamingElement.closest('.item-list-entry').dataset.type,
-                        newName: renamingElement.textContent,
-                        timestamp: Date.now()
-                    });
-                }
-            }
-            
-            if (patches.length > 0) {
-                // [CRITICAL-2 BUG FIX] 기존 실시간 백업을 삭제하는 위험한 로직 제거.
-                // 이제 loadData가 모든 백업 패치를 안전하게 병합하므로,
-                // 충돌 시점의 데이터를 추가로 백업하기만 하면 됩니다.
-
-                // 이제 최신 데이터로 유일한 백업을 생성합니다.
-                const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-conflict`;
-                localStorage.setItem(backupKey, JSON.stringify(patches));
-                console.log(`[Critical Backup] Conflict detected. ${patches.length} unsaved item(s) have been backed up to '${backupKey}'.`);
-                backupSucceeded = true;
-            } else {
-                 backupSucceeded = true;
-            }
-        } catch (err) {
-            console.error("Critical backup failed during conflict handling:", err);
-            backupSucceeded = false;
-        }
-
-        if (backupSucceeded) {
-            await showConfirmModal({
-                title: '⚠️ 데이터 동기화 충돌',
-                message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업되었습니다.</strong>',
-                isHtml: true,
-                confirmText: '🔄 지금 새로고침',
-                hideCancelButton: true
-            });
-        } else {
-            const backupFailureMessage = document.createElement('div');
-            // [버그 수정] UI가 아닌 state.pendingChanges에서 값을 가져오던 문제를 수정합니다. 항상 UI에서 직접 읽습니다.
-            const currentTitle = noteTitleInput.value;
-            const currentContent = noteContentTextarea.value;
-            backupFailureMessage.innerHTML = `
-                <p>다른 탭에서 노트가 변경되어 동기화가 필요하지만, <strong>비상 백업에 실패했습니다.</strong> (저장 공간 부족 가능성)</p>
-                <p style="margin-top: 15px; font-weight: bold; color: var(--danger-color);">새로고침하면 현재 편집 중인 내용이 유실될 수 있습니다.</p>
-                <p style="margin-top: 15px;">아래 내용을 복사하여 다른 곳에 붙여넣은 후, 새로고침 버튼을 눌러주세요.</p>
-                <textarea readonly style="width: 100%; height: 150px; margin-top: 10px; background-color: var(--input-bg-color); color: var(--font-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; font-family: monospace; resize: vertical;"></textarea>
-            `;
-            const contentTextArea = backupFailureMessage.querySelector('textarea');
-            contentTextArea.value = `--- 제목 ---\n${currentTitle}\n\n--- 내용 ---\n${currentContent}`;
-            
-            setTimeout(() => contentTextArea.select(), 100);
-
-            await showConfirmModal({
-                title: '🚨 중요: 데이터 백업 실패',
-                message: backupFailureMessage,
-                confirmText: '🔄 새로고침 (데이터 유실 가능)',
-                confirmButtonType: 'danger',
-                hideCancelButton: true
-            });
-        }
+        await showConfirmModal({
+            title: '⚠️ 데이터 동기화 충돌',
+            message: '다른 탭에서 노트가 변경되었습니다. 데이터 정합성을 위해 탭을 새로고침해야 합니다.<br><br><strong>현재 작성 중인 내용은 안전하게 백업되었으며, 새로고침 후 복구됩니다.</strong>',
+            isHtml: true,
+            confirmText: '🔄 지금 새로고침',
+            hideCancelButton: true
+        });
         
         window.location.reload();
-        
         return;
     }
 
+    // 충돌이 없을 경우, 다른 탭의 변경사항을 현재 탭에 조용히 적용
     console.log("Received data from another tab. Updating local state...");
 
     setState({
         ...newValue,
         favorites: new Set(newValue.favorites || []),
         totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
+        // 현재 뷰와 관련된 상태는 유지
         activeFolderId: state.activeFolderId,
         activeNoteId: state.activeNoteId,
         noteSortOrder: state.noteSortOrder,
         lastActiveNotePerFolder: state.lastActiveNotePerFolder,
         searchTerm: state.searchTerm,
-        preSearchActiveNoteId: state.preSearchActiveNoteId,
         dateFilter: state.dateFilter,
-        renamingItemId: null,
+        // 동기화 후 깨끗한 상태로 리셋
         isDirty: false,
         dirtyNoteId: null,
-        pendingChanges: null, // [아키텍처 수정] 동기화 시 pendingChanges 초기화
     });
     
     buildNoteMap();
@@ -1289,44 +1206,59 @@ async function handleStorageSync(changes) {
     showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
 }
 
+
 const setupGlobalEventListeners = () => {
-    // [HEARTBEAT] visibilitychange 대신 unload 사용
     window.addEventListener('unload', () => {
-        handleNoteUpdate(true); // 탭 닫기 직전 최종 저장 시도
-        deregisterTab(); // 생존 신호 목록에서 자신을 제거
+        // [수정] 탭 닫기 직전 최종 저장 시도 -> 이 로직은 beforeunload로 이동
+        deregisterTab();
         if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
     });
 
-    // [CRITICAL BUG FIX] beforeunload 핸들러 로직 수정 및 단순화
-    // 이제 노트 편집 내용은 handleNoteUpdate에서 실시간으로 백업되므로,
-    // 이 핸들러는 '이름 변경'과 같은 다른 비동기 작업에 대한 최후의 보루 역할만 수행합니다.
+    // [근본적인 아키텍처 수정] beforeunload 핸들러의 역할을 '최종 백업'으로 단순화
+    // 이 핸들러는 불안정한 비동기 '저장'을 시도하는 대신, 동기적인 '백업'만 수행하여 안정성을 높입니다.
     window.addEventListener('beforeunload', (e) => {
         if (window.isImporting) return; // 가져오기 중에는 경고를 표시하지 않음
 
+        const isNoteDirty = state.isDirty && state.activeNoteId;
         const isRenaming = !!state.renamingItemId;
-        const needsProtection = state.isDirty || isRenaming || window.isSavingInProgress;
-        
-        if (needsProtection) {
-            e.preventDefault();
+
+        if (isNoteDirty || isRenaming) {
+            e.preventDefault(); // 페이지 이탈 방지
             e.returnValue = '';
 
-            // 이름 변경 중인 경우에만 비상 백업 패치를 생성합니다.
-            // 노트 내용은 이미 handleNoteUpdate에서 실시간으로 백업되고 있습니다.
+            // [핵심] '저장 시도'가 아니라 '마지막 상태 백업'만 수행
+            if (isNoteDirty) {
+                try {
+                    const patch = {
+                        type: 'note_patch',
+                        noteId: state.activeNoteId,
+                        data: {
+                            title: noteTitleInput.value, // UI에서 직접 최신 내용을 읽음
+                            content: noteContentTextarea.value,
+                            updatedAt: Date.now()
+                        }
+                    };
+                    const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-note`;
+                    localStorage.setItem(backupKey, JSON.stringify([patch]));
+                    console.log(`[BeforeUnload] 노트 최종 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
+                } catch (err) {
+                    console.error("beforeunload 비상 노트 백업 실패:", err);
+                }
+            }
+            
             if (isRenaming) {
                 const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name[contenteditable="true"]`);
                 if (renamingElement) {
-                    const patches = [{
+                    const patch = {
                         type: 'rename_patch',
                         itemId: state.renamingItemId,
                         itemType: renamingElement.closest('.item-list-entry').dataset.type,
                         newName: renamingElement.textContent,
                         timestamp: Date.now()
-                    }];
-                    
+                    };
                     try {
-                        // 이름 변경 패치는 다른 패치와 충돌하지 않도록 별도의 키를 사용합니다.
                         const backupKey = `${CONSTANTS.LS_KEY_UNCOMMITTED_PREFIX}${window.tabId}-rename`;
-                        localStorage.setItem(backupKey, JSON.stringify(patches));
+                        localStorage.setItem(backupKey, JSON.stringify([patch]));
                         console.log(`[BeforeUnload] 이름 변경 비상 백업 데이터를 키 '${backupKey}'에 저장했습니다.`);
                     } catch (err) {
                         console.error("이름 변경 비상 데이터(패치) 저장 실패:", err);
@@ -1347,7 +1279,6 @@ const setupGlobalEventListeners = () => {
 
 const init = async () => {
     try {
-        // [HEARTBEAT] init 시작 시 탭 등록 및 주기적 갱신 시작
         registerTab();
         heartbeatIntervalId = setInterval(registerTab, HEARTBEAT_INTERVAL);
 
@@ -1380,7 +1311,6 @@ const init = async () => {
         dashboard.init();
         setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
     } finally {
-        // [BUG FIX] 모든 초기화 과정이 끝난 후 플래그를 해제합니다.
         window.isInitializing = false;
     }
 };
