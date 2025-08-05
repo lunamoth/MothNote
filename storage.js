@@ -34,11 +34,12 @@ export const generateUniqueId = (prefix, existingIds) => {
 // 단일 탭 환경에서는 필요하지 않습니다.
 
 
+// [개선] sessionStorage를 사용하여 탭 간 세션 상태 공유를 방지합니다.
 // 세션 상태(활성 폴더/노트 등) 저장
 export const saveSession = () => {
     if (window.isInitializing) return;
     try {
-        localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
+        sessionStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
             f: state.activeFolderId,
             n: state.activeNoteId,
             s: state.noteSortOrder,
@@ -77,11 +78,13 @@ export const loadData = async () => {
 
             let lastSession = null;
             try {
-                const sessionData = localStorage.getItem(CONSTANTS.LS_KEY);
+                // [개선] sessionStorage에서 탭별 세션 정보를 읽어옵니다.
+                const sessionData = sessionStorage.getItem(CONSTANTS.LS_KEY);
                 if (sessionData) lastSession = JSON.parse(sessionData);
             } catch (e) {
-                console.warn("Could not parse last session from localStorage:", e);
-                localStorage.removeItem(CONSTANTS.LS_KEY);
+                console.warn("Could not parse last session from sessionStorage:", e);
+                // [개선] 오류 발생 시 sessionStorage를 비웁니다.
+                sessionStorage.removeItem(CONSTANTS.LS_KEY);
             }
 
             if (lastSession) {
@@ -382,7 +385,8 @@ export const setupImportHandler = () => {
                 // [BUG FIX] 트랜잭션 보장: 3. 성공 시 백업 제거 및 정리
                 await chrome.storage.local.remove('appState_backup');
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                localStorage.removeItem(CONSTANTS.LS_KEY);
+                // [개선] 현재 탭의 세션 정보도 초기화합니다.
+                sessionStorage.removeItem(CONSTANTS.LS_KEY);
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                 setTimeout(() => window.location.reload(), 500);
