@@ -12,7 +12,6 @@ import {
 import { updateSaveStatus, clearSortedNotesCache } from './renderer.js';
 import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navigationActions.js';
 
-let globalSaveLock = Promise.resolve();
 let autoSaveTimer = null; // 자동 저장을 위한 타이머
 
 export const toYYYYMMDD = (dateInput) => {
@@ -45,7 +44,7 @@ let resolvePendingRename = null;
 
 export const forceResolvePendingRename = () => {
     if (resolvePendingRename) {
-        console.warn("Force resolving a pending rename operation due to external changes.");
+        console.warn("Force resolving a pending rename operation.");
         setState({ renamingItemId: null });
         resolvePendingRename(); 
         resolvePendingRename = null;
@@ -70,12 +69,14 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
-// [SIMPLIFIED] 탭 간 경쟁을 고려하지 않는 단순화된 데이터 업데이트 함수
-export const performTransactionalUpdate = async (updateFn) => {
-    await globalSaveLock;
-    let releaseLocalLock;
-    globalSaveLock = new Promise(resolve => { releaseLocalLock = resolve; });
-
+// [SIMPLIFIED] `performTransactionalUpdate` 함수를 `updateAndSaveState`로 단순화합니다.
+// `globalSaveLock` 없이 `isPerformingOperation` 플래그만 사용하여 동시 실행을 방지합니다.
+export const updateAndSaveState = async (updateFn) => {
+    if (state.isPerformingOperation) {
+        console.warn("Operation already in progress. Skipping new request.");
+        return { success: false, payload: null };
+    }
+    
     let resultPayload = null;
     let success = false;
     try {
@@ -92,7 +93,6 @@ export const performTransactionalUpdate = async (updateFn) => {
         const result = await updateFn(dataCopy);
         
         if (result === null) { 
-            releaseLocalLock();
             setState({ isPerformingOperation: false });
             return { success: false, payload: null };
         }
@@ -126,12 +126,11 @@ export const performTransactionalUpdate = async (updateFn) => {
         success = true;
 
     } catch (e) {
-        console.error("Transactional update failed:", e);
+        console.error("State update failed:", e);
         showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         success = false;
     } finally {
         setState({ isPerformingOperation: false });
-        releaseLocalLock();
     }
     return { success, payload: resultPayload };
 };
@@ -176,7 +175,7 @@ export const handleAddFolder = async () => {
     const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
     const trimmedName = name.trim();
 
-    const { success } = await performTransactionalUpdate((latestData) => {
+    const { success } = await updateAndSaveState((latestData) => {
         if (latestData.folders.some(f => f.name.toLowerCase() === trimmedName.toLowerCase())) {
             showAlert({ title: '오류', message: `'${trimmedName}' 폴더가 이미 존재합니다.`});
             return null;
@@ -227,7 +226,7 @@ export const handleAddNote = async () => {
         const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
         const now = Date.now();
 
-        const { success, payload } = await performTransactionalUpdate((latestData) => {
+        const { success, payload } = await updateAndSaveState((latestData) => {
             const activeFolder = latestData.folders.find(f => f.id === currentActiveFolderId);
             if (!activeFolder) {
                  showAlert({ title: '오류', message: '노트를 추가하려던 폴더가 삭제되었습니다.'});
@@ -278,7 +277,7 @@ export const handleAddNote = async () => {
 };
 
 const _withNoteAction = (noteId, actionFn) => {
-    return performTransactionalUpdate(latestData => {
+    return updateAndSaveState(latestData => {
         let noteToUpdate = null, folderOfNote = null;
         for (const folder of latestData.folders) {
             const note = folder.notes.find(n => n.id === noteId);
@@ -348,7 +347,7 @@ export const handleDelete = async (id, type) => {
 };
 
 export const performDeleteItem = (id, type) => {
-    return performTransactionalUpdate(latestData => {
+    return updateAndSaveState(latestData => {
         const { folders, trash } = latestData;
         let successMessage = '', postUpdateState = {};
         const now = Date.now();
@@ -489,14 +488,13 @@ export const handleRestoreItem = async (id) => {
                     note.id = newId;
                     allExistingNoteIds.add(newId);
                     
-                    // 즐겨찾기 목록에서도 ID 업데이트
                     if (favoritesSet.has(oldId)) {
                         favoritesSet.delete(oldId);
                         favoritesSet.add(newId);
                     }
                     hadIdCollision = true;
                 }
-                allExistingNoteIds.add(note.id); // 복원되는 노트 ID도 추후 충돌 검사를 위해 추가
+                allExistingNoteIds.add(note.id); 
                 
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
@@ -520,7 +518,6 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
-            // [개선] 단일 노트 복원 시에도 ID 충돌 검사
             const allExistingNoteIds = new Set();
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
             if (allExistingNoteIds.has(itemToRestoreInTx.id)) {
@@ -551,7 +548,7 @@ export const handleRestoreItem = async (id) => {
         return null;
     };
 
-    const { success, payload } = await performTransactionalUpdate(updateLogic);
+    const { success, payload } = await updateAndSaveState(updateLogic);
 
     if (success && payload?.hadIdCollision) {
         showToast("일부 노트의 ID가 충돌하여 자동으로 수정되었습니다.", CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
@@ -569,7 +566,7 @@ export const handlePermanentlyDeleteItem = async (id) => {
 
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.PERM_DELETE, message: message, confirmText: '💥 삭제', confirmButtonType: 'danger' },
-        () => performTransactionalUpdate(latestData => {
+        () => updateAndSaveState(latestData => {
             const itemIndex = latestData.trash.findIndex(i => i.id === id);
             if (itemIndex === -1) return null;
             
@@ -607,7 +604,7 @@ export const handleEmptyTrash = async () => {
 
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 삭제', confirmButtonType: 'danger' },
-        () => performTransactionalUpdate(latestData => {
+        () => updateAndSaveState(latestData => {
             let postUpdateState = {};
             if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
                 postUpdateState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
@@ -644,7 +641,7 @@ export async function saveCurrentNoteIfChanged() {
     
     updateSaveStatus('saving');
 
-    const { success } = await performTransactionalUpdate(latestData => {
+    const { success } = await updateAndSaveState(latestData => {
         let noteToSave, parentFolder;
         for (const folder of latestData.folders) {
             const note = folder.notes.find(n => n.id === noteId);
@@ -652,7 +649,7 @@ export async function saveCurrentNoteIfChanged() {
         }
 
         if (!noteToSave) {
-            console.error(`Save failed: Note with ID ${noteId} not found in storage.`);
+            console.error(`Save failed: Note with ID ${noteId} not found.`);
             showToast("저장 실패: 노트가 다른 곳에서 삭제된 것 같습니다.", CONSTANTS.TOAST_TYPE.ERROR);
             return null;
         }
@@ -737,7 +734,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         return;
     }
     
-    const { success } = await performTransactionalUpdate(latestData => {
+    const { success } = await updateAndSaveState(latestData => {
         let itemToRename, parentFolder, isDuplicate = false;
         const now = Date.now();
         

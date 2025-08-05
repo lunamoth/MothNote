@@ -29,50 +29,12 @@ export const generateUniqueId = (prefix, existingIds) => {
     return id;
 };
 
-// --- 분산 락(Distributed Lock) 구현 (기능 유지, 변경 없음) ---
-export async function acquireWriteLock(tabId) {
-    const { SS_KEY_WRITE_LOCK, LOCK_TIMEOUT_MS } = CONSTANTS;
-    const newLock = { tabId, timestamp: Date.now() };
-
-    try {
-        const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
-        let currentLock = result[SS_KEY_WRITE_LOCK];
-
-        if (currentLock && (Date.now() - currentLock.timestamp > LOCK_TIMEOUT_MS)) {
-            console.warn(`만료된 쓰기 락을 발견했습니다 (소유자: ${currentLock.tabId}). 락을 강제로 해제합니다.`);
-            currentLock = null;
-        }
-
-        if (!currentLock || currentLock.tabId === tabId) {
-            await chrome.storage.session.set({ [SS_KEY_WRITE_LOCK]: newLock });
-            
-            const verificationResult = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
-            if (verificationResult[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
-                return true;
-            }
-        }
-    } catch (e) {
-        console.error("쓰기 락 획득 중 오류 발생:", e);
-    }
-
-    return false;
-}
-
-export async function releaseWriteLock(tabId) {
-    const { SS_KEY_WRITE_LOCK } = CONSTANTS;
-    try {
-        const result = await chrome.storage.session.get(SS_KEY_WRITE_LOCK);
-        if (result[SS_KEY_WRITE_LOCK]?.tabId === tabId) {
-            await chrome.storage.session.remove(SS_KEY_WRITE_LOCK);
-        }
-    } catch (e) {
-        console.error("쓰기 락 해제 중 오류 발생:", e);
-    }
-}
-// --- 락 구현 끝 ---
+// --- [REMOVED] 분산 락(Distributed Lock) 구현 제거 ---
+// acquireWriteLock, releaseWriteLock 함수를 완전히 삭제했습니다.
+// 단일 탭 환경에서는 필요하지 않습니다.
 
 
-// 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)
+// 세션 상태(활성 폴더/노트 등) 저장
 export const saveSession = () => {
     if (window.isInitializing) return;
     try {
@@ -87,8 +49,7 @@ export const saveSession = () => {
     }
 };
 
-// [아키텍처 리팩토링] loadData에서 localStorage 기반 비상 백업 복구 로직을 완전히 제거하고,
-// chrome.storage.local을 유일한 데이터 소스로 사용하도록 단순화합니다.
+// [아키텍처 유지] loadData는 이미 단일 소스(chrome.storage.local)를 사용하도록 잘 리팩토링 되어 있습니다.
 export const loadData = async () => {
     let recoveryMessage = null;
 
@@ -102,13 +63,11 @@ export const loadData = async () => {
             recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
         }
         
-        // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
+        // 2. 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
         const mainStorageResult = await chrome.storage.local.get('appState');
         const authoritativeData = mainStorageResult.appState;
 
-        // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
-        
-        // 4. 최종 상태(state) 설정 및 UI 초기화
+        // 3. 최종 상태(state) 설정 및 UI 초기화
         let finalState = { ...state };
         
         if (authoritativeData && authoritativeData.folders) { // 데이터가 있는 경우
@@ -154,7 +113,6 @@ export const loadData = async () => {
 
         } else { // 데이터가 아예 없는 초기 실행
             const now = Date.now();
-            // [순환 참조 해결] 이제 이 파일에 있는 함수를 직접 호출
             const fId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, new Set());
             const nId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, new Set([fId]));
             
@@ -208,7 +166,6 @@ const sanitizeContentData = data => {
     const usedIds = new Set();
     const idMap = new Map(); 
 
-    // [순환 참조 해결] 이제 이 파일에 있는 함수를 직접 호출
     const getUniqueId = (prefix, id) => {
         const oldId = id; 
         let finalId = String(id ?? `${prefix}-${Date.now()}`).slice(0, 50);
