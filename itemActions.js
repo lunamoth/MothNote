@@ -1,7 +1,7 @@
 // itemActions.js
 
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-import { acquireWriteLock, releaseWriteLock, generateUniqueId } from './storage.js';
+import { generateUniqueId } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
@@ -70,22 +70,8 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
+// [SIMPLIFIED] 탭 간 경쟁을 고려하지 않는 단순화된 데이터 업데이트 함수
 export const performTransactionalUpdate = async (updateFn) => {
-    let lockAcquired = false;
-    for (let i = 0; i < 5; i++) {
-        if (await acquireWriteLock(window.tabId)) {
-            lockAcquired = true;
-            break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 200));
-    }
-
-    if (!lockAcquired) {
-        console.error("데이터 저장 실패: 다른 탭에서 작업을 처리 중입니다.");
-        showToast("다른 탭에서 작업을 처리 중입니다. 잠시 후 다시 시도해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
-        return { success: false, payload: null };
-    }
-    
     await globalSaveLock;
     let releaseLocalLock;
     globalSaveLock = new Promise(resolve => { releaseLocalLock = resolve; });
@@ -94,15 +80,18 @@ export const performTransactionalUpdate = async (updateFn) => {
     let success = false;
     try {
         setState({ isPerformingOperation: true });
-
-        const storageResult = await chrome.storage.local.get('appState');
-        const latestData = storageResult.appState || { folders: [], trash: [], favorites: [] };
-        const dataCopy = JSON.parse(JSON.stringify(latestData)); 
+        
+        // 현재 메모리 상태를 기반으로 데이터를 수정
+        const dataCopy = JSON.parse(JSON.stringify({
+            folders: state.folders,
+            trash: state.trash,
+            favorites: Array.from(state.favorites),
+            lastSavedTimestamp: state.lastSavedTimestamp
+        }));
 
         const result = await updateFn(dataCopy);
         
         if (result === null) { 
-            await releaseWriteLock(window.tabId);
             releaseLocalLock();
             setState({ isPerformingOperation: false });
             return { success: false, payload: null };
@@ -111,13 +100,12 @@ export const performTransactionalUpdate = async (updateFn) => {
         const { newData, successMessage, postUpdateState, payload } = result;
         resultPayload = payload;
         
-        const transactionId = `${window.tabId}-${Date.now()}`;
-        newData.transactionId = transactionId;
         newData.lastSavedTimestamp = Date.now();
         
-        setState({ currentTransactionId: transactionId });
+        // 수정된 데이터를 스토리지에 저장
         await chrome.storage.local.set({ appState: newData });
         
+        // 메모리 상태를 최신 데이터로 업데이트
         setState({
             folders: newData.folders,
             trash: newData.trash,
@@ -142,7 +130,6 @@ export const performTransactionalUpdate = async (updateFn) => {
         showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         success = false;
     } finally {
-        await releaseWriteLock(window.tabId);
         setState({ isPerformingOperation: false });
         releaseLocalLock();
     }
@@ -191,7 +178,7 @@ export const handleAddFolder = async () => {
 
     const { success } = await performTransactionalUpdate((latestData) => {
         if (latestData.folders.some(f => f.name.toLowerCase() === trimmedName.toLowerCase())) {
-            showAlert({ title: '오류', message: `'${trimmedName}' 폴더가 방금 다른 곳에서 생성되었습니다. 다른 이름으로 다시 시도해주세요.`});
+            showAlert({ title: '오류', message: `'${trimmedName}' 폴더가 이미 존재합니다.`});
             return null;
         }
 
@@ -586,119 +573,35 @@ export const handleEmptyTrash = async () => {
     );
 };
 
-/**
- * [REFACTORED] 데이터 유실 방지를 위한 최종 저장 함수.
- * 데이터 충돌 시, 저장을 실패하는 대신 "충돌된 사본"을 생성하여 사용자의 작업을 100% 보존합니다.
- * 또한, 편집 중이던 노트가 다른 탭에서 삭제된 경우에도 내용을 복구하여 새 노트로 저장할 기회를 제공합니다.
- * @returns {Promise<boolean>} 저장/충돌 해결에 성공했으면 true, 그 외의 경우 false를 반환합니다.
- */
 export async function saveCurrentNoteIfChanged() {
-    if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || !state.activeNoteId) {
+    if (!state.isDirty) {
         return true;
     }
     
     const noteId = state.activeNoteId;
-    const { item: activeNote } = findNote(noteId);
-
-    // [보강] 편집하던 노트가 다른 탭에서 삭제된 경우의 데이터 복구 로직
-    if (!activeNote) {
-        if (state.isDirty && state.dirtyNoteId === noteId) {
-            console.warn(`저장하려던 노트(ID: ${noteId})가 삭제되었습니다. 미저장 내용을 새 노트로 저장합니다.`);
-            showToast("⚠️ 편집하던 노트가 다른 곳에서 삭제되었습니다!", CONSTANTS.TOAST_TYPE.ERROR, 0);
-
-            const lastKnownTitle = noteTitleInput.value;
-            const lastKnownContent = noteContentTextarea.value;
-            
-            // 새 노트로 저장하는 복구 로직 호출
-            await handleAddNoteFromConflict(lastKnownTitle, lastKnownContent);
-        }
-        return true; // 작업 완료
-    }
-    
-    const currentTitle = noteTitleInput.value;
-    const currentContent = noteContentTextarea.value;
-    const localVersion = activeNote.updatedAt;
-    
-    const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
-    
-    if (!hasChanged && !state.isDirty) {
+    if (!noteId) {
+        setState({ isDirty: false, dirtyNoteId: null });
         return true;
     }
     
     updateSaveStatus('saving');
 
-    const { success, payload: newNoteId } = await performTransactionalUpdate(latestData => {
+    const { success } = await performTransactionalUpdate(latestData => {
         let noteToSave, parentFolder;
         for (const folder of latestData.folders) {
             const note = folder.notes.find(n => n.id === noteId);
             if (note) { noteToSave = note; parentFolder = folder; break; }
         }
 
-        // [핵심 개선] 편집 중이던 노트가 다른 곳에서 삭제된 경우, 여기서 감지하고 복구 로직으로 전환.
-        // 이 시나리오가 바로 이전 버전의 Critical 버그 원인이었음.
         if (!noteToSave) {
-            console.warn(`트랜잭션 중 노트(ID: ${noteId})를 찾을 수 없음 (삭제됨). 내용을 새 노트로 복구합니다.`);
-            const allNoteIds = new Set(latestData.folders.flatMap(f => f.notes.map(n => n.id)).concat(latestData.trash.map(t => t.id)));
-            const newConflictNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
-            const now = Date.now();
-            
-            const conflictNote = {
-                id: newConflictNoteId,
-                title: `${currentTitle || '제목 없음'} (삭제 후 복구됨 ${new Date(now).toLocaleTimeString('ko-KR')})`,
-                content: currentContent,
-                createdAt: now, updatedAt: now, isPinned: false
-            };
-            
-            // 원본 폴더를 찾을 수 없는 경우, 가장 첫 번째 폴더에 추가
-            const targetFolder = parentFolder || latestData.folders[0];
-            if (!targetFolder) {
-                // 이 경우는 거의 없지만, 만약 폴더가 하나도 없다면 저장 실패
-                showAlert({ title: '복구 실패', message: '작업 내용을 저장할 폴더가 없습니다. 먼저 폴더를 생성해주세요.'});
-                return null;
-            }
-            
-            targetFolder.notes.unshift(conflictNote);
-            targetFolder.updatedAt = now;
-            
-            return {
-                newData: latestData,
-                successMessage: `⚠️ 편집 중인 노트가 삭제되어 새 노트로 안전하게 복구했습니다.`,
-                postUpdateState: { activeNoteId: newConflictNoteId },
-                payload: newConflictNoteId
-            };
+            console.error(`Save failed: Note with ID ${noteId} not found in storage.`);
+            showToast("저장 실패: 노트가 다른 곳에서 삭제된 것 같습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            return null;
         }
 
-        // ★★★★★ 데이터 유실 방지 및 아키텍처 교착 상태 해결의 핵심 로직 ★★★★★
-        if (noteToSave.updatedAt > localVersion) {
-            console.error(`SAVE CONFLICT DETECTED! Local version ${localVersion} vs Storage version ${noteToSave.updatedAt}. Creating a conflict copy.`);
-            
-            const allNoteIds = new Set(latestData.folders.flatMap(f => f.notes.map(n => n.id)).concat(latestData.trash.map(t => t.id)));
-            const newConflictNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
-            const now = Date.now();
-            
-            const conflictNote = {
-                id: newConflictNoteId,
-                title: `${currentTitle || '제목 없음'} (충돌된 사본 ${new Date(now).toLocaleTimeString('ko-KR')})`,
-                content: currentContent,
-                createdAt: now, updatedAt: now, isPinned: false
-            };
-            
-            parentFolder.notes.unshift(conflictNote);
-            parentFolder.updatedAt = now;
-            
-            return {
-                newData: latestData,
-                successMessage: `⚠️ 충돌 감지! 작업 내용을 '${conflictNote.title}'(으)로 안전하게 복사했습니다.`,
-                postUpdateState: { activeNoteId: newConflictNoteId },
-                payload: newConflictNoteId
-            };
-        }
-        // ★★★★★ 핵심 로직 끝 ★★★★★
-
-        // 충돌이 없을 경우의 정상 저장 로직
         const now = Date.now();
-        noteToSave.title = currentTitle;
-        noteToSave.content = currentContent;
+        noteToSave.title = noteTitleInput.value;
+        noteToSave.content = noteContentTextarea.value;
         noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         
@@ -706,10 +609,6 @@ export async function saveCurrentNoteIfChanged() {
     });
     
     if (success) {
-        // 충돌이 발생하여 새 노트로 저장된 경우, UI가 새 노트를 보도록 즉시 변경
-        if (newNoteId && newNoteId !== noteId) {
-             await changeActiveNote(newNoteId);
-        }
         setState({ isDirty: false, dirtyNoteId: null });
         updateSaveStatus('saved');
     } else {
@@ -719,15 +618,9 @@ export async function saveCurrentNoteIfChanged() {
     return success;
 }
 
-/**
- * [NEW] 사용자 입력에 반응하여 UI 피드백을 주고, 일정 시간 후 자동 저장을 '시도'하는 함수.
- * 이 함수는 실제 저장을 보장하지 않으며, UI/UX 개선을 목적으로 합니다.
- */
-export function handleUserInput() {
-    if (!state.activeNoteId || editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY)) {
-        return;
-    }
-
+export async function handleUserInput() {
+    if (!state.activeNoteId) return;
+    
     const { item: activeNote } = findNote(state.activeNoteId);
     if (!activeNote) return;
 
@@ -824,12 +717,15 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     }
 };
 
-export const startRename = (liElement, type) => {
+export const startRename = async (liElement, type) => {
     const id = liElement?.dataset.id;
-    if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id || !id) return;
+    if (!id || state.renamingItemId || state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) return;
     if (Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
-    if (state.renamingItemId) return;
 
+    if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId !== id) {
+        await changeActiveNote(id);
+    }
+    
     setState({ renamingItemId: id });
 
     setTimeout(() => {
@@ -857,61 +753,4 @@ export const startRename = (liElement, type) => {
         nameSpan.addEventListener('blur', onBlur, { once: true });
         nameSpan.addEventListener('keydown', onKeydown);
     }, 0);
-};
-
-/**
- * [NEW] 다른 곳에서 삭제된 노트의 미저장 내용을 새 노트로 저장하는 함수.
- * @param {string} title - 사용자가 마지막으로 입력했던 제목.
- * @param {string} content - 사용자가 마지막으로 입력했던 내용.
- */
-export const handleAddNoteFromConflict = async (title, content) => {
-    const targetFolderId = await showFolderSelectPrompt({
-        title: '새 노트로 저장',
-        message: '삭제된 노트의 미저장 내용을 어느 폴더에 저장할까요?'
-    });
-
-    if (!targetFolderId) {
-        showToast("저장이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-        setState({ isDirty: false, dirtyNoteId: null });
-        return;
-    }
-
-    const allNoteIds = new Set(Array.from(state.noteMap.keys()));
-    const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
-    const now = Date.now();
-
-    const { success, payload } = await performTransactionalUpdate(latestData => {
-        const targetFolder = latestData.folders.find(f => f.id === targetFolderId);
-        if (!targetFolder) {
-            showAlert({ title: '오류', message: '노트를 저장하려던 폴더를 찾을 수 없습니다.' });
-            return null;
-        }
-
-        const newNote = {
-            id: newNoteId,
-            title: title || `${formatDate(now)}의 노트 (복구됨)`,
-            content: content,
-            createdAt: now,
-            updatedAt: now,
-            isPinned: false
-        };
-
-        targetFolder.notes.unshift(newNote);
-        targetFolder.updatedAt = now;
-        
-        return {
-            newData: latestData,
-            successMessage: "✅ 삭제된 노트의 내용을 새 노트로 안전하게 저장했습니다.",
-            postUpdateState: {
-                activeFolderId: targetFolderId,
-                isDirty: false,
-                dirtyNoteId: null,
-            },
-            payload: { newNoteId: newNote.id }
-        };
-    });
-
-    if(success && payload?.newNoteId){
-        await changeActiveNote(payload.newNoteId);
-    }
 };

@@ -1,17 +1,13 @@
+// state.js
+
 export const CONSTANTS = {
     ITEM_TYPE: { FOLDER: 'folder', NOTE: 'note' },
     MODAL_TYPE: { PROMPT: 'prompt', CONFIRM: 'confirm', ALERT: 'alert' },
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1',
-    // [리팩토링] 데이터 충돌 시 강제 새로고침 로직이 제거되었으므로 관련 상수를 삭제합니다.
-    // LS_KEY_DATA_CONFLICT: 'mothnote_data_conflict_v1', // 더 이상 사용되지 않음
     
-    // --- 분산 락 관련 상수 ---
-    SS_KEY_WRITE_LOCK: 'mothnote_session_write_lock_v1',
-    LOCK_TIMEOUT_MS: 8000,
-    
-    // --- 설정 관련 상수 ---
+    // 설정 관련 상수
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',
     DEFAULT_SETTINGS: {
         layout: { col1: 10, col2: 10 },
@@ -20,7 +16,7 @@ export const CONSTANTS = {
         zenMode: { maxWidth: 850 }
     },
 
-    // --- 가상 폴더 및 UI 관련 상수 (기능 유지) ---
+    // 가상 폴더 및 UI 관련 상수
     VIRTUAL_FOLDERS: {
         ALL:    { id: 'all-notes-virtual-id', name: '모든 노트', displayName: '📚 모든 노트', icon: '📚', canAddNote: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note) },
         RECENT: { id: 'recent-notes-virtual-id', name: '최근 노트', displayName: '🕒 최근 노트', icon: '🕒', canAddNote: false, isSortable: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).sort((a,b) => b.updatedAt - a.updatedAt).slice(0, CONSTANTS.RECENT_NOTES_COUNT) },
@@ -125,13 +121,13 @@ export const CONSTANTS = {
 };
 
 export let state = {
-    // --- 핵심 데이터 (The Source of Truth in memory for this tab) ---
+    // --- 핵심 데이터 ---
     folders: [],
     trash: [],
     favorites: new Set(),
     lastSavedTimestamp: null,
 
-    // --- UI/세션 상태 (This tab's local UI state) ---
+    // --- UI/세션 상태 ---
     activeFolderId: null,
     activeNoteId: null,
     searchTerm: '',
@@ -141,23 +137,19 @@ export let state = {
     dateFilter: null,
     renamingItemId: null,
 
-    // --- 파생/캐시 데이터 (Derived from core data) ---
+    // --- 파생/캐시 데이터 ---
     noteMap: new Map(),
     totalNoteCount: 0,
     noteCreationDates: new Set(),
     _virtualFolderCache: { all: null, recent: null, favorites: null, trash: null },
 
-    // --- 실시간 상태 플래그 (Real-time flags for this tab) ---
+    // --- 실시간 상태 플래그 ---
     isDirty: false,
     dirtyNoteId: null,
-    // [리팩토링] pendingChanges는 더 이상 사용되지 않습니다.
-    // pendingChanges: null,
     isPerformingOperation: false,
-    // 자신의 변경사항을 식별하기 위한 트랜잭션 ID
-    currentTransactionId: null
 };
 
-// --- 구독 및 상태 변경 알림 로직 (기능 유지) ---
+// --- 구독 및 상태 변경 알림 로직 ---
 const subscribers = new Set();
 export const subscribe = (callback) => {
     subscribers.add(callback);
@@ -180,7 +172,7 @@ export const setState = (newState) => {
     notify();
 };
 
-// --- 데이터 검색 헬퍼 (기능 유지, 최적화) ---
+// --- 데이터 검색 헬퍼 ---
 const _findNoteInState = (id) => {
     const entry = state.noteMap.get(id);
     if (!entry) return { item: null, folder: null, index: -1 };

@@ -12,20 +12,10 @@ import { clearSortedNotesCache } from './renderer.js';
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
-/**
- * [REFACTORED] 내비게이션을 시도하기 전에 현재 노트의 변경사항을 저장합니다.
- * 더 이상 사용자에게 불필요한 확인 프롬프트를 띄우지 않고, 가장 견고한 `saveCurrentNoteIfChanged` 함수를 호출하여
- * 데이터 저장을 시도합니다. 이 함수는 내부적으로 충돌 감지 및 해결(사본 생성, 복구) 로직을 모두 포함하고 있어
- * 어떤 상황에서도 안전하게 데이터를 보존합니다.
- * @returns {Promise<boolean>} 내비게이션이 가능하면(저장 성공 또는 변경사항 없음) true, 저장 실패 등으로 불가능하면 false.
- */
 export const confirmNavigation = async () => {
-    // isDirty 플래그가 꺼져 있으면 변경사항이 없으므로 항상 안전합니다.
     if (!state.isDirty) {
         return true;
     }
-    // isDirty 플래그가 켜져 있으면, 견고한 저장 함수를 호출합니다.
-    // 이 함수는 내부적으로 변경 여부를 다시 확인하고, 모든 충돌을 해결하며, 저장에 실패하면 false를 반환합니다.
     return await saveCurrentNoteIfChanged();
 };
 

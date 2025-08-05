@@ -128,7 +128,7 @@
         overflow: hidden;
         transition: all 0.3s ease;
         min-width: 0;
-        box-shadow: var(--shadow-panel); /* [수정] 고도화된 그림자 적용 */
+        box-shadow: var(--shadow-panel);
     }
 
     .splitter {
@@ -206,7 +206,6 @@
 }
 
 @layer components {
-    /* [추가] 리플 효과 스타일 */
     .ripple {
         position: absolute;
         border-radius: 50%;
@@ -228,7 +227,6 @@
     }
     
     .panel-header > h2 { font-size: 18px; font-weight: 600; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    /* [개선] 헤더 버튼 그룹 스타일 */
     .panel-header > .button-group { display: flex; gap: var(--spacing-xs); }
     
     #dashboard-container {
@@ -303,7 +301,7 @@
     
     .icon-button { background: none; border: none; color: var(--font-color-dim); font-size: 20px; cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); line-height: 1; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
     .icon-button:hover { color: var(--font-color); background-color: var(--hover-bg-color); box-shadow: 0 0 10px var(--accent-color); }
-    .icon-button:active { transform: scale(0.92); } /* [개선] Flexing 효과 */
+    .icon-button:active { transform: scale(0.92); }
     #empty-trash-btn:hover { color: var(--danger-color); }
 
     .text-button { background: none; border: none; color: var(--font-color-dim); cursor: pointer; padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--radius-sm); font-size: inherit; font-family: inherit; display: flex; align-items: center; gap: var(--spacing-xs); transition: all 0.2s ease; white-space: nowrap; position: relative; overflow: hidden; }
@@ -313,7 +311,6 @@
     .pin-btn.pinned { color: var(--pin-color); }
     .favorite-btn.favorited { color: var(--solar-yellow); }
 
-    /* [개선] 사이드바 섹션 헤더 스타일 */
     .section-header {
         padding: 24px var(--spacing-md) 4px;
         font-size: 12px;
@@ -324,11 +321,9 @@
     }
     
     .item-list { list-style: none; overflow-y: auto; padding: var(--spacing-sm); flex-grow: 1; }
-    /* [수정] 목록 아이템 여백 및 스타일 조정 */
     .item-list-entry { display: flex; align-items: center; gap: var(--spacing-sm); padding: 12px var(--spacing-md); border-radius: var(--radius-sm); cursor: pointer; user-select: none; font-size: 14px; line-height: 1.4; overflow: hidden; max-height: 80px; transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
     .item-list-entry:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; box-shadow: 0 0 0 2px var(--material-opaque-bg), 0 0 0 4px var(--accent-color); }
     .item-list-entry:hover { background-color: var(--hover-bg-color); }
-    /* [개선] 활성 상태 스타일 변경 */
     .item-list-entry.active { background-color: var(--active-bg-color); }
     .item-list-entry.active .item-name { color: var(--accent-color); font-weight: 600; }
     .item-list-entry.active .item-count { color: color-mix(in srgb, var(--accent-color) 70%, var(--font-color-dim)); }
@@ -361,7 +356,6 @@
     .search-container #clear-search { display: none; }
     .search-container:has(#search-input:not(:placeholder-shown)) #clear-search { display: block; }
     #search-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 9px var(--spacing-md); border-radius: var(--radius-sm); font-size: 14px; outline: none; transition: all .2s ease; }
-    /* [개선] 검색 필드 포커스 스타일 */
     #search-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); box-shadow: 0 0 8px color-mix(in srgb, var(--accent-color) 25%, transparent); }
     #search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
     #clear-search { position: absolute; inset-inline-end: var(--spacing-sm); top: 50%; transform: translateY(-50%); background: 0; border: 0; color: var(--font-color-dim); font-size: 20px; cursor: pointer; overflow: hidden; }
@@ -378,7 +372,6 @@
     .placeholder { display: flex; flex-direction: column; gap: 10px; justify-content: center; align-items: center; height: 100%; font-size: 18px; color: var(--font-color-dim); text-align: center; }
     .placeholder-icon { font-size: 50px; }
     
-    /* [개선] 모달 스타일 개선 */
     .modal {
         background: var(--material-thick-bg);
         color: var(--font-color);
@@ -386,12 +379,11 @@
         border-radius: var(--radius-md);
         padding: var(--spacing-xl);
         width: 90%;
-        max-width: 540px; /* [수정] 단축키 모달을 위해 너비 증가 */
+        max-width: 540px;
         margin: auto;
         box-shadow: var(--shadow-modal);
         border: none;
     }
-    /* [개선] 모달 등장 애니메이션 */
     @keyframes modal-pop-in {
         0% { opacity: 0; transform: scale(0.95); }
         60% { opacity: 1; transform: scale(1.02); }
@@ -402,13 +394,10 @@
     }
     .modal::backdrop { 
 	background: rgba(0,0,0,0.3); 
-	 /*-webkit-backdrop-filter: blur(5px); */
-	 /*backdrop-filter: blur(5px); */
 	}
     .modal h3 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 24px; }
     .modal div#modal-message { font-size: 14px; color: var(--font-color-dim); text-align: center; line-height: 1.5; margin-bottom: 24px;}
     .modal form { display: flex; flex-direction: column; gap: 20px; }
-    /* [수정] modal-close-button에서 position: relative 제거 */
     .modal-close-button {
         position: absolute;
         top: 12px;
@@ -431,7 +420,6 @@
     
     .modal-error { color: var(--danger-color); font-size: 13px; font-weight: 500; text-align: center; min-height: 18px; }
     
-    /* [수정] 단축키 모달 스타일 수정 */
     .shortcut-list {
         list-style: none;
         padding: 0;
@@ -467,7 +455,6 @@
     .modal-input { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: 12px var(--spacing-md); border-radius: 10px; font-size: 16px; outline: none; transition: all .2s ease; }
     .modal-input:focus { border-color: var(--accent-color); background: var(--input-focus-bg-color); }
     .modal-buttons { display: flex; justify-content: center; gap: var(--spacing-md); }
-    /* [개선] 모달 버튼 스타일 */
     .modal-button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s ease; position: relative; overflow: hidden; }
     .modal-button:hover { opacity: 0.85; box-shadow: 0 0 10px color-mix(in srgb, currentColor 30%, transparent); }
     .modal-button:active { transform: scale(0.96); }
@@ -490,7 +477,6 @@
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     
     .settings-tab-panel h4 { font-size: 16px; margin-bottom: var(--spacing-sm); padding-bottom: var(--spacing-md); border-bottom: 1px solid var(--divider-color); font-weight: 600; }
-    /* [수정] 레이아웃 설정 그룹의 그리드 템플릿 변경 */
     .settings-group {
         display: grid;
         grid-template-columns: 120px 1fr 80px 30px;
@@ -502,7 +488,6 @@
     .settings-group label { font-size: 14px; font-weight: 500; }
     .settings-group input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: var(--input-bg-color); outline: none; border-radius: 3px; }
     .settings-group input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--accent-color); cursor: pointer; border-radius: 50%; }
-    /* [추가] 숫자 입력 필드 스타일 */
     .settings-value-input {
         width: 100%;
         background: var(--input-bg-color);
@@ -524,7 +509,6 @@
         border-color: var(--accent-color);
         background: var(--input-focus-bg-color);
     }
-    /* [수정] 단위 표시 라벨 스타일 */
     .settings-unit-label {
         font-size: 14px;
         color: var(--font-color-dim);
@@ -564,16 +548,17 @@
     #theme-toggle-btn { right: 28px; }
 	#zen-mode-toggle-btn:hover, #theme-toggle-btn:hover { transform: scale(1.1); box-shadow: 0 0 10px var(--accent-color); }
     
-    .editor-area.readonly #note-title-input, .editor-area.readonly #note-content-textarea { cursor: default; background-color: var(--input-bg-color); opacity: 0.8; }
+    .editor-area.readonly #note-title-input, .editor-area.readonly #note-content-textarea { 
+        cursor: default; 
+        background-color: var(--input-bg-color); 
+        opacity: 0.8; 
+    }
     .editor-area.readonly #editor-footer { justify-content: center; }
 
-    /* [개선] 데이터 가져오기 로딩 인디케이터 스타일 */
     .import-overlay {
         position: fixed;
         inset: 0;
         background-color: rgba(0, 0, 0, 0.5);
-        /* -webkit-backdrop-filter: var(--blur-effect); */
-        /* backdrop-filter: var(--blur-effect); */
         z-index: 9999;
         display: flex;
         align-items: center;

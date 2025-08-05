@@ -25,37 +25,11 @@ import {
     forceResolvePendingRename,
     performTransactionalUpdate,
     performDeleteItem,
-    handleAddNoteFromConflict
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
     handleClearSearch, handleSortChange, confirmNavigation 
 } from './navigationActions.js';
-
-
-const HEARTBEAT_KEY = 'mothnote_active_tabs_v1';
-const HEARTBEAT_INTERVAL = 5000;
-let heartbeatIntervalId = null;
-
-const registerTab = () => {
-    try {
-        const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
-        activeTabs[window.tabId] = Date.now();
-        sessionStorage.setItem(HEARTBEAT_KEY, JSON.stringify(activeTabs));
-    } catch (e) {
-        console.error("탭 등록 실패:", e);
-    }
-};
-
-const deregisterTab = () => {
-    try {
-        const activeTabs = JSON.parse(sessionStorage.getItem(HEARTBEAT_KEY) || '{}');
-        delete activeTabs[window.tabId];
-        sessionStorage.setItem(HEARTBEAT_KEY, JSON.stringify(activeTabs));
-    } catch (e) {
-        console.error("탭 등록 해제 실패:", e);
-    }
-};
 
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
@@ -336,117 +310,35 @@ const handleGlobalKeyDown = (e) => { if (e.altKey && !e.ctrlKey && !e.metaKey &&
 const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
 const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { appSettings.layout[settingsKey] = parseInt(sliderElement.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
 const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); appSettings.zenMode.maxWidth = parseInt(settingsZenMaxWidth.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
-const setupEventListeners = () => { if(folderList) { folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER)); } if(noteList) { noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE)); } if(addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder); if(addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote); if(emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash); if(noteTitleInput) { noteTitleInput.addEventListener('input', handleUserInput); noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged()); } if(noteContentTextarea) { noteContentTextarea.addEventListener('input', handleUserInput); noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged()); noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown); } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
+const setupEventListeners = () => { if(folderList) { folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER)); } if(noteList) { noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE)); } if(addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder); if(addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote); if(emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash); if(noteTitleInput) { 
+    noteTitleInput.addEventListener('input', handleUserInput); 
+    noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged());
+    noteTitleInput.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            await saveCurrentNoteIfChanged();
+            noteContentTextarea.focus();
+        }
+    });
+ } if(noteContentTextarea) { 
+    noteContentTextarea.addEventListener('input', handleUserInput); 
+    noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged()); 
+    noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
+    noteContentTextarea.addEventListener('mousedown', async () => {
+        await saveCurrentNoteIfChanged();
+    });
+ } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
-/**
- * [REFACTORED] 데이터 동기화 핸들러 (로컬 우선 정책 적용)
- * "로컬 우선" 정책에 따라, 더 이상 자동으로 데이터를 병합하지 않고 사용자에게 변경 사실만 알립니다.
- * 사용자가 직접 작업을 저장하고 동기화할 수 있도록 하여 데이터 유실을 원천적으로 방지합니다.
- * 이 방식은 복잡한 자동 병합 로직에서 발생하는 수많은 엣지 케이스 버그를 회피하는 가장 안정적인 아키텍처입니다.
- */
-async function handleStorageSync(changes) {
-    if (window.isInitializing || window.isImporting || !changes.appState) {
-        return;
-    }
-
-    const { newValue } = changes.appState;
-    const isSelfChange = newValue.transactionId && newValue.transactionId === state.currentTransactionId;
-    if (isSelfChange) {
-        return;
-    }
-
-    // ★★★★★ "로컬 우선" 정책의 핵심 ★★★★★
-    // 현재 탭에서 사용자가 노트를 수정 중(isDirty)일 경우, 자동으로 데이터를 덮어쓰지 않고 알림만 표시합니다.
-    if (state.isDirty) {
-        console.warn(`SYNC IGNORED: Remote change for transaction ${newValue.transactionId} received, but local state is dirty. Sync will be postponed.`);
-        
-        // 사용자가 인지할 수 있도록, 자동으로 사라지지 않는 토스트 메시지를 표시합니다.
-        const messageNode = document.createElement('span');
-        messageNode.innerHTML = `다른 탭에서 변경사항이 감지되었습니다. 현재 작업을 저장하면 동기화됩니다. <a href="#" id="sync-reload-link" style="color: inherit; text-decoration: underline;">[지금 동기화]</a>`;
-        
-        // 토스트 클릭 시, 저장 후 새로고침을 시도하는 링크
-        messageNode.querySelector('#sync-reload-link').onclick = async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const saved = await saveCurrentNoteIfChanged();
-            if(saved) {
-                // 저장 성공 시, 최신 데이터를 반영하기 위해 페이지를 새로고침합니다.
-                // saveCurrentNoteIfChanged가 충돌을 해결했더라도, 다른 여러 변경사항이 있을 수 있으므로 새로고침이 가장 안전합니다.
-                window.location.reload();
-            } else {
-                showToast("저장에 실패하여 동기화할 수 없습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
-            }
-        };
-
-        showToast(messageNode, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
-        return; // 여기서 함수를 종료하여 위험한 자동 병합을 원천 차단합니다.
-    }
-    // ★★★★★ "로컬 우선" 정책 끝 ★★★★★
-
-    console.log("Storage change detected. Safely reconciling local state.");
-    
-    // 사용자가 작업 중이 아닐 때만, 안전하게 로컬 상태를 최신 데이터로 업데이트합니다.
-    const newState = {
-        folders: newValue.folders,
-        trash: newValue.trash,
-        favorites: new Set(newValue.favorites || []),
-        lastSavedTimestamp: newValue.lastSavedTimestamp,
-        totalNoteCount: newValue.folders.reduce((sum, f) => sum + f.notes.length, 0),
-        
-        // UI 상태는 현재 탭의 것을 그대로 유지합니다.
-        activeFolderId: state.activeFolderId,
-        activeNoteId: state.activeNoteId,
-        noteSortOrder: state.noteSortOrder,
-        lastActiveNotePerFolder: state.lastActiveNotePerFolder,
-        searchTerm: state.searchTerm,
-        preSearchActiveNoteId: state.preSearchActiveNoteId,
-        dateFilter: state.dateFilter,
-        renamingItemId: state.renamingItemId,
-        isDirty: state.isDirty,
-        dirtyNoteId: state.dirtyNoteId,
-    };
-
-    // 유효성 검사: 현재 활성 폴더/노트가 새 데이터에도 존재하는지 확인
-    const allNoteIds = new Set(newState.folders.flatMap(f => f.notes).map(n => n.id));
-    const allFolderIds = new Set(newState.folders.map(f => f.id));
-    Object.values(CONSTANTS.VIRTUAL_FOLDERS).forEach(vf => allFolderIds.add(vf.id));
-
-    if (!allFolderIds.has(newState.activeFolderId)) {
-        newState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-        newState.activeNoteId = null;
-    }
-
-    if (newState.activeNoteId && !allNoteIds.has(newState.activeNoteId)) {
-        newState.activeNoteId = null;
-    }
-    
-    if (newState.renamingItemId) {
-        const itemExists = allFolderIds.has(newState.renamingItemId) || allNoteIds.has(newState.renamingItemId) || newState.trash.some(item => item.id === newState.renamingItemId);
-        if (!itemExists) {
-            forceResolvePendingRename();
-            newState.renamingItemId = null;
-        }
-    }
-
-    // 최종 상태 업데이트 및 UI 다시 그리기
-    setState(newState);
-    buildNoteMap();
-    updateNoteCreationDates();
-    clearSortedNotesCache();
-    if (dashboard) dashboard.renderCalendar(true);
-
-    showToast("🔄 다른 탭의 변경사항이 적용되었습니다.");
-}
-
-
+// [SIMPLIFIED] 멀티탭 동기화 로직 제거
 const setupGlobalEventListeners = () => {
     window.addEventListener('unload', () => {
-        deregisterTab();
-        if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+        // 탭이 닫힐 때 현재 세션 정보 저장
+        saveSession();
     });
     
+    // 페이지가 보이지 않게 될 때, 변경사항 저장
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             saveCurrentNoteIfChanged();
@@ -455,31 +347,22 @@ const setupGlobalEventListeners = () => {
     });
 
     window.addEventListener('beforeunload', (e) => {
-        if (window.isImporting) {
+        if (window.isImporting || state.isDirty) {
+            const message = '작업 중인 내용이 있습니다. 정말로 나가시겠습니까?';
             e.preventDefault();
-            e.returnValue = '';
-            return;
-        }
-        if (state.isDirty) {
-            e.preventDefault();
-            e.returnValue = ''; 
+            e.returnValue = message;
+            return message;
         }
     });
     
     window.addEventListener('keydown', handleGlobalKeyDown);
 
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName === 'local' && changes.appState) {
-            handleStorageSync(changes);
-        }
-    });
+    // [REMOVED] chrome.storage.onChanged 리스너 제거
 };
 
 const init = async () => {
     try {
-        registerTab();
-        heartbeatIntervalId = setInterval(registerTab, HEARTBEAT_INTERVAL);
-
+        window.isInitializing = true;
         loadAndApplySettings();
         
         setupEventListeners();

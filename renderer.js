@@ -1,3 +1,5 @@
+// renderer.js
+
 import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
 import {
     folderList, noteList, addNoteBtn, emptyTrashBtn, notesPanelTitle, noteSortSelect,
@@ -9,7 +11,6 @@ import { toYYYYMMDD } from './itemActions.js';
 
 
 const highlightText = (container, text, term) => {
-    // [안정성 개선] text가 null이나 undefined일 경우를 대비
     const safeText = text ?? '';
     container.innerHTML = ''; 
     if (!term || !safeText) {
@@ -39,12 +40,11 @@ const _updateFolderListItemElement = (li, item, isBeingRenamed) => {
 
     const isVirtual = Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === item.id);
     
-    // 이름 변경 상태에 따라 표시되는 텍스트 분기
     if (isBeingRenamed) {
         nameSpan.textContent = item.name;
     } else {
         const displayName = item.displayName || (isVirtual ? item.name : `📁 ${item.name}`);
-        highlightText(nameSpan, displayName, ''); // 폴더는 검색 하이라이트 없음
+        highlightText(nameSpan, displayName, '');
     }
     
     nameSpan.title = isVirtual ? (item.displayName || item.name) : item.name;
@@ -154,11 +154,9 @@ const createActionButton = ({ className, textContent, title }) => {
     return button;
 };
 
-// [버그 수정] 폴더 패널의 '휴지통' 가상 폴더 자체에 액션 버튼이 나타나지 않도록 수정
 const getActionButtonsConfig = (item, type, isTrashView) => {
     const buttons = [];
     if (isTrashView) {
-        // 휴지통 가상 폴더 자체에는 복원/삭제 버튼을 추가하지 않음
         if (item.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
             return [];
         }
@@ -238,18 +236,15 @@ export const renderFolders = () => {
         return li;
     };
 
-    // Library Section
     fragment.appendChild(createSectionHeader('라이브러리'));
     [CONSTANTS.VIRTUAL_FOLDERS.ALL, CONSTANTS.VIRTUAL_FOLDERS.RECENT, CONSTANTS.VIRTUAL_FOLDERS.FAVORITES]
         .forEach(folder => fragment.appendChild(createListItemElement(folder, CONSTANTS.ITEM_TYPE.FOLDER)));
 
-    // My Folders Section
     if (state.folders.length > 0) {
         fragment.appendChild(createSectionHeader('내 폴더'));
         state.folders.forEach(folder => fragment.appendChild(createListItemElement(folder, CONSTANTS.ITEM_TYPE.FOLDER)));
     }
     
-    // Trash Section
     fragment.appendChild(createListItemElement(CONSTANTS.VIRTUAL_FOLDERS.TRASH, CONSTANTS.ITEM_TYPE.FOLDER));
 
     folderList.innerHTML = '';
@@ -271,7 +266,6 @@ export const renderFolders = () => {
 export let sortedNotesCache = { sourceNotes: null, searchTerm: null, sortOrder: null, result: null };
 export const clearSortedNotesCache = () => { sortedNotesCache.sourceNotes = null; };
 
-// [버그 수정] 날짜 필터링 시 검색 결과가 없을 때의 메시지 추가
 const getPlaceholderMessage = (viewData) => {
     if (state.searchTerm) {
         if (viewData.isDateFilteredView) {
@@ -291,7 +285,6 @@ const getPlaceholderMessage = (viewData) => {
     return '';
 };
 
-// [버그 수정] 날짜 필터링 시 노트 목록을 가져오는 로직 명확화
 const getActiveViewData = () => {
     if (state.dateFilter) {
         const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
@@ -385,6 +378,7 @@ export const renderEditor = () => {
     editorContainer.style.display = 'flex';
     placeholderContainer.style.display = 'none';
 
+    // [SIMPLIFIED] 읽기 전용 상태는 휴지통 여부로만 결정
     const isReadOnly = isInTrash;
     noteTitleInput.readOnly = isReadOnly;
     noteContentTextarea.readOnly = isReadOnly;
