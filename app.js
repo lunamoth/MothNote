@@ -347,8 +347,25 @@ const setupGlobalEventListeners = () => {
     });
 
     window.addEventListener('beforeunload', (e) => {
-        if (window.isImporting || state.isDirty) {
-            const message = '작업 중인 내용이 있습니다. 정말로 나가시겠습니까?';
+        // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실 방지 로직
+        // 탭이 닫히기 직전에 'isDirty' 상태(저장되지 않은 변경사항이 있음)이면,
+        // 사용자에게 경고를 표시하기 전에 즉시 저장을 "시도"합니다.
+        // 이 비동기 작업이 100% 성공한다고 보장할 수는 없지만,
+        // 사용자가 내용을 입력하고 500ms의 자동 저장 딜레이가 지나기 전에 탭을 닫아도
+        // 데이터가 유실될 확률을 크게 줄여줍니다.
+        if (state.isDirty) {
+            saveCurrentNoteIfChanged();
+            
+            // 저장을 시도함과 동시에, 만약의 경우를 대비해 사용자에게 경고 메시지를 표시합니다.
+            const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
+            e.preventDefault();
+            e.returnValue = message;
+            return message;
+        }
+
+        // 데이터 가져오기 중에는 작업이 중단될 수 있음을 경고합니다.
+        if (window.isImporting) {
+            const message = '데이터 가져오기 작업이 진행 중입니다. 이 페이지를 나가면 작업이 취소될 수 있습니다.';
             e.preventDefault();
             e.returnValue = message;
             return message;
