@@ -5,7 +5,8 @@ import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
     editorContainer,
-    addNoteBtn
+    addNoteBtn,
+    formatDate // [기능 복원] formatDate 함수를 import합니다.
 } from './components.js';
 import { updateSaveStatus, clearSortedNotesCache } from './renderer.js';
 import { changeActiveFolder, confirmNavigation } from './navigationActions.js';
@@ -87,7 +88,7 @@ export const finishPendingRename = async () => {
             renamingElement.blur(); // blur 이벤트가 _handleRenameEnd를 트리거
             await pendingRenamePromise; // _handleRenameEnd가 완료될 때까지 기다림
         } else {
-            // 엘리먼트가 사라진 경우 강제 종료
+            // 엘먼트가 사라진 경우 강제 종료
             forceResolvePendingRename();
         }
     }
@@ -297,7 +298,17 @@ export const handleAddNote = async () => {
 
             const now = Date.now();
             const newNoteId = `${CONSTANTS.ID_PREFIX.NOTE}${now}`;
-            const newNote = { id: newNoteId, title: "새 노트", content: "", createdAt: now, updatedAt: now, isPinned: false };
+            
+            // [기능 복원] 중복 제목 넘버링 기능 복원
+            let baseTitle = `${formatDate(now)}의 노트`;
+            let finalTitle = baseTitle;
+            let counter = 2;
+            // 현재 폴더 내에서만 중복 검사
+            while (activeFolder.notes.some(note => note.title === finalTitle)) {
+                finalTitle = `${baseTitle} (${counter++})`;
+            }
+
+            const newNote = { id: newNoteId, title: finalTitle, content: "", createdAt: now, updatedAt: now, isPinned: false };
             
             activeFolder.notes.unshift(newNote);
             activeFolder.updatedAt = now;
