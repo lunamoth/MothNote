@@ -23,8 +23,8 @@ export const CONSTANTS = {
     // --- 가상 폴더 및 UI 관련 상수 (기능 유지) ---
     VIRTUAL_FOLDERS: {
         ALL:    { id: 'all-notes-virtual-id', name: '모든 노트', displayName: '📚 모든 노트', icon: '📚', canAddNote: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note) },
-        RECENT: { id: 'recent-notes-virtual-id', name: '최근 노트', displayName: '🕒 최근 노트', icon: '🕒', canAddNote: false, isSortable: false, getNotes: (state) => state.folders.flatMap(f => f.notes).sort((a,b) => b.updatedAt - a.updatedAt).slice(0, CONSTANTS.RECENT_NOTES_COUNT) },
-        FAVORITES: { id: 'favorites-virtual-id', name: '즐겨찾기', displayName: '⭐ 즐겨찾기', icon: '⭐', canAddNote: false, isSortable: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => state.favorites.has(note.id)) },
+        RECENT: { id: 'recent-notes-virtual-id', name: '최근 노트', displayName: '🕒 최근 노트', icon: '🕒', canAddNote: false, isSortable: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).sort((a,b) => b.updatedAt - a.updatedAt).slice(0, CONSTANTS.RECENT_NOTES_COUNT) },
+        FAVORITES: { id: 'favorites-virtual-id', name: '즐겨찾기', displayName: '⭐ 즐겨찾기', icon: '⭐', canAddNote: false, isSortable: true, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => state.favorites.has(note.id)) },
         TRASH:  { id: 'trash-virtual-id', name: '휴지통', displayName: '🗑️ 휴지통', icon: '🗑️', canAddNote: false, isSortable: false, getNotes: (state) => state.trash }
     },
     CLASSES: {
@@ -50,7 +50,7 @@ export const CONSTANTS = {
     DEBOUNCE_DELAY: {
         KEY_NAV: 200,
         SEARCH: 300,
-        SAVE: 300,
+        SAVE: 500, // 저장 딜레이는 약간 길게 설정하여 잦은 저장을 방지
         WEATHER_SEARCH: 500
     },
     EDITOR: {
@@ -69,7 +69,6 @@ export const CONSTANTS = {
     },
     DASHBOARD: {
         WEATHER_CACHE_KEY: 'weather_cache_v1',
-        LS_KEY_WEATHER: 'newTabNoteWeatherLocation_v1',
         DOM_IDS: {
             digitalClock: 'digital-clock',
             analogClockCanvas: 'analog-clock',
@@ -87,30 +86,19 @@ export const CONSTANTS = {
     AUTO_TITLE_LENGTH_KOR: 50,
     RECENT_NOTES_COUNT: 10,
     TOAST_DURATION: 4000,
-    PLACEHOLDER_EMOJIS: [
-        '🦋', '💡', '✨', '✍️', '🌱', '🦋', '🎨', '🧠', '🌟', '☕', '📖', 
-        '📝', '🧭', '🔭', '🗺️', '🤔', '🌿', '🌻', '🍃', '🌈', '🦉', 
-        '🪐', '🌌', '🧘', '🍵', '🪁', '🎈', '🚀', '💎', '🎯', '🔑',
-        '🖋️', '✏️', '🖌️', '🎶', '💭', '🌳', '🌊', '🐚', '🌕', '🌙', 
-        '🏔️', '📚', '🔎', '📎', '🔗', '🧩', '🕯️', '🔮', '⏳', '♾️'
-    ],
+    PLACEHOLDER_EMOJIS: ['🦋', '💡', '✨', '✍️', '🌱', '🎨', '🧠', '🌟', '☕', '📖', '📝', '🧭', '🔭', '🗺️', '🤔', '🌿', '🌻', '🍃', '🌈', '🦉', '🪐', '🌌', '🧘', '🍵', '🪁', '🎈', '🚀', '💎', '🎯', '🔑', '🖋️', '✏️', '🖌️', '🎶', '💭', '🌳', '🌊', '🐚', '🌕', '🌙', '🏔️', '📚', '🔎', '📎', '🔗', '🧩', '🕯️', '🔮', '⏳', '♾️'],
     MESSAGES: {
         SUCCESS: {
-            NOTE_PINNED: '📍 노트를 고정했습니다.',
-            NOTE_UNPINNED: '📌 노트 고정을 해제했습니다.',
-            NOTE_FAVORITED: '⭐ 노트를 즐겨찾기에 추가했습니다.',
-            NOTE_UNFAVORITED: '⚝ 즐겨찾기에서 노트를 제거했습니다.',
+            NOTE_PINNED: '📍 노트를 고정했습니다.', NOTE_UNPINNED: '📌 노트 고정을 해제했습니다.',
+            NOTE_FAVORITED: '⭐ 노트를 즐겨찾기에 추가했습니다.', NOTE_UNFAVORITED: '⚝ 즐겨찾기에서 노트를 제거했습니다.',
             FOLDER_MOVED_TO_TRASH: name => `🗑️ '${name}' 폴더를 휴지통으로 이동했습니다.`,
             NOTE_MOVED_TO_TRASH: name => `🗑️ '${name}' 노트를 휴지통으로 이동했습니다.`,
             ITEM_RESTORED_FOLDER: name => `♻️ 📁 '${name}' 폴더와 노트를 복원했습니다.`,
             ITEM_RESTORED_NOTE: name => `♻️ 📝 '${name}' 노트를 복원했습니다.`,
-            PERM_DELETE_ITEM_SUCCESS: '💥 항목을 영구적으로 삭제했습니다.',
-            EMPTY_TRASH_SUCCESS: '🗑️ 휴지통을 비웠습니다.',
+            PERM_DELETE_ITEM_SUCCESS: '💥 항목을 영구적으로 삭제했습니다.', EMPTY_TRASH_SUCCESS: '🗑️ 휴지통을 비웠습니다.',
             NOTE_MOVED_SUCCESS: (noteTitle, folderName) => `✅ '${noteTitle}' 노트를 '${folderName}' 폴더로 이동했습니다.`,
-            EXPORT_SUCCESS: '📤 데이터 내보내기 성공!',
-            IMPORT_SUCCESS: '📥 데이터를 성공적으로 가져왔습니다!',
-            SETTINGS_SAVED: '⚙️ 설정이 저장되었습니다.',
-            SETTINGS_RESET: '⚙️ 설정이 기본값으로 복원되었습니다.',
+            EXPORT_SUCCESS: '📤 데이터 내보내기 성공!', IMPORT_SUCCESS: '📥 데이터를 성공적으로 가져왔습니다!',
+            SETTINGS_SAVED: '⚙️ 설정이 저장되었습니다.', SETTINGS_RESET: '⚙️ 설정이 기본값으로 복원되었습니다.',
             IMPORT_RELOAD: '✅ 데이터를 성공적으로 가져왔습니다! 앱을 다시 시작합니다.',
             WEATHER_LOCATION_UPDATED: '🌦️ 날씨 지역 정보가 업데이트되었습니다.'
         },
@@ -120,8 +108,7 @@ export const CONSTANTS = {
             RESTORE_FAILED_NO_FOLDER: '🤔 원본 폴더를 찾을 수 없습니다. 먼저 폴더를 복원해주세요.',
             EMPTY_NAME_ERROR: '🤔 이름은 비워둘 수 없어요.',
             DUPLICATE_NAME_ERROR: name => `🤔 '${name}' 이름이 이미 존재합니다.`,
-            EXPORT_FAILURE: '📤❌ 데이터 내보내기 실패.',
-            IMPORT_FAILURE: err => `📥❌ 가져오기 실패: ${err.message}`,
+            EXPORT_FAILURE: '📤❌ 데이터 내보내기 실패.', IMPORT_FAILURE: err => `📥❌ 가져오기 실패: ${err.message}`,
             IMPORT_SIZE_EXCEEDED: '📥❌ 파일 크기가 5MB를 초과할 수 없습니다.',
             INVALID_FONT_NAME: '🤔 유효하지 않은 글꼴 이름입니다. 기본값으로 복원됩니다.',
             WEATHER_CITY_NOT_FOUND: '🌦️ 도시를 찾을 수 없습니다. 다른 이름으로 검색해보세요.',
@@ -181,9 +168,7 @@ export const subscribe = (callback) => {
 const notify = () => subscribers.forEach(callback => callback());
 
 export const buildNoteMap = () => {
-    // 캐시 초기화
     state._virtualFolderCache = { all: null, recent: null, favorites: null, trash: null };
-
     state.noteMap.clear();
     for (const folder of state.folders) {
         for (const note of folder.notes) {
@@ -207,6 +192,7 @@ const _findNoteInState = (id) => {
     const { item: folder } = _findFolderInState(entry.folderId);
     if (!folder) return { item: null, folder: null, index: -1 };
     
+    // 폴더 내 노트 인덱스 검색
     const index = folder.notes.findIndex(n => n.id === id);
     return { item: entry.note, folder, index };
 };
@@ -234,7 +220,7 @@ const _findInVirtualFolders = (id) => {
     }
     
     return { 
-        item: { ...virtualFolderDef, name: virtualFolderDef.displayName, notes, isVirtual: true }, 
+        item: { ...virtualFolderDef, notes, isVirtual: true }, 
         index: -1 
     };
 }
@@ -249,7 +235,6 @@ const findItem = (id, type) => {
 
     const { item: trashedItem, index: trashIndex } = _findInTrash(id);
     if (trashedItem) {
-        // 휴지통에 있는 폴더와 노트 모두 여기서 처리
         return { item: trashedItem, index: trashIndex, folder: null, isInTrash: true };
     }
 
