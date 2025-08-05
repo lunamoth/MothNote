@@ -1,3 +1,5 @@
+// itemActions.js
+
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
 import { acquireWriteLock, releaseWriteLock, generateUniqueId } from './storage.js';
 import {
@@ -11,6 +13,7 @@ import { updateSaveStatus, clearSortedNotesCache } from './renderer.js';
 import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navigationActions.js';
 
 let globalSaveLock = Promise.resolve();
+let autoSaveTimer = null; // 자동 저장을 위한 타이머
 
 export const toYYYYMMDD = (dateInput) => {
     if (!dateInput) return null;
@@ -67,7 +70,6 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
-// [개선 4] 반환값 일관성 확보
 export const performTransactionalUpdate = async (updateFn) => {
     let lockAcquired = false;
     for (let i = 0; i < 5; i++) {
@@ -116,9 +118,6 @@ export const performTransactionalUpdate = async (updateFn) => {
         setState({ currentTransactionId: transactionId });
         await chrome.storage.local.set({ appState: newData });
         
-        // --- BUG FIX ---
-        // 로컬 state를 즉시 동기화합니다.
-        // handleStorageSync는 자기 자신의 변경은 무시하므로, 여기서 수동으로 상태를 업데이트해야 합니다.
         setState({
             folders: newData.folders,
             trash: newData.trash,
@@ -129,13 +128,9 @@ export const performTransactionalUpdate = async (updateFn) => {
         buildNoteMap();
         updateNoteCreationDates();
         clearSortedNotesCache();
-        // 대시보드 캘린더도 업데이트가 필요할 수 있습니다.
         if (calendarRenderer) {
-            // true를 전달하여 그리드를 강제로 다시 그리게 합니다.
-            // 노트 생성/삭제는 노트 유무 표시를 바꿔야 하기 때문입니다.
             calendarRenderer(true);
         }
-        // --- END OF BUG FIX ---
         
         if (postUpdateState) setState(postUpdateState);
         if (successMessage) showToast(successMessage);
@@ -374,7 +369,7 @@ export const performDeleteItem = (id, type) => {
         if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
         
         if (state.isDirty && state.dirtyNoteId === id) {
-            clearTimeout(debounceTimer);
+            clearTimeout(autoSaveTimer);
             postUpdateState.isDirty = false;
             postUpdateState.dirtyNoteId = null;
             updateSaveStatus('saved');
@@ -396,7 +391,6 @@ export const performDeleteItem = (id, type) => {
 
             successMessage = CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name);
             if (state.activeFolderId === id) {
-                // [개선 2] 폴더 삭제 시 다음 폴더 선택 로직 단순화 및 안정화
                 const nextFolderIndex = Math.max(0, folderIndex - 1);
                 postUpdateState.activeFolderId = folders.length > 0 ? (folders[folderIndex]?.id ?? folders[nextFolderIndex].id) : CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 postUpdateState.activeNoteId = null;
@@ -436,7 +430,6 @@ export const performDeleteItem = (id, type) => {
     });
 };
 
-// ... (handleRestoreItem, handlePermanentlyDeleteItem, handleEmptyTrash 함수는 변경 없음) ...
 export const handleRestoreItem = async (id) => {
     await finishPendingRename();
 
@@ -594,61 +587,49 @@ export const handleEmptyTrash = async () => {
 };
 
 
-let debounceTimer = null;
-export async function handleNoteUpdate(isForced = false) {
-    if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || editorContainer.style.display === 'none') {
-        clearTimeout(debounceTimer);
+/**
+ * [NEW] 최종 저장을 담당하는 견고한 함수.
+ * 사용자의 작업 흐름(컨텍스트)이 전환될 때 호출되어 데이터 무결성을 보장합니다.
+ * @returns {Promise<boolean>} 저장에 성공했거나 변경사항이 없으면 true, 실패하면 false를 반환합니다.
+ */
+export async function saveCurrentNoteIfChanged() {
+    if (editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY) || !state.activeNoteId) {
         return true;
     }
     
     const noteId = state.activeNoteId;
-    if (!noteId) return true;
-    
     const { item: activeNote } = findNote(noteId);
-    if (!activeNote) return true;
+    if (!activeNote) {
+        console.warn(`saveCurrentNoteIfChanged: Note with ID ${noteId} not found in state.`);
+        return true; // 노트가 없는 경우, 더 이상 진행할 수 없으므로 성공으로 처리하여 다른 작업을 막지 않음.
+    }
     
     const currentTitle = noteTitleInput.value;
     const currentContent = noteContentTextarea.value;
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
     
-    if (!isForced) {
-        if (hasChanged) {
-            if (!state.isDirty) {
-                setState({ isDirty: true, dirtyNoteId: noteId });
-                updateSaveStatus('dirty');
-            }
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => handleNoteUpdate(true), CONSTANTS.DEBOUNCE_DELAY.SAVE);
-        }
+    // isDirty 플래그가 꺼져 있더라도, 만약을 위해 실제 내용을 비교.
+    if (!hasChanged && !state.isDirty) {
         return true;
     }
     
-    clearTimeout(debounceTimer);
-
-    if (!state.isDirty || state.dirtyNoteId !== noteId) {
-        return true;
-    }
-    
-    const noteIdToSave = state.dirtyNoteId;
-    const titleToSave = currentTitle;
-    const contentToSave = currentContent;
-
     updateSaveStatus('saving');
 
     const { success } = await performTransactionalUpdate(latestData => {
         let noteToSave, parentFolder;
         for (const folder of latestData.folders) {
-            noteToSave = folder.notes.find(n => n.id === noteIdToSave);
+            noteToSave = folder.notes.find(n => n.id === noteId);
             if (noteToSave) { parentFolder = folder; break; }
         }
+
         if (!noteToSave) {
-            console.warn(`저장하려던 노트(ID: ${noteIdToSave})를 찾을 수 없습니다.`);
-            return null;
+            console.warn(`저장하려던 노트(ID: ${noteId})를 다른 트랜잭션에서 찾을 수 없습니다.`);
+            return null; // 트랜잭션 취소
         }
 
         const now = Date.now();
-        noteToSave.title = titleToSave;
-        noteToSave.content = contentToSave;
+        noteToSave.title = currentTitle;
+        noteToSave.content = currentContent;
         noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         
@@ -656,18 +637,56 @@ export async function handleNoteUpdate(isForced = false) {
     });
     
     if (success) {
-        if (noteTitleInput.value === titleToSave && noteContentTextarea.value === contentToSave) {
-            setState({ isDirty: false, dirtyNoteId: null });
-            updateSaveStatus('saved');
-        } else {
-            handleNoteUpdate(false);
-        }
+        // 저장이 성공하면, UI 피드백 상태를 확실히 초기화합니다.
+        setState({ isDirty: false, dirtyNoteId: null });
+        updateSaveStatus('saved');
     } else {
         updateSaveStatus('dirty');
+        showToast("노트 저장에 실패했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
     }
 
     return success;
 }
+
+/**
+ * [NEW] 사용자 입력에 반응하여 UI 피드백을 주고, 일정 시간 후 자동 저장을 '시도'하는 함수.
+ * 이 함수는 실제 저장을 보장하지 않으며, UI/UX 개선을 목적으로 합니다.
+ */
+export function handleUserInput() {
+    if (!state.activeNoteId || editorContainer.classList.contains(CONSTANTS.CLASSES.READONLY)) {
+        return;
+    }
+
+    const { item: activeNote } = findNote(state.activeNoteId);
+    if (!activeNote) return;
+
+    const currentTitle = noteTitleInput.value;
+    const currentContent = noteContentTextarea.value;
+    const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
+    
+    if (hasChanged) {
+        if (!state.isDirty) {
+            setState({ isDirty: true, dirtyNoteId: state.activeNoteId });
+            updateSaveStatus('dirty');
+        }
+    } else {
+        if (state.isDirty) {
+            setState({ isDirty: false, dirtyNoteId: null });
+            clearTimeout(autoSaveTimer);
+            updateSaveStatus('saved');
+        }
+        return;
+    }
+    
+    clearTimeout(autoSaveTimer);
+
+    autoSaveTimer = setTimeout(() => {
+        if (state.isDirty && state.dirtyNoteId === state.activeNoteId) {
+            saveCurrentNoteIfChanged();
+        }
+    }, CONSTANTS.DEBOUNCE_DELAY.SAVE_FEEDBACK);
+}
+
 
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     nameSpan.contentEditable = false;
@@ -690,10 +709,9 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
     const newName = nameSpan.textContent.trim();
 
-    // [개선 1] 취소 시 UI 복원 로직 강화
     if (!shouldSave || newName === originalName) {
         setState({ renamingItemId: null });
-        if (nameSpan) nameSpan.textContent = originalName; // UI를 원래 이름으로 확실하게 되돌림
+        if (nameSpan) nameSpan.textContent = originalName;
         return;
     }
     
@@ -761,7 +779,6 @@ export const startRename = (liElement, type) => {
                 nameSpan.blur();
             } else if (ev.key === 'Escape') {
                 ev.preventDefault();
-                // [개선 1] shouldSave를 false로 전달하여 취소 로직을 명확히 함
                 _handleRenameEnd(id, type, nameSpan, false);
             }
         };
@@ -771,7 +788,6 @@ export const startRename = (liElement, type) => {
     }, 0);
 };
 
-// [개선 3] 충돌 복구 시 UI 처리 개선
 export const handleAddNoteFromConflict = async (title, content) => {
     const targetFolderId = await showFolderSelectPrompt({
         title: '새 노트로 저장',
@@ -820,7 +836,6 @@ export const handleAddNoteFromConflict = async (title, content) => {
     });
 
     if(success && payload?.newNoteId){
-        // 복구된 노트를 즉시 활성화
         await changeActiveNote(payload.newNoteId);
     }
 };

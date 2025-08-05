@@ -1,3 +1,5 @@
+// app.js
+
 import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
 import { loadData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {
@@ -16,7 +18,7 @@ import { renderAll, clearSortedNotesCache } from './renderer.js';
 import { 
     handleAddFolder, handleAddNote, handleEmptyTrash, handlePinNote,
     handleDelete, handleRestoreItem, handlePermanentlyDeleteItem,
-    startRename, handleNoteUpdate, handleToggleFavorite, setCalendarRenderer,
+    startRename, handleUserInput, saveCurrentNoteIfChanged, handleToggleFavorite, setCalendarRenderer,
     finishPendingRename,
     toYYYYMMDD,
     updateNoteCreationDates,
@@ -92,7 +94,7 @@ const loadAndApplySettings = () => {
 
 const openSettingsModal = async () => {
     await finishPendingRename();
-    await handleNoteUpdate(true);
+    await saveCurrentNoteIfChanged();
 
     settingsCol1Width.value = appSettings.layout.col1;
     settingsCol1Input.value = appSettings.layout.col1;
@@ -225,7 +227,6 @@ const setupSettingsModal = () => {
     settingsSaveBtn.addEventListener('click', handleSettingsSave);
     settingsResetBtn.addEventListener('click', handleSettingsReset);
     settingsExportBtn.addEventListener('click', () => handleExport(appSettings));
-    // [안정성 강화] await 제거. handleImport는 동기 함수(클릭 트리거)
     settingsImportBtn.addEventListener('click', () => handleImport());
 
     settingsModal.addEventListener('close', () => {
@@ -288,7 +289,23 @@ class Dashboard {
     }
     _startClocks() { if (!this.internalState.digitalClockIntervalId) { this._updateDigitalClock(); this.internalState.digitalClockIntervalId = setInterval(this._updateDigitalClock.bind(this), 1000); } if (!this.internalState.analogClockAnimationId) this._animateAnalogClock(); }
     _stopClocks() { if (this.internalState.digitalClockIntervalId) { clearInterval(this.internalState.digitalClockIntervalId); this.internalState.digitalClockIntervalId = null; } if (this.internalState.analogClockAnimationId) { cancelAnimationFrame(this.internalState.analogClockAnimationId); this.internalState.analogClockAnimationId = null; } }
-    _getWeatherInfo(wmoCode, isDay = true) { let weather = CONSTANTS.DASHBOARD.WMO_MAP[wmoCode] ?? { icon: "❓", text: "알 수 없음" }; if (!isDay) { if (wmoCode === 0) weather = { icon: "🌙", text: "맑음 (밤)" }; else if (wmoCode === 1) weather = { icon: "☁️🌙", text: "대체로 맑음 (밤)" }; } return weather; }
+    
+    /**
+     * [BUG FIX] 누락되었던 야간 날씨 아이콘 처리 로직을 복원합니다.
+     */
+    _getWeatherInfo(wmoCode, isDay = true) {
+        let weather = CONSTANTS.DASHBOARD.WMO_MAP[wmoCode] ?? { icon: "❓", text: "알 수 없음" };
+        if (!isDay) {
+            if (wmoCode === 0) { // 맑음
+                weather = { icon: "🌙", text: "맑음 (밤)" };
+            } else if (wmoCode === 1) { // 대체로 맑음
+                weather = { icon: "☁️🌙", text: "대체로 맑음 (밤)" };
+            }
+            // `wmoCode` 2, 3 등은 주간/야간 아이콘이 '☁️'로 동일하므로 특별히 처리하지 않습니다.
+        }
+        return weather;
+    }
+
     _updateDigitalClock() { if (!this.dom.digitalClock) return; this.dom.digitalClock.textContent = new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true }); }
     _initAnalogClock(forceRedraw = false) { if (!this.dom.analogClockCanvas) return; if (this.internalState.analogClockAnimationId) { cancelAnimationFrame(this.internalState.analogClockAnimationId); this.internalState.analogClockAnimationId = null; } if (forceRedraw || !this.internalState.clockFaceCache) this._drawStaticClockFace(); const ctx = this.dom.analogClockCanvas.getContext('2d'); const radius = this.dom.analogClockCanvas.height / 2; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.translate(radius, radius); this._animateAnalogClock(); }
     _drawStaticClockFace() { if (!this.dom.analogClockCanvas) return; const cacheCanvas = document.createElement('canvas'); cacheCanvas.width = this.dom.analogClockCanvas.width; cacheCanvas.height = this.dom.analogClockCanvas.height; const ctx = cacheCanvas.getContext('2d'); const radius = cacheCanvas.height / 2; ctx.translate(radius, radius); const drawNumbers = (context, r) => { context.beginPath(); const style = getComputedStyle(document.documentElement); context.font = `${r * 0.2}px sans-serif`; context.fillStyle = style.getPropertyValue('--font-color-dim').trim(); context.textAlign = 'center'; context.textBaseline = 'middle'; for (let num = 1; num <= 12; num++) { const angle = num * Math.PI / 6; context.fillText(num.toString(), r * 0.85 * Math.cos(angle - Math.PI / 2), r * 0.85 * Math.sin(angle - Math.PI / 2)); } }; const style = getComputedStyle(document.documentElement); ctx.beginPath(); ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); ctx.lineWidth = 2; ctx.stroke(); drawNumbers(ctx, radius); ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = style.getPropertyValue('--accent-color').trim(); ctx.fill(); this.internalState.clockFaceCache = cacheCanvas; }
@@ -311,7 +328,7 @@ window.isImporting = false;
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const setupRippleEffect = () => { document.body.addEventListener('click', (e) => { const button = e.target.closest('.ripple-effect'); if (!button) return; const ripple = document.createElement('span'); const diameter = Math.max(button.clientWidth, button.clientHeight); ripple.style.width = ripple.style.height = `${diameter}px`; ripple.style.left = `${e.clientX - button.getBoundingClientRect().left - diameter / 2}px`; ripple.style.top = `${e.clientY - button.getBoundingClientRect().top - diameter / 2}px`; ripple.classList.add('ripple'); const existingRipple = button.querySelector('.ripple'); if (existingRipple) existingRipple.remove(); button.appendChild(ripple); setTimeout(() => { if (ripple.parentElement) ripple.remove(); }, 600); }); };
-const handleTextareaKeyDown = (e) => { if (e.key === 'Tab') { e.preventDefault(); const textarea = e.target, start = textarea.selectionStart, end = textarea.selectionEnd, text = textarea.value; const startLineIndex = text.lastIndexOf('\n', start - 1) + 1; const endLineActualIndex = text.indexOf('\n', end - 1) === -1 ? text.length : text.indexOf('\n', end - 1); const lines = text.substring(startLineIndex, endLineActualIndex).split('\n'); let modifiedLines; if (e.shiftKey) { modifiedLines = lines.map(line => line.startsWith('\t') ? line.substring(1) : (line.startsWith(' ') ? line.substring(Math.min(line.match(/^ */)[0].length, 4)) : line)); } else { modifiedLines = lines.map(line => '\t' + line); } const modifiedText = modifiedLines.join('\n'); textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex); textarea.selectionStart = startLineIndex; textarea.selectionEnd = startLineIndex + modifiedText.length; handleNoteUpdate(false); } };
+const handleTextareaKeyDown = (e) => { if (e.key === 'Tab') { e.preventDefault(); const textarea = e.target, start = textarea.selectionStart, end = textarea.selectionEnd, text = textarea.value; const startLineIndex = text.lastIndexOf('\n', start - 1) + 1; const endLineActualIndex = text.indexOf('\n', end - 1) === -1 ? text.length : text.indexOf('\n', end - 1); const lines = text.substring(startLineIndex, endLineActualIndex).split('\n'); let modifiedLines; if (e.shiftKey) { modifiedLines = lines.map(line => line.startsWith('\t') ? line.substring(1) : (line.startsWith(' ') ? line.substring(Math.min(line.match(/^ */)[0].length, 4)) : line)); } else { modifiedLines = lines.map(line => '\t' + line); } const modifiedText = modifiedLines.join('\n'); textarea.value = text.substring(0, startLineIndex) + modifiedText + text.substring(endLineActualIndex); textarea.selectionStart = startLineIndex; textarea.selectionEnd = startLineIndex + modifiedText.length; handleUserInput(); } };
 const handleItemActionClick = (button, id, type) => { if (button.classList.contains('pin-btn')) handlePinNote(id); else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id); else if (button.classList.contains('delete-item-btn')) handleDelete(id, type); else if (button.classList.contains('restore-item-btn')) handleRestoreItem(id); else if (button.classList.contains('perm-delete-item-btn')) handlePermanentlyDeleteItem(id); };
 const handleListClick = (e, type) => { const li = e.target.closest('.item-list-entry'); if (!li) return; const id = li.dataset.id; const actionBtn = e.target.closest('.icon-button'); if (actionBtn) { handleItemActionClick(actionBtn, id, li.dataset.type); return; } if (type === CONSTANTS.ITEM_TYPE.FOLDER) changeActiveFolder(id); else if (type === CONSTANTS.ITEM_TYPE.NOTE) changeActiveNote(id); };
 const setupDragAndDrop = (listElement, type) => { if (!listElement) return; let dragOverIndicator; const getDragOverIndicator = () => { if (!dragOverIndicator) { dragOverIndicator = document.createElement('li'); dragOverIndicator.className = 'drag-over-indicator'; } return dragOverIndicator; }; listElement.addEventListener('dragstart', e => { const li = e.target.closest('.item-list-entry'); if (!li || !li.draggable) { e.preventDefault(); return; } draggedItemInfo.id = li.dataset.id; draggedItemInfo.type = type; if (type === CONSTANTS.ITEM_TYPE.NOTE) { const { folder } = findNote(draggedItemInfo.id); draggedItemInfo.sourceFolderId = folder?.id; } e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedItemInfo.id); setTimeout(() => li.classList.add(CONSTANTS.CLASSES.DRAGGING), 0); }); listElement.addEventListener('dragover', e => { e.preventDefault(); if (listElement !== folderList) return; const indicator = getDragOverIndicator(); const li = e.target.closest('.item-list-entry'); const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]'); if (!hasDraggableItems) { listElement.append(indicator); return; } if (!li || li.classList.contains(CONSTANTS.CLASSES.DRAGGING) || !li.draggable) { getDragOverIndicator().remove(); return; } const rect = li.getBoundingClientRect(), isAfter = e.clientY > rect.top + rect.height / 2; if (isAfter) li.after(indicator); else li.before(indicator); }); listElement.addEventListener('dragleave', e => { if (e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) getDragOverIndicator().remove(); }); listElement.addEventListener('drop', async e => { e.preventDefault(); if (listElement !== folderList || !draggedItemInfo.id) return; const indicator = getDragOverIndicator(); if(!indicator.parentElement) return; const draggedId = draggedItemInfo.id; const fromIndex = state.folders.findIndex(item => item.id === draggedId); if (fromIndex === -1) return; const originalNextElId = state.folders[fromIndex + 1]?.id; const dropNextElId = indicator.nextElementSibling?.dataset.id; indicator.remove(); if (originalNextElId === dropNextElId) { setState({}); return; } await performTransactionalUpdate((latestData) => { const { folders } = latestData; const fromIdx = folders.findIndex(item => item.id === draggedId); if (fromIdx === -1) return null; const [draggedItem] = folders.splice(fromIdx, 1); let toIdx = folders.findIndex(item => item.id === dropNextElId); if (toIdx === -1) folders.push(draggedItem); else folders.splice(toIdx, 0, draggedItem); draggedItem.updatedAt = Date.now(); return { newData: latestData, successMessage: null, postUpdateState: {} }; }); }); listElement.addEventListener('dragend', () => { const li = listElement.querySelector(`.${CONSTANTS.CLASSES.DRAGGING}`); if (li) li.classList.remove(CONSTANTS.CLASSES.DRAGGING); getDragOverIndicator().remove(); if (folderList) folderList.querySelector(`.${CONSTANTS.CLASSES.DROP_TARGET}`)?.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); draggedItemInfo = { id: null, type: null, sourceFolderId: null }; }); };
@@ -323,7 +340,7 @@ const handleGlobalKeyDown = (e) => { if (e.altKey && !e.ctrlKey && !e.metaKey &&
 const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
 const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { appSettings.layout[settingsKey] = parseInt(sliderElement.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
 const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); appSettings.zenMode.maxWidth = parseInt(settingsZenMaxWidth.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
-const setupEventListeners = () => { if(folderList) { folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER)); } if(noteList) { noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE)); } if(addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder); if(addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote); if(emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash); if(noteTitleInput) { noteTitleInput.addEventListener('input', () => handleNoteUpdate(false)); noteTitleInput.addEventListener('blur', () => handleNoteUpdate(true)); } if(noteContentTextarea) { noteContentTextarea.addEventListener('input', () => handleNoteUpdate(false)); noteContentTextarea.addEventListener('blur', () => handleNoteUpdate(true)); noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown); } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
+const setupEventListeners = () => { if(folderList) { folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER)); } if(noteList) { noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE)); } if(addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder); if(addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote); if(emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash); if(noteTitleInput) { noteTitleInput.addEventListener('input', handleUserInput); noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged()); } if(noteContentTextarea) { noteContentTextarea.addEventListener('input', handleUserInput); noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged()); noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown); } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
@@ -426,13 +443,19 @@ const setupGlobalEventListeners = () => {
         deregisterTab();
         if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
     });
+    
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            saveCurrentNoteIfChanged();
+            finishPendingRename();
+        }
+    });
 
     window.addEventListener('beforeunload', (e) => {
         if (window.isImporting) {
+            e.preventDefault();
+            e.returnValue = '';
             return;
-        }
-        if (state.renamingItemId) {
-            finishPendingRename();
         }
         if (state.isDirty) {
             e.preventDefault();
@@ -456,7 +479,6 @@ const init = async () => {
 
         loadAndApplySettings();
         
-        // DOM 요소에 대한 이벤트 리스너 설정
         setupEventListeners();
         setupFeatureToggles();
         initializeDragAndDrop();
@@ -464,7 +486,6 @@ const init = async () => {
         setupGlobalEventListeners();
         setupRippleEffect();
         
-        // 상태 변경 시 렌더링 함수 호출
         subscribe(renderAll);
         
         let prevState = { ...state };
@@ -476,13 +497,11 @@ const init = async () => {
             prevState = { ...state };
         });
 
-        // 데이터 로딩 (가장 중요)
         const { recoveryMessage } = await loadData();
         if (recoveryMessage) {
             showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
         }
         
-        // 데이터 로딩 후 대시보드 초기화
         dashboard = new Dashboard();
         dashboard.init();
         setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));

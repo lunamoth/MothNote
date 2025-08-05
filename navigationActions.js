@@ -1,39 +1,31 @@
+// navigationActions.js
+
 import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
 import { saveSession } from './storage.js';
 import {
     searchInput, showConfirm, sortNotes, showToast
 } from './components.js';
-import { handleNoteUpdate, finishPendingRename } from './itemActions.js';
+import { saveCurrentNoteIfChanged, finishPendingRename } from './itemActions.js';
 import { clearSortedNotesCache } from './renderer.js';
 
 
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
-// [아키텍처 변경 후] 이 함수의 역할은 이제 '데이터 동기화 충돌 방지'가 아니라
-// 순수하게 '사용자의 저장되지 않은 작업이 날아가는 것을 방지'하는 것으로 명확해졌습니다.
-// 코드 로직은 변경할 필요 없이 그대로 완벽하게 작동합니다.
+/**
+ * [REFACTORED] 내비게이션을 시도하기 전에 현재 노트의 변경사항을 저장합니다.
+ * 더 이상 사용자에게 확인 프롬프트를 띄우지 않습니다.
+ * 대신, 저장을 시도하고 그 결과에 따라 내비게이션을 허용하거나 차단합니다.
+ * @returns {Promise<boolean>} 내비게이션이 가능하면 true, 저장 실패 등으로 불가능하면 false.
+ */
 export const confirmNavigation = async () => {
-    if (!state.isDirty) return true;
-
-    const ok = await showConfirm({
-        title: CONSTANTS.MODAL_TITLES.UNSAVED_CHANGES,
-        message: '현재 노트에 저장되지 않은 변경사항이 있습니다. 저장하고 이동할까요?',
-        confirmText: '💾 저장하고 이동',
-        cancelText: '❌ 취소'
-    });
-
-    if (ok) {
-        const savedSuccessfully = await handleNoteUpdate(true);
-        if (savedSuccessfully) {
-            return true;
-        } else {
-            showToast('저장에 실패하여 이동이 취소되었습니다.', CONSTANTS.TOAST_TYPE.ERROR);
-            return false;
-        }
+    // isDirty 플래그가 꺼져 있으면 변경사항이 없으므로 항상 안전합니다.
+    if (!state.isDirty) {
+        return true;
     }
-    
-    return false;
+    // isDirty 플래그가 켜져 있으면, 견고한 저장 함수를 호출합니다.
+    // 이 함수는 내부적으로 변경 여부를 다시 확인하고, 저장에 실패하면 false를 반환합니다.
+    return await saveCurrentNoteIfChanged();
 };
 
 export const changeActiveNote = async (newNoteId) => {
@@ -64,7 +56,6 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     if (!options.force && !(await confirmNavigation())) return;
     
     const { item: folder } = findFolder(newFolderId);
-    // 폴더의 노트 목록은 이제 state에서 직접 가져오므로, getNotes(state) 같은 함수는 필요 없습니다.
     const notesInFolder = folder?.notes ?? [];
     
     let nextActiveNoteId = null;
@@ -95,10 +86,7 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
 
 const getCurrentViewNotes = () => {
     if (state.dateFilter) {
-        // toYYYYMMDD는 itemActions에서 가져와야 하지만, 이 파일 내에서 직접 정의하지 않았으므로
-        // 전역적으로 접근 가능하거나, 상위 모듈에서 주입받는다고 가정합니다.
-        // 현재 코드 구조상 itemActions에서 export 되어 있으므로 문제가 없습니다.
-        const { toYYYYMMDD } = require('./itemActions.js'); // 동적 require로 순환 참조 회피 가능
+        const { toYYYYMMDD } = require('./itemActions.js');
         const dateStr = toYYYYMMDD(state.dateFilter);
         return Array.from(state.noteMap.values())
             .map(e => e.note)
