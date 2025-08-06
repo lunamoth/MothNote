@@ -286,7 +286,7 @@ class Dashboard {
     _drawCalendarGrid() { if (!this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.calendarGrid.innerHTML = ''; const year = this.internalState.currentDate.getFullYear(), month = this.internalState.currentDate.getMonth(); this.dom.calendarMonthYear.textContent = `🗓️ ${year}년 ${month + 1}월`; ['일', '월', '화', '수', '목', '금', '토'].forEach(day => { const el = document.createElement('div'); el.className = 'calendar-day day-name'; el.textContent = day; this.dom.calendarGrid.appendChild(el); }); const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate(); for (let i = 0; i < firstDay; i++) this.dom.calendarGrid.appendChild(document.createElement('div')); const today = new Date(), todayYear = today.getFullYear(), todayMonth = today.getMonth(), todayDate = today.getDate(); for (let i = 1; i <= daysInMonth; i++) { const el = document.createElement('div'); el.className = 'calendar-day date-cell current-month ripple-effect'; el.textContent = i; if (i === todayDate && year === todayYear && month === todayMonth) el.classList.add('today'); el.dataset.date = toYYYYMMDD(new Date(year, month, i)); this.dom.calendarGrid.appendChild(el); } }
     renderCalendar(forceRedraw = false) { const newMonthIdentifier = `${this.internalState.currentDate.getFullYear()}-${this.internalState.currentDate.getMonth()}`; if (forceRedraw || this.internalState.displayedMonth !== newMonthIdentifier) { this._drawCalendarGrid(); this.internalState.displayedMonth = newMonthIdentifier; } this._updateCalendarHighlights(); }
     resetCalendarDate() { this.internalState.currentDate = new Date(); }
-    _setupCalendarEvents() { if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.prevMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1); this.renderCalendar(); }; this.dom.nextMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1); this.renderCalendar(); }; this.dom.calendarMonthYear.onclick = async () => { const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate }); if (result) { this.internalState.currentDate = new Date(result.year, result.month, 1); this.renderCalendar(); } }; this.dom.calendarGrid.onclick = async e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { if (!(await confirmNavigation())) return; const newFilterDate = new Date(target.dataset.date); const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime(); searchInput.value = ''; if (isSameDate) { setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' }); } else { this.internalState.currentDate = newFilterDate; const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date); const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder); setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' }); this.renderCalendar(); } } }; this.dom.calendarGrid.addEventListener('mouseover', e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음'); if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`; } }); }
+    _setupCalendarEvents() { if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.prevMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1); this.renderCalendar(); }; this.dom.nextMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1); this.renderCalendar(); }; this.dom.calendarMonthYear.onclick = async () => { const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate }); if (result) { this.internalState.currentDate = new Date(result.year, result.month, 1); this.renderCalendar(); } }; this.dom.calendarGrid.onclick = async e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { if (!(await confirmNavigation())) return; const newFilterDate = new Date(target.dataset.date + 'T00:00:00'); const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime(); searchInput.value = ''; if (isSameDate) { setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' }); } else { this.internalState.currentDate = newFilterDate; const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date); const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder); setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' }); this.renderCalendar(); } } }; this.dom.calendarGrid.addEventListener('mouseover', e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음'); if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.slice(0,5).join('\n- ')}${notesOnDate.length > 5 ? '\n...' : ''}`; } }); }
 }
 
 window.isInitializing = true;
@@ -308,32 +308,58 @@ const handleGlobalKeyDown = (e) => { if (e.altKey && !e.ctrlKey && !e.metaKey &&
 const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
 const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { appSettings.layout[settingsKey] = parseInt(sliderElement.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
 const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); appSettings.zenMode.maxWidth = parseInt(settingsZenMaxWidth.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
-const setupEventListeners = () => { if(folderList) { folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER)); } if(noteList) { noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE)); } if(addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder); if(addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote); if(emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash); if(noteTitleInput) { 
-    noteTitleInput.addEventListener('input', handleUserInput); 
-    noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged());
-    noteTitleInput.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            await saveCurrentNoteIfChanged();
-            noteContentTextarea.focus();
-        }
-    });
- } if(noteContentTextarea) { 
-    noteContentTextarea.addEventListener('input', handleUserInput); 
-    noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged()); 
-    noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
-    noteContentTextarea.addEventListener('mousedown', async () => {
-        await saveCurrentNoteIfChanged();
-    });
- } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
+const setupEventListeners = () => {
+    if (folderList) {
+        folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER));
+        folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER));
+        folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER));
+    }
+    if (noteList) {
+        noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE));
+        noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE));
+        noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE));
+    }
+    if (addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder);
+    if (addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote);
+    if (emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash);
+    if (noteTitleInput) {
+        noteTitleInput.addEventListener('input', handleUserInput);
+        // [BUG FIX] 제목 입력 필드의 불안정한 blur 이벤트 핸들러를 제거합니다.
+        // 대신 자동 저장, Enter 키, 탐색 시 저장 등 다른 안정적인 메커니즘에 의존합니다.
+        noteTitleInput.addEventListener('keydown', async (e) => {
+            // [BUG FIX] 사용자가 제목 입력 후 'Enter'를 누르는 명확한 행동에만 반응하도록 수정합니다.
+            // 'Tab' 키는 기본 동작을 유지하여 접근성을 해치지 않도록 합니다.
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                await saveCurrentNoteIfChanged();
+                noteContentTextarea.focus();
+            }
+        });
+    }
+    if (noteContentTextarea) {
+        noteContentTextarea.addEventListener('input', handleUserInput);
+        noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged());
+        noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
+    }
+    if (searchInput) searchInput.addEventListener('input', handleSearchInput);
+    if (clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch);
+    if (noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange);
+    if (shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal);
+    setupSettingsModal();
+    setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input);
+    setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input);
+    setupZenModeResize();
+};
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
 const setupGlobalEventListeners = () => {
     window.addEventListener('unload', () => {
+        // [REMOVED] saveCurrentNoteIfChanged() is now handled by beforeunload
         saveSession();
     });
     
+    // [NEW] visibilitychange 이벤트로 데이터 손실 방지 강화
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             saveCurrentNoteIfChanged();
@@ -341,7 +367,7 @@ const setupGlobalEventListeners = () => {
         }
     });
     
-    // [버그 수정] 데이터 유실 방지를 위해 beforeunload 핸들러 로직 전면 수정
+    // [BUG FIX] 데이터 유실 방지를 위해 beforeunload 핸들러 로직 전면 수정
     window.addEventListener('beforeunload', (e) => {
         const isNoteDirty = state.isDirty && state.dirtyNoteId;
         const isRenaming = !!state.renamingItemId;
@@ -428,6 +454,10 @@ const init = async () => {
             if (prevState.dateFilter && !state.dateFilter && dashboard) {
                 dashboard.resetCalendarDate();
                 dashboard.renderCalendar();
+            }
+            if (prevState.renamingItemId && !state.renamingItemId) {
+                const finishedRenameItem = document.querySelector(`[data-id="${prevState.renamingItemId}"] .item-name`);
+                if(finishedRenameItem) finishedRenameItem.contentEditable = false;
             }
             prevState = { ...state };
         });

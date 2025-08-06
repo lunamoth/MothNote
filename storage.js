@@ -15,7 +15,7 @@ export const generateUniqueId = (prefix, existingIds) => {
     if (typeof crypto?.randomUUID === 'function') {
         let id;
         do {
-            id = crypto.randomUUID();
+            id = `${prefix}-${crypto.randomUUID()}`;
         } while (existingIds.has(id));
         return id;
     }
@@ -120,9 +120,14 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         // 폴더별 마지막 활성 노트 목록에서 변경된 ID를 업데이트
         for (const folderId in lastActiveNotePerFolder) {
+            const newFolderId = idUpdateMap.get(folderId) || folderId;
             const lastActiveId = lastActiveNotePerFolder[folderId];
             if (idUpdateMap.has(lastActiveId)) {
                 lastActiveNotePerFolder[folderId] = idUpdateMap.get(lastActiveId);
+            }
+            if(newFolderId !== folderId) {
+                lastActiveNotePerFolder[newFolderId] = lastActiveNotePerFolder[folderId];
+                delete lastActiveNotePerFolder[folderId];
             }
         }
         
@@ -182,10 +187,11 @@ export const loadData = async () => {
         if (authoritativeData) {
             // 데이터의 깊은 복사본을 만들어 원본 오염 없이 안전하게 검증합니다.
             const { sanitizedData, wasSanitized } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
-            authoritativeData = sanitizedData;
+            
             if (wasSanitized) {
                 // 자동 복구가 발생했음을 사용자에게 알리고, 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
-                await chrome.storage.local.set({ appState: authoritativeData });
+                await chrome.storage.local.set({ appState: sanitizedData });
+                authoritativeData = sanitizedData; // 업데이트된 데이터를 사용
                 const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다.";
                 recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
                 console.log("Sanitized data has been saved back to storage.");
@@ -203,7 +209,7 @@ export const loadData = async () => {
                 let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
                 
                 if(backupChanges.noteUpdate) {
-                    confirmMessage += `<strong>📝 노트 수정:</strong> '${backupChanges.noteUpdate.title.slice(0, 20)}...'<br>`;
+                    confirmMessage += `<strong>📝 노트 수정:</strong> '${(backupChanges.noteUpdate.title || "제목 없음").slice(0, 20)}...'<br>`;
                 }
                 if(backupChanges.itemRename) {
                     const itemTypeStr = backupChanges.itemRename.type === 'folder' ? '📁 폴더' : '📝 노트';
@@ -220,6 +226,9 @@ export const loadData = async () => {
                 });
 
                 if (userConfirmed) {
+                    // 복원을 수락하면, 백업은 즉시 제거 (재시도 방지)
+                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+
                     const { success } = await performTransactionalUpdate(latestData => {
                         const now = Date.now();
                         let changesApplied = false;
@@ -267,13 +276,12 @@ export const loadData = async () => {
                         if (changesApplied) {
                             return { newData: latestData, successMessage: '✅ 변경사항이 성공적으로 복원되었습니다.' };
                         }
-                        return null; // 적용할 변경이 없으면 업데이트 취소
+                        // 적용할 변경이 없으면 업데이트 취소 (하지만 여전히 성공으로 간주하여 에러 토스트 방지)
+                        showToast("복원할 항목을 찾지 못했지만, 백업은 안전하게 제거되었습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
+                        return null; 
                     });
                     
-                    if (success) {
-                       // 복원에 성공했을 때만 비상 백업을 제거합니다.
-                       localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
-                    } else {
+                    if (!success) {
                        showToast("복원 중 오류가 발생했습니다. 일부 변경사항이 적용되지 않았을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                     }
                 } else {
@@ -331,12 +339,8 @@ export const loadData = async () => {
 
             if (!folderExists) {
                 setState({ activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id, activeNoteId: null });
-            } else if (state.activeFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && !noteExistsInMap) {
-                const { item: activeFolder } = findFolder(state.activeFolderId);
-                 const firstNoteId = (activeFolder && activeFolder.notes && activeFolder.notes.length > 0)
-                    ? sortNotes(activeFolder.notes, state.noteSortOrder)[0]?.id ?? null
-                    : null;
-                setState({ activeNoteId: firstNoteId });
+            } else if (state.activeFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && state.activeNoteId && !noteExistsInMap) {
+                 setState({ activeNoteId: null });
             }
 
         } else { // 데이터가 아예 없는 초기 실행
@@ -469,21 +473,20 @@ const sanitizeContentData = data => {
 
     // [순환 참조 해결] 이제 이 파일에 있는 함수를 직접 호출
     const getUniqueId = (prefix, id) => {
-        const oldId = id; 
-        let finalId = String(id ?? `${prefix}-${Date.now()}`).slice(0, 50);
+        let finalId = id || generateUniqueId(prefix, usedIds);
         let counter = 1;
         while (usedIds.has(finalId)) {
             finalId = `${String(id).slice(0, 40)}-${counter++}`;
         }
         usedIds.add(finalId);
-        if (oldId) {
-            idMap.set(oldId, finalId); 
+        if (id) {
+            idMap.set(id, finalId); 
         }
         return finalId;
     };
 
     const sanitizeNote = (n, isTrash = false) => {
-        const noteId = getUniqueId('note', n.id);
+        const noteId = getUniqueId(CONSTANTS.ID_PREFIX.NOTE, n.id);
         const note = {
             id: noteId,
             title: escapeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
@@ -501,7 +504,7 @@ const sanitizeContentData = data => {
     };
 
     const sanitizedFolders = data.folders.map(f => {
-        const folderId = getUniqueId('folder', f.id);
+        const folderId = getUniqueId(CONSTANTS.ID_PREFIX.FOLDER, f.id);
         const notes = Array.isArray(f.notes) ? f.notes.map(n => sanitizeNote(n)) : [];
         return {
             id: folderId,
@@ -513,9 +516,9 @@ const sanitizeContentData = data => {
     });
 
     const sanitizedTrash = Array.isArray(data.trash) ? data.trash.reduce((acc, item) => {
-        if (!item || !item.type) return acc;
+        if (!item || (!item.type && !item.notes)) return acc; // ignore invalid items
         if (item.type === 'folder') {
-            const folderId = getUniqueId('folder', item.id);
+            const folderId = getUniqueId(CONSTANTS.ID_PREFIX.FOLDER, item.id);
             const folder = {
                 id: folderId,
                 name: escapeHtml(String(item.name ?? '제목 없는 폴더')).slice(0, 100),
@@ -527,7 +530,7 @@ const sanitizeContentData = data => {
                 folder.notes = item.notes.map(n => sanitizeNote(n, true));
             }
             acc.push(folder);
-        } else if (item.type === 'note') {
+        } else if (item.type === 'note' || !item.type) {
             acc.push(sanitizeNote(item, true));
         }
         return acc;
