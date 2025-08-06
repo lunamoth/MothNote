@@ -763,8 +763,9 @@ export async function saveCurrentNoteIfChanged() {
                 }
                 finalTitle = firstLine;
                 
-                // UI에도 즉시 반영하여 사용자가 변경사항을 볼 수 있게 함
-                noteTitleInput.value = finalTitle;
+                // [BUG FIX] 데이터-UI 비동기화 및 데이터 유실 방지를 위해 UI 직접 조작 코드를 제거했습니다.
+                // 저장이 성공적으로 완료된 후, 중앙 상태(state)가 업데이트되고,
+                // 이를 구독하는 렌더링 파이프라인이 UI를 안전하게 업데이트합니다.
             }
         }
         // --- [NEW] 로직 끝 ---
