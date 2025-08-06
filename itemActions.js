@@ -346,7 +346,8 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
 });
 
 export const handleDelete = async (id, type) => {
-    if (!(await confirmNavigation())) return;
+    // [BUG-C-02 수정] 삭제를 진행하기 전에, 저장되지 않은 변경사항을 먼저 저장합니다.
+    if (!(await saveCurrentNoteIfChanged())) return;
     await finishPendingRename();
     
     const { item } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
@@ -371,13 +372,8 @@ export const performDeleteItem = (id, type) => {
 
         if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
         
-        if (state.isDirty && state.dirtyNoteId === id) {
-            clearTimeout(autoSaveTimer);
-            postUpdateState.isDirty = false;
-            postUpdateState.dirtyNoteId = null;
-            updateSaveStatus('saved');
-        }
-
+        // [BUG-C-02 수정] 사전 저장을 보장하므로, 위험했던 isDirty 상태 처리 로직을 제거합니다.
+        
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             const folderIndex = folders.findIndex(f => f.id === id);
             if (folderIndex === -1) return null;

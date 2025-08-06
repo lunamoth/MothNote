@@ -54,22 +54,30 @@ export const loadData = async () => {
     let authoritativeData = null; // [버그 수정] 데이터 로딩 순서 제어를 위해 변수 위치 변경
 
     try {
-        // 1. [BUG FIX] 치명적 오류 복구: 불안정한 가져오기(Import) 작업 롤백
+        // [BUG-C-01 수정] 가져오기(Import) 작업의 원자성(Atomicity) 보장 로직
+        const importStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
         const backupResult = await chrome.storage.local.get('appState_backup');
-        if (backupResult.appState_backup) {
-            const backupPayload = backupResult.appState_backup;
-            console.warn("완료되지 않은 가져오기 작업 감지. 이전 데이터로 롤백합니다.");
 
-            // [FIX] 노트 데이터와 설정 데이터를 모두 롤백하여 트랜잭션 보장
+        if (importStatus === 'done' && backupResult.appState_backup) {
+            // 시나리오: 성공적인 가져오기 후 리로드됨. 백업을 정리하고 계속 진행합니다.
+            console.log("Import successfully completed. Cleaning up backup data.");
+            await chrome.storage.local.remove('appState_backup');
+            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            recoveryMessage = CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS;
+        } else if (importStatus === 'true' && backupResult.appState_backup) {
+            // 시나리오: 가져오기 중 비정상 종료됨. 이전 데이터로 롤백합니다.
+            const backupPayload = backupResult.appState_backup;
+            console.warn("Incomplete import detected. Rolling back to previous data.");
+            
             await chrome.storage.local.set({ appState: backupPayload.appState });
             if (backupPayload.settings) {
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
             } else {
-                // 백업에 설정이 없는 경우(레거시 백업 호환), 기존 설정을 제거하여 일관성 유지
                 localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
             }
             
             await chrome.storage.local.remove('appState_backup');
+            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
         }
         
@@ -444,6 +452,7 @@ export const setupImportHandler = () => {
         const reader = new FileReader();
         reader.onload = async event => {
             let overlay = null;
+            let importStarted = false;
 
             try {
                 const importedData = JSON.parse(event.target.result);
@@ -471,6 +480,10 @@ export const setupImportHandler = () => {
                     if (!finalConfirm) { showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR); e.target.value = ''; return; }
                 }
                 
+                // [BUG-C-01 수정] 실제 작업을 시작하기 직전에 플래그를 설정합니다.
+                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
+                importStarted = true;
+
                 const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
                 await finishPendingRename();
                 await saveCurrentNoteIfChanged();
@@ -487,7 +500,7 @@ export const setupImportHandler = () => {
                     favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
                 };
 
-                // [BUG FIX] 트랜잭션 보장: 1. 백업 생성 (노트/폴더 데이터와 설정을 함께 백업)
+                // 트랜잭션 보장: 1. 백업 생성 (노트/폴더 데이터와 설정을 함께 백업)
                 const currentDataResult = await chrome.storage.local.get('appState');
                 const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
 
@@ -499,27 +512,30 @@ export const setupImportHandler = () => {
                     await chrome.storage.local.set({ 'appState_backup': backupPayload });
                 }
 
-                // [BUG FIX] 트랜잭션 보장: 2. 데이터 덮어쓰기
+                // 트랜잭션 보장: 2. 데이터 덮어쓰기
                 await chrome.storage.local.set({ appState: importPayload });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                 localStorage.removeItem(CONSTANTS.LS_KEY);
 
-                // [BUG FIX C-02] 트랜잭션 보장: 3. 성공 확정! 백업을 리로드 *전에* 즉시 제거
-                await chrome.storage.local.remove('appState_backup');
+                // [BUG-C-01 수정] 성공 플래그를 설정하고 리로드합니다.
+                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                 setTimeout(() => window.location.reload(), 500);
 
             } catch (err) {
-                // [BUG FIX] 에러 발생 시, 롤백 로직이 다음 앱 실행 시 자동으로 처리함
                 console.error("Import failed critically:", err);
                 showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR, 0);
-                // 에러 발생 시 리로드하여 loadData의 복구 로직 실행
-                setTimeout(() => window.location.reload(), 1000);
+                // 롤백 로직이 다음 앱 실행 시 자동으로 처리하므로, 여기서는 에러 메시지만 표시합니다.
             } finally {
                 window.isImporting = false;
                 if (overlay?.parentElement) overlay.remove();
                 e.target.value = '';
+                // [BUG-C-01 수정] 사용자가 작업을 취소했거나, 롤백이 필요한 에러가 발생한 경우에만 플래그를 제거합니다.
+                // 성공적으로 리로드를 시작한 경우에는 플래그를 남겨둬야 합니다.
+                if (importStarted && localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS) !== 'done') {
+                    localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                }
             }
         };
         reader.readAsText(file);
