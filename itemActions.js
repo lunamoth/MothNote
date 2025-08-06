@@ -139,9 +139,18 @@ export const performTransactionalUpdate = async (updateFn) => {
     return { success, payload: resultPayload };
 };
 
+// [BUG-C-CRITICAL 수정] 모달 확인 후에 변경사항을 저장하도록 `withConfirmation` 헬퍼 수정
 async function withConfirmation(options, action) {
     const ok = await showConfirm(options);
-    if (ok) await action();
+    if (ok) {
+        // 실제 액션을 실행하기 직전에, 모달이 떠있는 동안 발생했을 수 있는
+        // 모든 변경사항을 저장 시도합니다.
+        if (!(await saveCurrentNoteIfChanged())) {
+            showToast("변경사항 저장에 실패하여 작업을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+        await action();
+    }
 }
 
 const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
@@ -158,8 +167,8 @@ const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
 
 export const handleAddFolder = async () => {
     await finishPendingRename();
-    if (!(await confirmNavigation())) return;
-
+    
+    // [BUG-C-CRITICAL 수정] 프롬프트가 끝난 후에 변경사항을 저장하도록 순서 변경
     const name = await showPrompt({
         title: CONSTANTS.MODAL_TITLES.NEW_FOLDER,
         placeholder: '📁 폴더 이름을 입력하세요',
@@ -174,6 +183,11 @@ export const handleAddFolder = async () => {
     });
 
     if (!name) return;
+
+    if (!(await saveCurrentNoteIfChanged())) {
+        showToast("변경사항 저장에 실패하여 폴더를 추가하지 않았습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
 
     // [BUG FIX] ID 고유성 검사에 휴지통에 있는 폴더 ID도 포함
     const allFolderIds = new Set(state.folders.map(f => f.id));
@@ -346,8 +360,8 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
 });
 
 export const handleDelete = async (id, type) => {
-    // [BUG-C-02 수정] 삭제를 진행하기 전에, 저장되지 않은 변경사항을 먼저 저장합니다.
-    if (!(await saveCurrentNoteIfChanged())) return;
+    // [BUG-C-CRITICAL 수정] 여기서 변경사항을 미리 저장하지 않습니다.
+    // `withConfirmation` 헬퍼가 모달 확인 후에 저장하도록 처리합니다.
     await finishPendingRename();
     
     const { item } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
@@ -372,7 +386,7 @@ export const performDeleteItem = (id, type) => {
 
         if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
         
-        // [BUG-C-02 수정] 사전 저장을 보장하므로, 위험했던 isDirty 상태 처리 로직을 제거합니다.
+        // [BUG-C-CRITICAL 수정] `withConfirmation`에서 사전 저장을 보장하므로 isDirty 상태 처리 로직 불필요
         
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             const folderIndex = folders.findIndex(f => f.id === id);
@@ -468,6 +482,12 @@ export const handleRestoreItem = async (id) => {
         }
     }
 
+    // [BUG-C-CRITICAL 수정] 모든 모달 상호작용이 끝난 후 변경사항 저장
+    if (!(await saveCurrentNoteIfChanged())) {
+        showToast("변경사항 저장에 실패하여 복원 작업을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
+
     const updateLogic = (latestData) => {
         const { folders, trash } = latestData;
         const itemIndexInTx = trash.findIndex(item => item.id === id);
@@ -489,9 +509,22 @@ export const handleRestoreItem = async (id) => {
                 itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
             }
 
-            // --- [BUG FIX] 노트 ID 충돌 검사 및 해결 로직 추가 ---
+            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 및 해결 로직 수정 ---
             const allExistingNoteIds = new Set();
+            // 1. 활성 폴더의 모든 노트 ID 추가
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
+            // 2. 휴지통에 남아있는 다른 모든 항목의 노트 ID 추가
+            trash.forEach(item => {
+                // 휴지통에 있는 개별 노트
+                if (item.type === 'note' || !item.type) {
+                    allExistingNoteIds.add(item.id);
+                } 
+                // 휴지통에 있는 다른 폴더 안의 노트들
+                else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
+                }
+            });
+
             const favoritesSet = new Set(latestData.favorites || []);
             
             itemToRestoreInTx.notes.forEach(note => {
@@ -513,7 +546,7 @@ export const handleRestoreItem = async (id) => {
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
             latestData.favorites = Array.from(favoritesSet);
-            // --- [BUG FIX] 끝 ---
+            // --- [CRITICAL BUG FIX] 끝 ---
 
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
             itemToRestoreInTx.updatedAt = now;
