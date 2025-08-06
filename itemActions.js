@@ -666,12 +666,20 @@ export const handlePermanentlyDeleteItem = async (id) => {
                 postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, trashItems);
             }
             
+            // [BUG FIX] 영구 삭제 시 폴더에 포함된 노트의 즐겨찾기 상태도 함께 정리합니다.
+            const favoritesSet = new Set(latestData.favorites || []);
+            const initialSize = favoritesSet.size;
+
             if (deletedItem.type === 'note' || !deletedItem.type) {
-                const favoritesSet = new Set(latestData.favorites || []);
-                if(favoritesSet.has(id)) {
-                    favoritesSet.delete(id);
-                    latestData.favorites = Array.from(favoritesSet);
-                }
+                favoritesSet.delete(id);
+            } else if (deletedItem.type === 'folder' && Array.isArray(deletedItem.notes)) {
+                deletedItem.notes.forEach(note => {
+                    favoritesSet.delete(note.id);
+                });
+            }
+
+            if (favoritesSet.size < initialSize) {
+                latestData.favorites = Array.from(favoritesSet);
             }
             
             return {
@@ -701,10 +709,15 @@ export const handleEmptyTrash = async () => {
                 postUpdateState.renamingItemId = null;
             }
 
+            // [BUG FIX] 휴지통을 비울 때 폴더 내 노트들의 즐겨찾기 상태도 모두 제거합니다.
             const favoritesSet = new Set(latestData.favorites || []);
             latestData.trash.forEach(item => {
                 if (item.type === 'note' || !item.type) {
-                     favoritesSet.delete(item.id);
+                    favoritesSet.delete(item.id);
+                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                    item.notes.forEach(note => {
+                        favoritesSet.delete(note.id);
+                    });
                 }
             });
             latestData.favorites = Array.from(favoritesSet);
