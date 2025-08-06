@@ -57,8 +57,18 @@ export const loadData = async () => {
         // 1. [BUG FIX] 치명적 오류 복구: 불안정한 가져오기(Import) 작업 롤백
         const backupResult = await chrome.storage.local.get('appState_backup');
         if (backupResult.appState_backup) {
+            const backupPayload = backupResult.appState_backup;
             console.warn("완료되지 않은 가져오기 작업 감지. 이전 데이터로 롤백합니다.");
-            await chrome.storage.local.set({ appState: backupResult.appState_backup });
+
+            // [FIX] 노트 데이터와 설정 데이터를 모두 롤백하여 트랜잭션 보장
+            await chrome.storage.local.set({ appState: backupPayload.appState });
+            if (backupPayload.settings) {
+                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
+            } else {
+                // 백업에 설정이 없는 경우(레거시 백업 호환), 기존 설정을 제거하여 일관성 유지
+                localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+            }
+            
             await chrome.storage.local.remove('appState_backup');
             recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
         }
@@ -477,10 +487,16 @@ export const setupImportHandler = () => {
                     favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
                 };
 
-                // [BUG FIX] 트랜잭션 보장: 1. 백업 생성
+                // [BUG FIX] 트랜잭션 보장: 1. 백업 생성 (노트/폴더 데이터와 설정을 함께 백업)
                 const currentDataResult = await chrome.storage.local.get('appState');
+                const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
+
                 if (currentDataResult.appState) {
-                    await chrome.storage.local.set({ 'appState_backup': currentDataResult.appState });
+                    const backupPayload = {
+                        appState: currentDataResult.appState,
+                        settings: currentSettings // settings가 null일 수도 있음 (정상)
+                    };
+                    await chrome.storage.local.set({ 'appState_backup': backupPayload });
                 }
 
                 // [BUG FIX] 트랜잭션 보장: 2. 데이터 덮어쓰기

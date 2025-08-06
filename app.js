@@ -340,11 +340,19 @@ const setupGlobalEventListeners = () => {
         }
     });
     
+    // [BUG FIX] 데이터 유실 방지를 위해 beforeunload 핸들러 로직 수정
     window.addEventListener('beforeunload', (e) => {
         const isNoteDirty = state.isDirty && state.dirtyNoteId;
         const isRenaming = !!state.renamingItemId;
 
+        // 저장되지 않은 노트 수정 또는 이름 변경 작업이 진행 중일 때
         if ((isNoteDirty || isRenaming) && !window.isImporting) {
+            const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
+            // [FIX] 데이터 유실을 막기 위해 항상 경고창을 우선적으로 표시
+            e.preventDefault();
+            e.returnValue = message;
+
+            // 비상 백업을 시도
             try {
                 const finalStateToBackup = JSON.parse(JSON.stringify({
                     folders: state.folders,
@@ -379,24 +387,18 @@ const setupGlobalEventListeners = () => {
                         const newName = nameSpan.textContent.trim();
                         const type = renamingElement.dataset.type;
                         let itemUpdated = false;
-
-                        // --- 유효성 검사 로직 ---
                         let isInvalid = false;
                         if (!newName) {
-                            isInvalid = true; // 빈 이름 금지
+                            isInvalid = true;
                         } else if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
                             const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
-                            // 이름이 실제로 변경되었을 때만 중복 검사 수행
                             if (folderToUpdate && folderToUpdate.name.toLowerCase() !== newName.toLowerCase()) {
-                                // [BUG FIX] 자기 자신을 제외하고 중복 검사를 수행하여 데이터 유실 방지
                                 if (finalStateToBackup.folders.some(f => f.id !== state.renamingItemId && f.name.toLowerCase() === newName.toLowerCase())) {
-                                    isInvalid = true; // 중복 폴더 이름 금지
+                                    isInvalid = true;
                                 }
                             }
                         }
-                        // 노트의 경우, 같은 폴더 내 중복은 덜 치명적이므로 일단 폴더 중복만 막아도 Critical 버그는 해결됨
                         
-                        // --- 유효성 검사 통과 시에만 업데이트 ---
                         if (!isInvalid) {
                             if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
                                 const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
@@ -425,18 +427,17 @@ const setupGlobalEventListeners = () => {
                     }
                 }
                 
+                // 유효한 변경사항이 있을 때만 백업 파일을 생성
                 if (changesMade) {
                     finalStateToBackup.lastSavedTimestamp = Date.now();
                     localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP, JSON.stringify(finalStateToBackup));
-    
-                    const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
-                    e.preventDefault();
-                    e.returnValue = message;
-                    return message;
                 }
             } catch (err) {
                 console.error("Emergency backup save failed:", err);
             }
+            
+            // 경고 메시지를 반환하여 페이지 이탈을 막음
+            return message;
         }
     
         if (window.isImporting) {
