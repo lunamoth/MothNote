@@ -788,8 +788,9 @@ export async function saveCurrentNoteIfChanged() {
     if (success) {
         setState({ isDirty: false, dirtyNoteId: null });
         updateSaveStatus('saved');
-        // [버그 수정] 성공적인 저장 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
-        // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
+        // [CRITICAL BUG FIX] 저장이 성공했으므로, 불필요해진 비상 백업을 제거하여
+        // 다음 세션에서 오래된 백업으로 정상 데이터를 덮어쓰는 치명적 버그를 방지합니다.
+        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
     } else {
         updateSaveStatus('dirty');
     }
@@ -891,8 +892,8 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     });
 
     if (success) {
-        // [버그 수정] 성공적인 이름 변경 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
-        // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
+        // [CRITICAL BUG FIX] 이름 변경이 성공했으므로, 불필요해진 비상 백업을 제거합니다.
+        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
     } else {
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
