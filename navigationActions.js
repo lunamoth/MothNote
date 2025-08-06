@@ -144,7 +144,8 @@ export const handleSearchInput = async (e) => {
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
 
-export const handleClearSearch = () => {
+export const handleClearSearch = async () => {
+    await finishPendingRename();
     clearTimeout(searchDebounceTimer);
     if (searchInput.value === '') return;
     searchInput.value = '';
