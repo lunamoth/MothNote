@@ -504,10 +504,29 @@ export const handleRestoreItem = async (id) => {
             }
             itemToRestoreInTx.name = finalFolderName;
             
-            const allFolderIds = new Set(folders.map(f => f.id));
-            if (allFolderIds.has(itemToRestoreInTx.id)) {
-                itemToRestoreInTx.id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
+            // --- [CRITICAL BUG FIX] 폴더 ID 충돌 검사 범위 수정 ---
+            // 활성 폴더와 휴지통의 모든 폴더 ID를 수집하여 ID 충돌을 완벽하게 방지
+            const allKnownFolderIds = new Set(folders.map(f => f.id));
+            trash.forEach(item => {
+                // 복원중인 자신을 제외하고, 휴지통에 있는 다른 폴더의 ID를 추가
+                if (item.type === 'folder' && item.id !== id) {
+                    allKnownFolderIds.add(item.id);
+                }
+            });
+            
+            if (allKnownFolderIds.has(itemToRestoreInTx.id)) {
+                const oldId = itemToRestoreInTx.id;
+                const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allKnownFolderIds);
+                itemToRestoreInTx.id = newId;
+
+                const favoritesSet = new Set(latestData.favorites || []);
+                if (favoritesSet.has(oldId)) {
+                    favoritesSet.delete(oldId);
+                    favoritesSet.add(newId);
+                }
+                hadIdCollision = true;
             }
+            // --- [CRITICAL BUG FIX] 끝 ---
 
             // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 및 해결 로직 수정 ---
             const allExistingNoteIds = new Set();
@@ -526,13 +545,16 @@ export const handleRestoreItem = async (id) => {
             });
 
             const favoritesSet = new Set(latestData.favorites || []);
+            const restoredNoteIds = new Set(); // <--- [버그 수정] 복원될 폴더 내 ID 고유성 보장을 위한 Set
             
             itemToRestoreInTx.notes.forEach(note => {
-                if (allExistingNoteIds.has(note.id)) {
+                // [버그 수정] 폴더 내 자체 중복(restoredNoteIds) 또는 외부 충돌(allExistingNoteIds)을 모두 확인
+                if (restoredNoteIds.has(note.id) || allExistingNoteIds.has(note.id)) {
                     const oldId = note.id;
-                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingNoteIds);
+                    // [버그 수정] 모든 알려진 ID를 통합하여 완벽한 고유 ID 생성
+                    const combinedIds = new Set([...allExistingNoteIds, ...restoredNoteIds]);
+                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedIds);
                     note.id = newId;
-                    allExistingNoteIds.add(newId);
                     
                     // 즐겨찾기 목록에서도 ID 업데이트
                     if (favoritesSet.has(oldId)) {
@@ -541,7 +563,10 @@ export const handleRestoreItem = async (id) => {
                     }
                     hadIdCollision = true;
                 }
-                allExistingNoteIds.add(note.id); // 복원되는 노트 ID도 추후 충돌 검사를 위해 추가
+                
+                // [버그 수정] 처리된 노트의 최종 ID를 두 Set에 모두 추가하여 다음 검사에 반영
+                restoredNoteIds.add(note.id);
+                allExistingNoteIds.add(note.id); 
                 
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
@@ -599,7 +624,7 @@ export const handleRestoreItem = async (id) => {
     const { success, payload } = await performTransactionalUpdate(updateLogic);
 
     if (success && payload?.hadIdCollision) {
-        showToast("일부 노트의 ID가 충돌하여 자동으로 수정되었습니다.", CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
+        showToast("일부 노트 또는 폴더의 ID가 충돌하여 자동으로 수정되었습니다.", CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
     }
 };
 
