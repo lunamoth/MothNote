@@ -47,6 +47,71 @@ export const saveSession = () => {
     }
 };
 
+/**
+ * [BUG-C-CRITICAL 수정] 로드된 데이터의 무결성을 검증하고 ID 충돌을 자동 복구하는 함수
+ * @param {object} data - chrome.storage.local에서 로드한 appState 객체
+ * @returns {{sanitizedData: object, wasSanitized: boolean}} - 복구된 데이터와 복구 여부
+ */
+const verifyAndSanitizeLoadedData = (data) => {
+    if (!data || typeof data !== 'object') {
+        return { sanitizedData: data, wasSanitized: false };
+    }
+
+    // 데이터의 각 부분을 안전하게 추출
+    const folders = data.folders || [];
+    const trash = data.trash || [];
+    const favorites = data.favorites || [];
+    const lastActiveNotePerFolder = data.lastActiveNotePerFolder || {};
+
+    const allNoteIds = new Set();
+    const idUpdateMap = new Map();
+    let changesMade = false;
+
+    // 시스템의 모든 노트(폴더 내, 휴지통 속 폴더 내, 휴지통의 단일 노트)를 하나의 배열로 만듭니다.
+    const allNotesSources = [
+        ...folders.flatMap(f => (f.notes || [])),
+        ...trash.filter(item => item && (item.type === 'note' || !item.type)),
+        ...trash.filter(item => item && item.type === 'folder').flatMap(f => (f.notes || []))
+    ];
+
+    for (const note of allNotesSources) {
+        if (!note || !note.id) continue;
+
+        if (allNoteIds.has(note.id)) {
+            // 중복된 노트 ID 발견 시, 새로운 고유 ID 생성
+            const oldId = note.id;
+            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+            note.id = newId; // 원본 데이터 객체의 ID를 직접 수정
+            idUpdateMap.set(oldId, newId); // 변경사항 추적
+            allNoteIds.add(newId);
+            changesMade = true;
+            console.warn(`[Data Sanitization] Duplicate note ID found and fixed on load: ${oldId} -> ${newId}`);
+        } else {
+            allNoteIds.add(note.id);
+        }
+    }
+
+    if (changesMade) {
+        // 즐겨찾기 목록에서 변경된 ID를 업데이트
+        const newFavorites = new Set();
+        for (const favId of favorites) {
+            newFavorites.add(idUpdateMap.get(favId) || favId);
+        }
+        data.favorites = Array.from(newFavorites);
+
+        // 폴더별 마지막 활성 노트 목록에서 변경된 ID를 업데이트
+        for (const folderId in lastActiveNotePerFolder) {
+            const lastActiveId = lastActiveNotePerFolder[folderId];
+            if (idUpdateMap.has(lastActiveId)) {
+                lastActiveNotePerFolder[folderId] = idUpdateMap.get(lastActiveId);
+            }
+        }
+    }
+
+    return { sanitizedData: data, wasSanitized: changesMade };
+};
+
+
 // [아키텍처 리팩토링] loadData에서 localStorage 기반 비상 백업 복구 로직을 완전히 제거하고,
 // chrome.storage.local을 유일한 데이터 소스로 사용하도록 단순화합니다.
 export const loadData = async () => {
@@ -84,6 +149,20 @@ export const loadData = async () => {
         // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
         const mainStorageResult = await chrome.storage.local.get('appState');
         authoritativeData = mainStorageResult.appState;
+        
+        // [BUG-C-CRITICAL 수정] 로드된 데이터의 무결성을 검증하고 자동 복구합니다.
+        if (authoritativeData) {
+            // 데이터의 깊은 복사본을 만들어 원본 오염 없이 안전하게 검증합니다.
+            const { sanitizedData, wasSanitized } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
+            authoritativeData = sanitizedData;
+            if (wasSanitized) {
+                // 자동 복구가 발생했음을 사용자에게 알리고, 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
+                await chrome.storage.local.set({ appState: authoritativeData });
+                const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다.";
+                recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
+                console.log("Sanitized data has been saved back to storage.");
+            }
+        }
 
         // --- BUG-C-02 FIX START ---
         // 비정상 종료 데이터 복구 로직 (안전한 '변경사항' 기반 복구)
