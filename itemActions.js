@@ -534,6 +534,9 @@ export const handleRestoreItem = async (id) => {
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
             // 2. 휴지통에 남아있는 다른 모든 항목의 노트 ID 추가
             trash.forEach(item => {
+                // [BUG FIX] 현재 복원 중인 폴더(id) 내의 노트는 검사 대상에서 제외하여 불필요한 ID 변경 방지
+                if (item.id === id) return;
+
                 // 휴지통에 있는 개별 노트
                 if (item.type === 'note' || !item.type) {
                     allExistingNoteIds.add(item.id);
