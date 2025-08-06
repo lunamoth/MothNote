@@ -409,10 +409,11 @@ export const performDeleteItem = (id, type) => {
                 postUpdateState.activeNoteId = null;
             }
         } else { // NOTE
-            let noteToMove, sourceFolder;
+            let noteToMove, sourceFolder, originalNotesInView; // [CRITICAL BUG FIX] 변수 추가
             for(const folder of folders) {
                 const noteIndex = folder.notes.findIndex(n => n.id === id);
                 if (noteIndex !== -1) {
+                    originalNotesInView = [...folder.notes]; // [CRITICAL BUG FIX] 삭제 전 노트 목록 복사
                     [noteToMove] = folder.notes.splice(noteIndex, 1);
                     sourceFolder = folder;
                     break;
@@ -433,9 +434,9 @@ export const performDeleteItem = (id, type) => {
             successMessage = CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_TO_TRASH(noteToMove.title || '제목 없음');
             
             if (state.activeNoteId === id) {
-                const { item: currentFolder } = findFolder(state.activeFolderId);
-                const notesInView = sortNotes(currentFolder?.notes ?? [], state.noteSortOrder);
-                postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, notesInView);
+                // [CRITICAL BUG FIX] 트랜잭션 외부의 `state`가 아닌, 트랜잭션 내부의 복사된 데이터를 사용
+                const sortedOriginalNotes = sortNotes(originalNotesInView, state.noteSortOrder);
+                postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, sortedOriginalNotes);
             }
         }
         
