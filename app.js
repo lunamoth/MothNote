@@ -351,10 +351,14 @@ const setupGlobalEventListeners = () => {
     
     // 탭/창을 닫기 직전에 저장되지 않은 변경사항이 있으면 경고를 표시하고, 데이터 유실을 최소화하기 위해 마지막 저장을 시도합니다. 단일 탭 환경에서도 필수적인 데이터 보호 로직입니다.
     window.addEventListener('beforeunload', (e) => {
-        // [버그 수정] --- 비정상 종료 시 데이터 유실 방지 로직 (안전한 전체 상태 백업) ---
-        if (state.isDirty && state.dirtyNoteId && !window.isImporting) {
+        // [버그 수정 C-01] --- 비정상 종료 시 데이터 유실 방지 로직 (안전한 전체 상태 백업) ---
+        // 노트 내용 변경(`isDirty`) 또는 아이템 이름 변경(`isRenaming`)을 모두 감지
+        const isNoteDirty = state.isDirty && state.dirtyNoteId;
+        const isRenaming = !!state.renamingItemId;
+
+        if ((isNoteDirty || isRenaming) && !window.isImporting) {
             try {
-                // 1. 현재 메모리(state)를 깊은 복사하여 탭이 닫히는 시점의 최종 상태 스냅샷을 만든다.
+                // 1. 현재 메모리(state)를 깊은 복사하여 탭이 닫히는 시점의 최종 상태 스냅샷을 만듭니다.
                 const finalStateToBackup = JSON.parse(JSON.stringify({
                     folders: state.folders,
                     trash: state.trash,
@@ -362,42 +366,74 @@ const setupGlobalEventListeners = () => {
                     lastSavedTimestamp: state.lastSavedTimestamp
                 }));
 
-                // 2. 최종 상태 스냅샷에서 'dirty' 상태였던 노트 내용을 직접 업데이트한다.
-                let noteUpdated = false;
-                for (const folder of finalStateToBackup.folders) {
-                    const noteToUpdate = folder.notes.find(n => n.id === state.dirtyNoteId);
-                    if (noteToUpdate) {
-                        const now = Date.now();
-                        noteToUpdate.title = noteTitleInput.value;
-                        noteToUpdate.content = noteContentTextarea.value;
-                        noteToUpdate.updatedAt = now;
-                        if (folder.updatedAt < now) {
-                             folder.updatedAt = now; // 부모 폴더의 수정 시간도 갱신
+                let changesMade = false;
+                const now = Date.now();
+
+                // 2. 노트 내용 변경이 있으면 스냅샷에 반영합니다.
+                if (isNoteDirty) {
+                    for (const folder of finalStateToBackup.folders) {
+                        const noteToUpdate = folder.notes.find(n => n.id === state.dirtyNoteId);
+                        if (noteToUpdate) {
+                            noteToUpdate.title = noteTitleInput.value;
+                            noteToUpdate.content = noteContentTextarea.value;
+                            noteToUpdate.updatedAt = now;
+                            if (folder.updatedAt < now) {
+                                folder.updatedAt = now;
+                            }
+                            changesMade = true;
+                            break;
                         }
-                        noteUpdated = true;
-                        break;
+                    }
+                }
+
+                // 3. [C-01 수정] 이름 변경이 있으면 스냅샷에 반영합니다.
+                if (isRenaming) {
+                    const renamingElement = document.querySelector(`.item-list-entry[data-id="${state.renamingItemId}"]`);
+                    const nameSpan = renamingElement?.querySelector('.item-name');
+                    if (renamingElement && nameSpan) {
+                        const newName = nameSpan.textContent.trim();
+                        const type = renamingElement.dataset.type;
+                        let itemUpdated = false;
+
+                        if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                            const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
+                            if (folderToUpdate && folderToUpdate.name !== newName) {
+                                folderToUpdate.name = newName;
+                                folderToUpdate.updatedAt = now;
+                                itemUpdated = true;
+                            }
+                        } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
+                            for (const folder of finalStateToBackup.folders) {
+                                const noteToUpdate = folder.notes.find(n => n.id === state.renamingItemId);
+                                if (noteToUpdate && noteToUpdate.title !== newName) {
+                                    noteToUpdate.title = newName;
+                                    noteToUpdate.updatedAt = now;
+                                    if (folder.updatedAt < now) {
+                                        folder.updatedAt = now;
+                                    }
+                                    itemUpdated = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (itemUpdated) changesMade = true;
                     }
                 }
                 
-                // 3. 노트가 성공적으로 업데이트된 경우에만 전체 상태를 백업한다.
-                if (noteUpdated) {
+                // 4. 실제로 변경된 내용이 있을 때만 비상 백업을 저장하고 경고를 표시합니다.
+                if (changesMade) {
                     finalStateToBackup.lastSavedTimestamp = Date.now();
-                    
-                    // 이제 노트 내용뿐만 아니라, 다른 모든 변경사항(폴더명 변경 등)이 포함된
-                    // '전체 앱 상태'를 긴급 백업으로 동기적으로 저장한다.
                     localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP, JSON.stringify(finalStateToBackup));
-                }
     
+                    const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
+                    e.preventDefault();
+                    e.returnValue = message;
+                    return message;
+                }
             } catch (err) {
                 // localStorage가 꽉 찼거나 사용할 수 없는 매우 드문 경우에 대한 방어 코드
                 console.error("Emergency backup save failed:", err);
             }
-    
-            // 4. 사용자에게는 여전히 페이지를 떠날지 확인하는 메시지를 표시합니다.
-            const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
-            e.preventDefault();
-            e.returnValue = message;
-            return message;
         }
     
         // 데이터 가져오기 중에는 작업이 중단될 수 있음을 경고합니다.

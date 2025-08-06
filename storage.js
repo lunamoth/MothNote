@@ -485,11 +485,11 @@ export const setupImportHandler = () => {
 
                 // [BUG FIX] 트랜잭션 보장: 2. 데이터 덮어쓰기
                 await chrome.storage.local.set({ appState: importPayload });
-
-                // [BUG FIX] 트랜잭션 보장: 3. 성공 시 백업 제거 및 정리
-                await chrome.storage.local.remove('appState_backup');
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                 localStorage.removeItem(CONSTANTS.LS_KEY);
+
+                // [BUG FIX C-02] 트랜잭션 보장: 3. 성공 확정! 백업을 리로드 *전에* 즉시 제거
+                await chrome.storage.local.remove('appState_backup');
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                 setTimeout(() => window.location.reload(), 500);
