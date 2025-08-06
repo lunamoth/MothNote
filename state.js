@@ -6,8 +6,8 @@ export const CONSTANTS = {
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1',
-    LS_KEY_EMERGENCY_BACKUP: 'mothnote_emergency_backup_v1',
-    // [REMOVED] 멀티탭 동기화를 위한 락 관련 상수 제거
+    // [버그 수정] 데이터 정합성 문제를 유발하는 부분 백업 키를 제거하고, 앱 상태 전체를 백업하는 새 키로 대체합니다.
+    LS_KEY_EMERGENCY_APPSTATE_BACKUP: 'mothnote_emergency_appstate_backup_v1',
     
     // 설정 관련 상수
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',

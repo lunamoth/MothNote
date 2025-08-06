@@ -51,6 +51,7 @@ export const saveSession = () => {
 // chrome.storage.local을 유일한 데이터 소스로 사용하도록 단순화합니다.
 export const loadData = async () => {
     let recoveryMessage = null;
+    let authoritativeData = null; // [버그 수정] 데이터 로딩 순서 제어를 위해 변수 위치 변경
 
     try {
         // 1. [BUG FIX] 치명적 오류 복구: 불안정한 가져오기(Import) 작업 롤백
@@ -64,57 +65,38 @@ export const loadData = async () => {
         
         // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
         const mainStorageResult = await chrome.storage.local.get('appState');
-        const authoritativeData = mainStorageResult.appState;
+        authoritativeData = mainStorageResult.appState;
 
-        // [수정된 로직 시작] --- 응급 백업 데이터 복구 로직 ---
-        const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_BACKUP);
-        if (emergencyBackupJSON && authoritativeData) {
-            // [BUG FIX] 복구 시도 전에 백업을 먼저 제거하지 않습니다.
-            
+        // [버그 수정] --- 비정상 종료 데이터 복구 로직 (안전한 전체 상태 복구) ---
+        const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP);
+        if (emergencyBackupJSON) {
             try {
-                const backup = JSON.parse(emergencyBackupJSON);
-                let noteFound = false;
-
-                for (const folder of authoritativeData.folders) {
-                    const noteIndex = folder.notes.findIndex(n => n.id === backup.noteId);
-                    if (noteIndex !== -1) {
-                        const noteToUpdate = folder.notes[noteIndex];
-                        
-                        // 백업 데이터가 기존에 저장된 데이터보다 최신일 경우에만 복구합니다.
-                        if (backup.timestamp > (noteToUpdate.updatedAt || 0)) {
-                            noteToUpdate.title = backup.title;
-                            noteToUpdate.content = backup.content;
-                            noteToUpdate.updatedAt = backup.timestamp;
-                            folder.updatedAt = backup.timestamp; // 부모 폴더의 업데이트 시간도 갱신
-                            
-                            // 1. 변경된 데이터를 주 저장소에 먼저 저장합니다.
-                            await chrome.storage.local.set({ appState: authoritativeData });
-                            
-                            // 2. 주 저장소에 성공적으로 저장된 것을 확인한 후, 비상 백업을 제거합니다.
-                            localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_BACKUP);
-                            
-                            recoveryMessage = '탭을 닫기 전 저장되지 않았던 노트 내용이 성공적으로 복구되었습니다.';
-                        } else {
-                            // 백업이 최신이 아닌 경우에도, 이제는 불필요하므로 백업을 제거합니다.
-                             localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_BACKUP);
-                        }
-                        noteFound = true;
-                        break;
-                    }
+                const backupState = JSON.parse(emergencyBackupJSON);
+                
+                // 백업 데이터가 주 저장소 데이터보다 최신일 경우에만 복구를 진행합니다.
+                if (backupState && backupState.lastSavedTimestamp > (authoritativeData?.lastSavedTimestamp || 0)) {
+                    console.warn("비정상 종료로 인한 비상 백업 데이터 발견. 데이터를 복구합니다.");
+                    
+                    // 주 저장소에 백업 데이터를 덮어씁니다.
+                    await chrome.storage.local.set({ appState: backupState });
+                    
+                    // authoritativeData를 복구된 데이터로 교체합니다.
+                    authoritativeData = backupState;
+                    
+                    // 성공적으로 복구했으므로, 비상 백업을 제거합니다.
+                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP);
+                    
+                    recoveryMessage = '탭을 닫기 전 저장되지 않았던 모든 변경사항이 성공적으로 복구되었습니다.';
+                } else {
+                    // 백업이 최신이 아니거나 유효하지 않은 경우, 이제는 불필요하므로 제거합니다.
+                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP);
                 }
-
-                // 만약 루프를 다 돌았는데도 노트를 못찾았다면(예: 노트가 삭제된 경우), 
-                // 안전을 위해 백업을 제거하지 않고 경고를 남깁니다.
-                if (!noteFound) {
-                     console.warn("Emergency backup found for a note that no longer exists. The backup was preserved for manual inspection.", backup);
-                }
-
             } catch (e) {
-                // 오류 발생 시 백업이 제거되지 않았으므로 다음 실행 때 다시 복구를 시도할 수 있습니다.
-                console.error("Emergency backup recovery failed. The backup was NOT removed and will be retried on next load.", e);
+                // JSON 파싱 등에 실패한 경우, 다음 로딩 시도를 위해 백업을 남겨두고 경고를 출력합니다.
+                console.error("비상 백업 데이터 복구 실패. 백업은 제거되지 않았습니다.", e);
             }
         }
-        // [수정된 로직 끝] -------------------------------------
+        // [버그 수정 끝] --------------------------------------------------------
         
         // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
         
