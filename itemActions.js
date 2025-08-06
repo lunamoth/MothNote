@@ -524,11 +524,22 @@ export const handleRestoreItem = async (id) => {
                 hadIdCollision = true;
             }
 
-            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 활성 노트로만 한정 ---
+            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 시스템 전체 노트로 확장 ---
             const allExistingNoteIds = new Set();
-            // 1. 활성 폴더의 모든 노트 ID만 수집하여 실제 ID 충돌을 검사합니다.
+            // 1. 활성 폴더의 모든 노트 ID를 수집합니다.
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
-            // (휴지통에 있는 다른 항목과의 불필요한 ID 충돌 검사 로직을 제거했습니다.)
+            // 2. 휴지통에 있는 다른 항목의 노트 ID도 모두 수집합니다.
+            trash.forEach(item => {
+                // 현재 복원 중인 폴더 자체는 검사 대상에서 제외합니다.
+                if (item.id === id) return;
+
+                if (item.type === 'note' || !item.type) {
+                    allExistingNoteIds.add(item.id);
+                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
+                }
+            });
+            // --- [CRITICAL BUG FIX] 끝 ---
 
             const favoritesSet = new Set(latestData.favorites || []);
             const restoredNoteIds = new Set();
@@ -553,7 +564,6 @@ export const handleRestoreItem = async (id) => {
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
             latestData.favorites = Array.from(favoritesSet);
-            // --- [CRITICAL BUG FIX] 끝 ---
 
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
             itemToRestoreInTx.updatedAt = now;
@@ -572,11 +582,22 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
-            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 활성 노트로만 한정 ---
+            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 시스템 전체 노트로 확장 ---
             const allExistingNoteIds = new Set();
-            // 1. 활성 폴더의 모든 노트 ID만 수집하여 실제 ID 충돌을 검사합니다.
+            // 1. 활성 폴더의 모든 노트 ID를 수집합니다.
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
-            // (휴지통에 있는 다른 항목과의 불필요한 ID 충돌 검사 로직을 제거했습니다.)
+            // 2. 휴지통에 있는 다른 항목의 노트 ID도 모두 수집합니다.
+            trash.forEach(item => {
+                // 현재 복원 중인 노트 자체는 검사 대상에서 제외합니다.
+                if (item.id === id) return;
+
+                if (item.type === 'note' || !item.type) {
+                    allExistingNoteIds.add(item.id);
+                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
+                }
+            });
+            // --- [CRITICAL BUG FIX] 끝 ---
             
             if (allExistingNoteIds.has(itemToRestoreInTx.id)) {
                  const oldId = itemToRestoreInTx.id;
@@ -758,6 +779,8 @@ export async function saveCurrentNoteIfChanged() {
     if (success) {
         setState({ isDirty: false, dirtyNoteId: null });
         updateSaveStatus('saved');
+        // [BUG FIX] 저장이 성공했으므로, 더 이상 불필요하고 위험한 비상 백업을 제거합니다.
+        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
     } else {
         updateSaveStatus('dirty');
     }
@@ -858,7 +881,10 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
     });
 
-    if (!success) {
+    if (success) {
+        // [BUG FIX] 이름 변경이 성공적으로 저장되었으므로, 관련 비상 백업을 제거합니다.
+        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+    } else {
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
     }
