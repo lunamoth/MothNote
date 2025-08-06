@@ -276,16 +276,19 @@ export const loadData = async () => {
                     } else {
                        showToast("복원 중 오류가 발생했습니다. 일부 변경사항이 적용되지 않았을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                     }
+                } else {
+                    // [CRITICAL BUG FIX] 사용자가 복원을 거부했으므로 비상 백업을 반드시 제거하여 무한 루프를 방지합니다.
+                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                    showToast("저장되지 않았던 변경사항을 버렸습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                 }
                 
-                // 사용자가 복원을 거부(userConfirmed === false)한 경우, 백업을 제거하지 않습니다.
-                // 파싱 에러 등 치명적 오류 발생 시에만 백업을 제거합니다.
                 const updatedStorageResult = await chrome.storage.local.get('appState');
                 authoritativeData = updatedStorageResult.appState;
 
             } catch (e) {
-                console.error("비상 백업 데이터 복구 실패. 백업은 제거되지 않았습니다.", e);
+                console.error("비상 백업 데이터 복구 실패. 무한 루프 방지를 위해 백업 데이터가 제거됩니다.", e);
                 localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP); // 파싱 실패 시에도 제거
+                showToast("저장되지 않은 변경사항을 복구하는 중 오류가 발생했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
             }
         }
         // --- BUG-C-02 FIX END ---
