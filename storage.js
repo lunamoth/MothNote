@@ -85,7 +85,8 @@ export const loadData = async () => {
         const mainStorageResult = await chrome.storage.local.get('appState');
         authoritativeData = mainStorageResult.appState;
 
-        // [버그 수정] --- 비정상 종료 데이터 복구 로직 (안전한 '변경사항' 기반 복구) ---
+        // --- BUG-C-02 FIX START ---
+        // 비정상 종료 데이터 복구 로직 (안전한 '변경사항' 기반 복구)
         const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
         if (emergencyBackupJSON) {
             try {
@@ -162,14 +163,16 @@ export const loadData = async () => {
                         return null; // 적용할 변경이 없으면 업데이트 취소
                     });
                     
-                    if (!success) {
+                    if (success) {
+                       // 복원에 성공했을 때만 비상 백업을 제거합니다.
+                       localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                    } else {
                        showToast("복원 중 오류가 발생했습니다. 일부 변경사항이 적용되지 않았을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                     }
                 }
-                // 사용자가 복원을 선택했든 안 했든, 비상 백업은 이제 불필요하므로 제거
-                localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
                 
-                // 복원 작업 후에는 authoritativeData를 다시 로드해야 최신 상태를 반영
+                // 사용자가 복원을 거부(userConfirmed === false)한 경우, 백업을 제거하지 않습니다.
+                // 파싱 에러 등 치명적 오류 발생 시에만 백업을 제거합니다.
                 const updatedStorageResult = await chrome.storage.local.get('appState');
                 authoritativeData = updatedStorageResult.appState;
 
@@ -178,7 +181,7 @@ export const loadData = async () => {
                 localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP); // 파싱 실패 시에도 제거
             }
         }
-        // [버그 수정 끝] --------------------------------------------------------
+        // --- BUG-C-02 FIX END ---
         
         // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
         

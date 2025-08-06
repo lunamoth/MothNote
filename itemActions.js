@@ -593,9 +593,20 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
-            // [개선] 단일 노트 복원 시에도 ID 충돌 검사
+            // --- BUG-C-01 FIX START ---
+            // 단일 노트 복원 시에도 ID 충돌 검사를 위해 모든 노트 ID를 수집합니다.
             const allExistingNoteIds = new Set();
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
+            trash.forEach(item => {
+                if (item.id === id) return; // 복원 중인 자기 자신은 제외
+                if (item.type === 'note' || !item.type) {
+                    allExistingNoteIds.add(item.id);
+                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
+                }
+            });
+            // --- BUG-C-01 FIX END ---
+            
             if (allExistingNoteIds.has(itemToRestoreInTx.id)) {
                  const oldId = itemToRestoreInTx.id;
                  const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingNoteIds);
