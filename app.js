@@ -289,8 +289,6 @@ class Dashboard {
     _setupCalendarEvents() { if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.prevMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1); this.renderCalendar(); }; this.dom.nextMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1); this.renderCalendar(); }; this.dom.calendarMonthYear.onclick = async () => { const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate }); if (result) { this.internalState.currentDate = new Date(result.year, result.month, 1); this.renderCalendar(); } }; this.dom.calendarGrid.onclick = async e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { if (!(await confirmNavigation())) return; const newFilterDate = new Date(target.dataset.date); const isSameDate = state.dateFilter && new Date(state.dateFilter).getTime() === newFilterDate.getTime(); searchInput.value = ''; if (isSameDate) { setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' }); } else { this.internalState.currentDate = newFilterDate; const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date); const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder); setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' }); this.renderCalendar(); } } }; this.dom.calendarGrid.addEventListener('mouseover', e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음'); if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`; } }); }
 }
 
-// [REMOVED] 멀티탭 동기화를 위한 tabId 로직 제거
-
 window.isInitializing = true;
 window.isImporting = false;
 
@@ -330,18 +328,11 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
-// [SIMPLIFIED] 멀티탭 동기화 로직 제거
 const setupGlobalEventListeners = () => {
-    // [주석 추가] 아래 이벤트 리스너들은 멀티탭 동기화 기능이 아닙니다.
-    // 사용자가 탭을 닫거나 다른 곳으로 이동할 때 데이터 유실을 방지하는 중요한 로직으로,
-    // 단일 탭 환경에서도 매우 유용합니다.
-
     window.addEventListener('unload', () => {
-        // 탭이 닫힐 때 현재 세션 정보 저장
         saveSession();
     });
     
-    // 사용자가 탭을 벗어났을 때(hidden) 데이터를 자동 저장하여 유실을 방지합니다. 단일 탭 환경에서도 매우 유용한 기능입니다.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             saveCurrentNoteIfChanged();
@@ -349,16 +340,12 @@ const setupGlobalEventListeners = () => {
         }
     });
     
-    // 탭/창을 닫기 직전에 저장되지 않은 변경사항이 있으면 경고를 표시하고, 데이터 유실을 최소화하기 위해 마지막 저장을 시도합니다. 단일 탭 환경에서도 필수적인 데이터 보호 로직입니다.
     window.addEventListener('beforeunload', (e) => {
-        // [버그 수정 C-01] --- 비정상 종료 시 데이터 유실 방지 로직 (안전한 전체 상태 백업) ---
-        // 노트 내용 변경(`isDirty`) 또는 아이템 이름 변경(`isRenaming`)을 모두 감지
         const isNoteDirty = state.isDirty && state.dirtyNoteId;
         const isRenaming = !!state.renamingItemId;
 
         if ((isNoteDirty || isRenaming) && !window.isImporting) {
             try {
-                // 1. 현재 메모리(state)를 깊은 복사하여 탭이 닫히는 시점의 최종 상태 스냅샷을 만듭니다.
                 const finalStateToBackup = JSON.parse(JSON.stringify({
                     folders: state.folders,
                     trash: state.trash,
@@ -369,7 +356,6 @@ const setupGlobalEventListeners = () => {
                 let changesMade = false;
                 const now = Date.now();
 
-                // 2. 노트 내용 변경이 있으면 스냅샷에 반영합니다.
                 if (isNoteDirty) {
                     for (const folder of finalStateToBackup.folders) {
                         const noteToUpdate = folder.notes.find(n => n.id === state.dirtyNoteId);
@@ -386,7 +372,7 @@ const setupGlobalEventListeners = () => {
                     }
                 }
 
-                // 3. [C-01 수정] 이름 변경이 있으면 스냅샷에 반영합니다.
+                // [C-01 BUG FIX] 비상 백업 시 이름 변경 유효성 검사 추가
                 if (isRenaming) {
                     const renamingElement = document.querySelector(`.item-list-entry[data-id="${state.renamingItemId}"]`);
                     const nameSpan = renamingElement?.querySelector('.item-name');
@@ -395,32 +381,50 @@ const setupGlobalEventListeners = () => {
                         const type = renamingElement.dataset.type;
                         let itemUpdated = false;
 
-                        if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                        // --- 유효성 검사 로직 ---
+                        let isInvalid = false;
+                        if (!newName) {
+                            isInvalid = true; // 빈 이름 금지
+                        } else if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
                             const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
-                            if (folderToUpdate && folderToUpdate.name !== newName) {
-                                folderToUpdate.name = newName;
-                                folderToUpdate.updatedAt = now;
-                                itemUpdated = true;
-                            }
-                        } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
-                            for (const folder of finalStateToBackup.folders) {
-                                const noteToUpdate = folder.notes.find(n => n.id === state.renamingItemId);
-                                if (noteToUpdate && noteToUpdate.title !== newName) {
-                                    noteToUpdate.title = newName;
-                                    noteToUpdate.updatedAt = now;
-                                    if (folder.updatedAt < now) {
-                                        folder.updatedAt = now;
-                                    }
-                                    itemUpdated = true;
-                                    break;
+                            // 이름이 실제로 변경되었을 때만 중복 검사 수행
+                            if (folderToUpdate && folderToUpdate.name.toLowerCase() !== newName.toLowerCase()) {
+                                if (finalStateToBackup.folders.some(f => f.name.toLowerCase() === newName.toLowerCase())) {
+                                    isInvalid = true; // 중복 폴더 이름 금지
                                 }
                             }
                         }
+                        // 노트의 경우, 같은 폴더 내 중복은 덜 치명적이므로 일단 폴더 중복만 막아도 Critical 버그는 해결됨
+                        
+                        // --- 유효성 검사 통과 시에만 업데이트 ---
+                        if (!isInvalid) {
+                            if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                                const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
+                                if (folderToUpdate && folderToUpdate.name !== newName) {
+                                    folderToUpdate.name = newName;
+                                    folderToUpdate.updatedAt = now;
+                                    itemUpdated = true;
+                                }
+                            } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
+                                for (const folder of finalStateToBackup.folders) {
+                                    const noteToUpdate = folder.notes.find(n => n.id === state.renamingItemId);
+                                    if (noteToUpdate && noteToUpdate.title !== newName) {
+                                        noteToUpdate.title = newName;
+                                        noteToUpdate.updatedAt = now;
+                                        if (folder.updatedAt < now) {
+                                            folder.updatedAt = now;
+                                        }
+                                        itemUpdated = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
                         if (itemUpdated) changesMade = true;
                     }
                 }
                 
-                // 4. 실제로 변경된 내용이 있을 때만 비상 백업을 저장하고 경고를 표시합니다.
                 if (changesMade) {
                     finalStateToBackup.lastSavedTimestamp = Date.now();
                     localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP, JSON.stringify(finalStateToBackup));
@@ -431,12 +435,10 @@ const setupGlobalEventListeners = () => {
                     return message;
                 }
             } catch (err) {
-                // localStorage가 꽉 찼거나 사용할 수 없는 매우 드문 경우에 대한 방어 코드
                 console.error("Emergency backup save failed:", err);
             }
         }
     
-        // 데이터 가져오기 중에는 작업이 중단될 수 있음을 경고합니다.
         if (window.isImporting) {
             const message = '데이터 가져오기 작업이 진행 중입니다. 이 페이지를 나가면 작업이 취소될 수 있습니다.';
             e.preventDefault();
@@ -446,8 +448,6 @@ const setupGlobalEventListeners = () => {
     });
     
     window.addEventListener('keydown', handleGlobalKeyDown);
-
-    // [REMOVED] chrome.storage.onChanged 리스너 제거
 };
 
 const init = async () => {
