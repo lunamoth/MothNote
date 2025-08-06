@@ -661,8 +661,29 @@ export async function saveCurrentNoteIfChanged() {
         }
 
         const now = Date.now();
-        noteToSave.title = noteTitleInput.value;
-        noteToSave.content = noteContentTextarea.value;
+        let finalTitle = noteTitleInput.value.trim();
+        const content = noteContentTextarea.value;
+        
+        // --- [NEW] 자동 제목 생성 로직 ---
+        if (!finalTitle && content) {
+            let firstLine = content.split('\n')[0].trim();
+            if (firstLine) {
+                const hasKorean = /[\uAC00-\uD7AF]/.test(firstLine);
+                const limit = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;
+                
+                if (firstLine.length > limit) {
+                    firstLine = firstLine.slice(0, limit) + '...';
+                }
+                finalTitle = firstLine;
+                
+                // UI에도 즉시 반영하여 사용자가 변경사항을 볼 수 있게 함
+                noteTitleInput.value = finalTitle;
+            }
+        }
+        // --- [NEW] 로직 끝 ---
+
+        noteToSave.title = finalTitle;
+        noteToSave.content = content;
         noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         

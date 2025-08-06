@@ -351,22 +351,31 @@ const setupGlobalEventListeners = () => {
     
     // 탭/창을 닫기 직전에 저장되지 않은 변경사항이 있으면 경고를 표시하고, 데이터 유실을 최소화하기 위해 마지막 저장을 시도합니다. 단일 탭 환경에서도 필수적인 데이터 보호 로직입니다.
     window.addEventListener('beforeunload', (e) => {
-        // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실 방지 로직
-        // 탭이 닫히기 직전에 'isDirty' 상태(저장되지 않은 변경사항이 있음)이면,
-        // 사용자에게 경고를 표시하기 전에 즉시 저장을 "시도"합니다.
-        // 이 비동기 작업이 100% 성공한다고 보장할 수는 없지만,
-        // 사용자가 내용을 입력하고 500ms의 자동 저장 딜레이가 지나기 전에 탭을 닫아도
-        // 데이터가 유실될 확률을 크게 줄여줍니다.
-        if (state.isDirty) {
-            saveCurrentNoteIfChanged();
-            
-            // 저장을 시도함과 동시에, 만약의 경우를 대비해 사용자에게 경고 메시지를 표시합니다.
+        // [CRITICAL BUG FIX] 탭 종료 시 데이터 유실 방지 로직 (수정된 버전)
+        if (state.isDirty && state.dirtyNoteId && !window.isImporting) {
+            try {
+                // 1. 비동기 저장 시도(saveCurrentNoteIfChanged)를 제거하고, 동기적인 localStorage를 사용합니다.
+                const backupData = {
+                    noteId: state.dirtyNoteId,
+                    title: noteTitleInput.value,
+                    content: noteContentTextarea.value,
+                    timestamp: Date.now()
+                };
+                // 2. 이 작업은 동기적이므로, 핸들러가 종료되기 전에 완료가 보장됩니다.
+                localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_BACKUP, JSON.stringify(backupData));
+                
+            } catch (err) {
+                // localStorage가 꽉 찼거나 사용할 수 없는 매우 드문 경우에 대한 방어 코드
+                console.error("Emergency backup save failed:", err);
+            }
+    
+            // 3. 사용자에게는 여전히 페이지를 떠날지 확인하는 메시지를 표시합니다.
             const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
             e.preventDefault();
             e.returnValue = message;
             return message;
         }
-
+    
         // 데이터 가져오기 중에는 작업이 중단될 수 있음을 경고합니다.
         if (window.isImporting) {
             const message = '데이터 가져오기 작업이 진행 중입니다. 이 페이지를 나가면 작업이 취소될 수 있습니다.';
@@ -406,7 +415,7 @@ const init = async () => {
 
         const { recoveryMessage } = await loadData();
         if (recoveryMessage) {
-            showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 0);
+            showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
         }
         
         dashboard = new Dashboard();
