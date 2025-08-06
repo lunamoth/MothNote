@@ -64,8 +64,27 @@ const verifyAndSanitizeLoadedData = (data) => {
     const lastActiveNotePerFolder = data.lastActiveNotePerFolder || {};
 
     const allNoteIds = new Set();
+    const allFolderIds = new Set(); // [버그 수정] 폴더 ID 중복 검사를 위한 Set 추가
     const idUpdateMap = new Map();
     let changesMade = false;
+
+    // [버그 수정] 1. 폴더 ID 중복을 먼저 검사하고 수정합니다.
+    for (const folder of folders) {
+        if (!folder || !folder.id) continue;
+
+        if (allFolderIds.has(folder.id)) {
+            // 중복된 폴더 ID 발견 시, 새로운 고유 ID 생성
+            const oldId = folder.id;
+            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
+            folder.id = newId; // 원본 데이터 객체의 ID를 직접 수정
+            idUpdateMap.set(oldId, newId); // 변경사항 추적
+            allFolderIds.add(newId);
+            changesMade = true;
+            console.warn(`[Data Sanitization] Duplicate folder ID found and fixed on load: ${oldId} -> ${newId}`);
+        } else {
+            allFolderIds.add(folder.id);
+        }
+    }
 
     // 시스템의 모든 노트(폴더 내, 휴지통 속 폴더 내, 휴지통의 단일 노트)를 하나의 배열로 만듭니다.
     const allNotesSources = [
@@ -104,6 +123,15 @@ const verifyAndSanitizeLoadedData = (data) => {
             const lastActiveId = lastActiveNotePerFolder[folderId];
             if (idUpdateMap.has(lastActiveId)) {
                 lastActiveNotePerFolder[folderId] = idUpdateMap.get(lastActiveId);
+            }
+        }
+        
+        // [버그 수정] 2. 휴지통에 있는 노트의 originalFolderId가 변경된 폴더 ID를 참조하는 경우 업데이트
+        for (const item of trash) {
+            if (item && (item.type === 'note' || !item.type) && item.originalFolderId) {
+                if (idUpdateMap.has(item.originalFolderId)) {
+                    item.originalFolderId = idUpdateMap.get(item.originalFolderId);
+                }
             }
         }
     }
