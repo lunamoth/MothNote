@@ -226,9 +226,7 @@ export const loadData = async () => {
                 });
 
                 if (userConfirmed) {
-                    // 복원을 수락하면, 백업은 즉시 제거 (재시도 방지)
-                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
-
+                    // [BUG FIX] performTransactionalUpdate를 먼저 호출합니다.
                     const { success } = await performTransactionalUpdate(latestData => {
                         const now = Date.now();
                         let changesApplied = false;
@@ -281,7 +279,11 @@ export const loadData = async () => {
                         return null; 
                     });
                     
-                    if (!success) {
+                    if (success) {
+                        // [BUG FIX] 복원이 성공했을 때만 백업을 제거합니다.
+                        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                    } else {
+                       // 실패 시, 백업은 그대로 남아있으므로 다음 실행 때 다시 복원을 시도할 수 있습니다.
                        showToast("복원 중 오류가 발생했습니다. 일부 변경사항이 적용되지 않았을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                     }
                 } else {
