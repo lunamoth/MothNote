@@ -175,7 +175,13 @@ export const handleAddFolder = async () => {
 
     if (!name) return;
 
+    // [BUG FIX] ID 고유성 검사에 휴지통에 있는 폴더 ID도 포함
     const allFolderIds = new Set(state.folders.map(f => f.id));
+    state.trash.forEach(item => {
+        if (item.type === CONSTANTS.ITEM_TYPE.FOLDER) {
+            allFolderIds.add(item.id);
+        }
+    });
     const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
     const trimmedName = name.trim();
 
@@ -226,7 +232,14 @@ export const handleAddNote = async () => {
             return;
         }
         
+        // [BUG FIX] ID 고유성 검사에 휴지통에 있는 노트 ID도 포함
         const allNoteIds = new Set(Array.from(state.noteMap.keys()));
+        state.trash.forEach(item => {
+            // 휴지통에 있는 노트도 ID 중복 검사에 포함 (type이 note거나, 레거시 데이터는 type이 없을 수 있음)
+            if (item.type === CONSTANTS.ITEM_TYPE.NOTE || !item.type) {
+                allNoteIds.add(item.id);
+            }
+        });
         const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
         const now = Date.now();
 
