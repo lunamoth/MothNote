@@ -372,7 +372,6 @@ const setupGlobalEventListeners = () => {
                     }
                 }
 
-                // [C-01 BUG FIX] 비상 백업 시 이름 변경 유효성 검사 추가
                 if (isRenaming) {
                     const renamingElement = document.querySelector(`.item-list-entry[data-id="${state.renamingItemId}"]`);
                     const nameSpan = renamingElement?.querySelector('.item-name');
@@ -389,7 +388,8 @@ const setupGlobalEventListeners = () => {
                             const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
                             // 이름이 실제로 변경되었을 때만 중복 검사 수행
                             if (folderToUpdate && folderToUpdate.name.toLowerCase() !== newName.toLowerCase()) {
-                                if (finalStateToBackup.folders.some(f => f.name.toLowerCase() === newName.toLowerCase())) {
+                                // [BUG FIX] 자기 자신을 제외하고 중복 검사를 수행하여 데이터 유실 방지
+                                if (finalStateToBackup.folders.some(f => f.id !== state.renamingItemId && f.name.toLowerCase() === newName.toLowerCase())) {
                                     isInvalid = true; // 중복 폴더 이름 금지
                                 }
                             }
