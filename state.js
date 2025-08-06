@@ -13,7 +13,7 @@ export const CONSTANTS = {
     // 설정 관련 상수
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',
     DEFAULT_SETTINGS: {
-        layout: { col1: 10, col2: 10 }, // 기본 레이아웃 조정
+        layout: { col1: 10, col2: 10 },
         editor: { fontFamily: `-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", sans-serif`, fontSize: 17 },
         weather: { lat: 37.5660, lon: 126.9784 },
         zenMode: { maxWidth: 850 }

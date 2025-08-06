@@ -70,7 +70,7 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
-// [CRITICAL REFACTOR] 트랜잭션의 원자성과 데이터 일관성을 보장하도록 함수 전면 수정
+// [SIMPLIFIED] 탭 간 경쟁을 고려하지 않는 단순화된 데이터 업데이트 함수
 export const performTransactionalUpdate = async (updateFn) => {
     // [주석 추가] 아래의 globalSaveLock은 멀티탭 동기화 기능이 아닙니다.
     // 단일 탭 내에서 노트 저장, 폴더 삭제 등 여러 비동기 작업이 동시에 실행될 때
@@ -84,16 +84,12 @@ export const performTransactionalUpdate = async (updateFn) => {
     try {
         setState({ isPerformingOperation: true });
         
-        // [CRITICAL FIX] 트랜잭션 시작 시, 의존성을 없애기 위해 저장소에서 직접 최신 데이터를 읽어옵니다.
-        // 이것은 stale한 전역 state를 사용하는 버그(특히 앱 로드 시 복원)를 해결합니다.
-        const storageResult = await chrome.storage.local.get('appState');
-        const latestStorageData = storageResult.appState || { folders: [], trash: [], favorites: [] };
-
+        // 현재 메모리 상태를 기반으로 데이터를 수정
         const dataCopy = JSON.parse(JSON.stringify({
-            folders: latestStorageData.folders,
-            trash: latestStorageData.trash,
-            favorites: Array.from(latestStorageData.favorites || []),
-            lastSavedTimestamp: latestStorageData.lastSavedTimestamp
+            folders: state.folders,
+            trash: state.trash,
+            favorites: Array.from(state.favorites),
+            lastSavedTimestamp: state.lastSavedTimestamp
         }));
 
         const result = await updateFn(dataCopy);
@@ -192,42 +188,32 @@ export const handleAddFolder = async () => {
         showToast("변경사항 저장에 실패하여 폴더를 추가하지 않았습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
-    
+
+    // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
+    const allIds = new Set(state.noteMap.keys());
+    state.folders.forEach(f => allIds.add(f.id));
+    state.trash.forEach(item => allIds.add(item.id));
+    const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
     const trimmedName = name.trim();
 
-    const { success, payload: newFolderId } = await performTransactionalUpdate((latestData) => {
-        // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
-        const allIds = new Set();
-        latestData.folders.forEach(f => {
-            allIds.add(f.id);
-            f.notes.forEach(n => allIds.add(n.id));
-        });
-        latestData.trash.forEach(item => {
-            allIds.add(item.id);
-            if (item.type === 'folder' && Array.isArray(item.notes)) {
-                item.notes.forEach(note => allIds.add(note.id));
-            }
-        });
-        const generatedId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
-
+    const { success } = await performTransactionalUpdate((latestData) => {
         if (latestData.folders.some(f => f.name.toLowerCase() === trimmedName.toLowerCase())) {
             showAlert({ title: '오류', message: `'${trimmedName}' 폴더가 이미 존재합니다.`});
             return null;
         }
 
         const now = Date.now();
-        const newFolder = { id: generatedId, name: trimmedName, notes: [], createdAt: now, updatedAt: now };
+        const newFolder = { id: newFolderId, name: trimmedName, notes: [], createdAt: now, updatedAt: now };
         latestData.folders.push(newFolder);
         
         return {
             newData: latestData,
             successMessage: null,
-            postUpdateState: { activeFolderId: generatedId, activeNoteId: null },
-            payload: generatedId
+            postUpdateState: { activeFolderId: newFolderId, activeNoteId: null }
         };
     });
 
-    if (success && newFolderId) {
+    if (success) {
         await changeActiveFolder(newFolderId, { force: true });
         requestAnimationFrame(() => {
             const newFolderEl = folderList.querySelector(`[data-id="${newFolderId}"]`);
@@ -257,23 +243,14 @@ export const handleAddNote = async () => {
             return;
         }
         
+        // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
+        const allIds = new Set(state.noteMap.keys());
+        state.folders.forEach(f => allIds.add(f.id));
+        state.trash.forEach(item => allIds.add(item.id));
+        const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
         const now = Date.now();
 
         const { success, payload } = await performTransactionalUpdate((latestData) => {
-            // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
-            const allIds = new Set();
-            latestData.folders.forEach(f => {
-                allIds.add(f.id);
-                f.notes.forEach(n => allIds.add(n.id));
-            });
-            latestData.trash.forEach(item => {
-                allIds.add(item.id);
-                if (item.type === 'folder' && Array.isArray(item.notes)) {
-                    item.notes.forEach(note => allIds.add(note.id));
-                }
-            });
-            const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
-            
             const activeFolder = latestData.folders.find(f => f.id === currentActiveFolderId);
             if (!activeFolder) {
                  showAlert({ title: '오류', message: '노트를 추가하려던 폴더가 삭제되었습니다.'});
@@ -425,8 +402,7 @@ export const performDeleteItem = (id, type) => {
                 postUpdateState.activeNoteId = null;
             }
         } else { // NOTE
-            let noteToMove, sourceFolder;
-            let originalNotesInView; // [CRITICAL BUG FIX] 변수 추가
+            let noteToMove, sourceFolder, originalNotesInView; // [CRITICAL BUG FIX] 변수 추가
             for(const folder of folders) {
                 const noteIndex = folder.notes.findIndex(n => n.id === id);
                 if (noteIndex !== -1) {
@@ -486,7 +462,7 @@ export const handleRestoreItem = async (id) => {
             if (!newName) return; 
             finalFolderName = newName.trim();
         }
-    } else if (itemToRestore.type === 'note' || !itemToRestore.type) {
+    } else if (itemToRestore.type === 'note') {
         const originalFolder = state.folders.find(f => f.id === itemToRestore.originalFolderId);
         if (!originalFolder) {
             const newFolderId = await showFolderSelectPrompt({
@@ -585,7 +561,7 @@ export const handleRestoreItem = async (id) => {
                 payload: { hadIdCollision }
             };
 
-        } else if (itemToRestoreInTx.type === 'note' || !itemToRestoreInTx.type) {
+        } else if (itemToRestoreInTx.type === 'note') {
             const targetFolderInTx = folders.find(f => f.id === targetFolderId);
             if (!targetFolderInTx) {
                  showAlert({ title: '오류', message: '노트를 복원하려던 폴더가 방금 삭제되었습니다.'});
@@ -662,7 +638,7 @@ export const handlePermanentlyDeleteItem = async (id) => {
             let postUpdateState = {};
             if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
             if (state.activeNoteId === id) {
-                const trashItems = latestData.trash; // use data from transaction
+                const trashItems = state.trash; 
                 postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, trashItems);
             }
             
@@ -788,9 +764,8 @@ export async function saveCurrentNoteIfChanged() {
     if (success) {
         setState({ isDirty: false, dirtyNoteId: null });
         updateSaveStatus('saved');
-        // [CRITICAL BUG FIX] 저장이 성공했으므로, 불필요해진 비상 백업을 제거하여
-        // 다음 세션에서 오래된 백업으로 정상 데이터를 덮어쓰는 치명적 버그를 방지합니다.
-        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+        // [버그 수정] 성공적인 저장 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
+        // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
     } else {
         updateSaveStatus('dirty');
     }
@@ -892,8 +867,8 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     });
 
     if (success) {
-        // [CRITICAL BUG FIX] 이름 변경이 성공했으므로, 불필요해진 비상 백업을 제거합니다.
-        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+        // [버그 수정] 성공적인 이름 변경 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
+        // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
     } else {
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
