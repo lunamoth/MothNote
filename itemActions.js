@@ -504,11 +504,8 @@ export const handleRestoreItem = async (id) => {
             }
             itemToRestoreInTx.name = finalFolderName;
             
-            // --- [CRITICAL BUG FIX] 폴더 ID 충돌 검사 범위 수정 ---
-            // 활성 폴더와 휴지통의 모든 폴더 ID를 수집하여 ID 충돌을 완벽하게 방지
             const allKnownFolderIds = new Set(folders.map(f => f.id));
             trash.forEach(item => {
-                // 복원중인 자신을 제외하고, 휴지통에 있는 다른 폴더의 ID를 추가
                 if (item.type === 'folder' && item.id !== id) {
                     allKnownFolderIds.add(item.id);
                 }
@@ -526,40 +523,23 @@ export const handleRestoreItem = async (id) => {
                 }
                 hadIdCollision = true;
             }
-            // --- [CRITICAL BUG FIX] 끝 ---
 
-            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 및 해결 로직 수정 ---
+            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 활성 노트로만 한정 ---
             const allExistingNoteIds = new Set();
-            // 1. 활성 폴더의 모든 노트 ID 추가
+            // 1. 활성 폴더의 모든 노트 ID만 수집하여 실제 ID 충돌을 검사합니다.
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
-            // 2. 휴지통에 남아있는 다른 모든 항목의 노트 ID 추가
-            trash.forEach(item => {
-                // [BUG FIX] 현재 복원 중인 폴더(id) 내의 노트는 검사 대상에서 제외하여 불필요한 ID 변경 방지
-                if (item.id === id) return;
-
-                // 휴지통에 있는 개별 노트
-                if (item.type === 'note' || !item.type) {
-                    allExistingNoteIds.add(item.id);
-                } 
-                // 휴지통에 있는 다른 폴더 안의 노트들
-                else if (item.type === 'folder' && Array.isArray(item.notes)) {
-                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
-                }
-            });
+            // (휴지통에 있는 다른 항목과의 불필요한 ID 충돌 검사 로직을 제거했습니다.)
 
             const favoritesSet = new Set(latestData.favorites || []);
-            const restoredNoteIds = new Set(); // <--- [버그 수정] 복원될 폴더 내 ID 고유성 보장을 위한 Set
+            const restoredNoteIds = new Set();
             
             itemToRestoreInTx.notes.forEach(note => {
-                // [버그 수정] 폴더 내 자체 중복(restoredNoteIds) 또는 외부 충돌(allExistingNoteIds)을 모두 확인
                 if (restoredNoteIds.has(note.id) || allExistingNoteIds.has(note.id)) {
                     const oldId = note.id;
-                    // [버그 수정] 모든 알려진 ID를 통합하여 완벽한 고유 ID 생성
                     const combinedIds = new Set([...allExistingNoteIds, ...restoredNoteIds]);
                     const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedIds);
                     note.id = newId;
                     
-                    // 즐겨찾기 목록에서도 ID 업데이트
                     if (favoritesSet.has(oldId)) {
                         favoritesSet.delete(oldId);
                         favoritesSet.add(newId);
@@ -567,7 +547,6 @@ export const handleRestoreItem = async (id) => {
                     hadIdCollision = true;
                 }
                 
-                // [버그 수정] 처리된 노트의 최종 ID를 두 Set에 모두 추가하여 다음 검사에 반영
                 restoredNoteIds.add(note.id);
                 allExistingNoteIds.add(note.id); 
                 
@@ -593,19 +572,11 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
-            // --- BUG-C-01 FIX START ---
-            // 단일 노트 복원 시에도 ID 충돌 검사를 위해 모든 노트 ID를 수집합니다.
+            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 활성 노트로만 한정 ---
             const allExistingNoteIds = new Set();
+            // 1. 활성 폴더의 모든 노트 ID만 수집하여 실제 ID 충돌을 검사합니다.
             folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
-            trash.forEach(item => {
-                if (item.id === id) return; // 복원 중인 자기 자신은 제외
-                if (item.type === 'note' || !item.type) {
-                    allExistingNoteIds.add(item.id);
-                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
-                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
-                }
-            });
-            // --- BUG-C-01 FIX END ---
+            // (휴지통에 있는 다른 항목과의 불필요한 ID 충돌 검사 로직을 제거했습니다.)
             
             if (allExistingNoteIds.has(itemToRestoreInTx.id)) {
                  const oldId = itemToRestoreInTx.id;
