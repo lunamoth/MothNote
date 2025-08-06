@@ -6,8 +6,9 @@ export const CONSTANTS = {
     TOAST_TYPE: { SUCCESS: 'success', ERROR: 'error' },
     LS_KEY: 'newTabNoteLastSession_v11.0',
     LS_KEY_IMPORT_IN_PROGRESS: 'mothnote_import_in_progress_v1',
-    // [버그 수정] 데이터 정합성 문제를 유발하는 부분 백업 키를 제거하고, 앱 상태 전체를 백업하는 새 키로 대체합니다.
-    LS_KEY_EMERGENCY_APPSTATE_BACKUP: 'mothnote_emergency_appstate_backup_v1',
+    // [버그 수정] 데이터 무결성을 파괴할 수 있는 위험한 전체 상태 비상 백업 키를 제거합니다.
+    // 대신, 안전한 복원 절차를 위해 '변경사항'만 기록하는 새로운 키를 도입합니다.
+    LS_KEY_EMERGENCY_CHANGES_BACKUP: 'mothnote_emergency_changes_backup_v1',
     
     // 설정 관련 상수
     LS_KEY_SETTINGS: 'newTabNoteSettings_v2',

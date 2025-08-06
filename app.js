@@ -340,7 +340,7 @@ const setupGlobalEventListeners = () => {
         }
     });
     
-    // [BUG FIX] 데이터 유실 방지를 위해 beforeunload 핸들러 로직 수정
+    // [버그 수정] 데이터 유실 방지를 위해 beforeunload 핸들러 로직 전면 수정
     window.addEventListener('beforeunload', (e) => {
         const isNoteDirty = state.isDirty && state.dirtyNoteId;
         const isRenaming = !!state.renamingItemId;
@@ -348,36 +348,21 @@ const setupGlobalEventListeners = () => {
         // 저장되지 않은 노트 수정 또는 이름 변경 작업이 진행 중일 때
         if ((isNoteDirty || isRenaming) && !window.isImporting) {
             const message = '저장되지 않은 변경사항이 있습니다. 정말로 페이지를 나가시겠습니까?';
-            // [FIX] 데이터 유실을 막기 위해 항상 경고창을 우선적으로 표시
             e.preventDefault();
             e.returnValue = message;
 
-            // 비상 백업을 시도
+            // [수정] 복잡한 데이터 조작 대신, 안전하게 변경사항 '원시 정보'만 기록
             try {
-                const finalStateToBackup = JSON.parse(JSON.stringify({
-                    folders: state.folders,
-                    trash: state.trash,
-                    favorites: Array.from(state.favorites),
-                    lastSavedTimestamp: state.lastSavedTimestamp
-                }));
-
-                let changesMade = false;
-                const now = Date.now();
+                const changesToBackup = {};
+                let hasChanges = false;
 
                 if (isNoteDirty) {
-                    for (const folder of finalStateToBackup.folders) {
-                        const noteToUpdate = folder.notes.find(n => n.id === state.dirtyNoteId);
-                        if (noteToUpdate) {
-                            noteToUpdate.title = noteTitleInput.value;
-                            noteToUpdate.content = noteContentTextarea.value;
-                            noteToUpdate.updatedAt = now;
-                            if (folder.updatedAt < now) {
-                                folder.updatedAt = now;
-                            }
-                            changesMade = true;
-                            break;
-                        }
-                    }
+                    changesToBackup.noteUpdate = {
+                        noteId: state.dirtyNoteId,
+                        title: noteTitleInput.value,
+                        content: noteContentTextarea.value
+                    };
+                    hasChanges = true;
                 }
 
                 if (isRenaming) {
@@ -385,55 +370,27 @@ const setupGlobalEventListeners = () => {
                     const nameSpan = renamingElement?.querySelector('.item-name');
                     if (renamingElement && nameSpan) {
                         const newName = nameSpan.textContent.trim();
-                        const type = renamingElement.dataset.type;
-                        let itemUpdated = false;
-                        let isInvalid = false;
-                        if (!newName) {
-                            isInvalid = true;
-                        } else if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-                            const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
-                            if (folderToUpdate && folderToUpdate.name.toLowerCase() !== newName.toLowerCase()) {
-                                if (finalStateToBackup.folders.some(f => f.id !== state.renamingItemId && f.name.toLowerCase() === newName.toLowerCase())) {
-                                    isInvalid = true;
-                                }
-                            }
+                        // 빈 이름이 아닌 경우에만 백업
+                        if (newName) {
+                            changesToBackup.itemRename = {
+                                id: state.renamingItemId,
+                                type: renamingElement.dataset.type,
+                                newName: newName
+                            };
+                            hasChanges = true;
                         }
-                        
-                        if (!isInvalid) {
-                            if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-                                const folderToUpdate = finalStateToBackup.folders.find(f => f.id === state.renamingItemId);
-                                if (folderToUpdate && folderToUpdate.name !== newName) {
-                                    folderToUpdate.name = newName;
-                                    folderToUpdate.updatedAt = now;
-                                    itemUpdated = true;
-                                }
-                            } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
-                                for (const folder of finalStateToBackup.folders) {
-                                    const noteToUpdate = folder.notes.find(n => n.id === state.renamingItemId);
-                                    if (noteToUpdate && noteToUpdate.title !== newName) {
-                                        noteToUpdate.title = newName;
-                                        noteToUpdate.updatedAt = now;
-                                        if (folder.updatedAt < now) {
-                                            folder.updatedAt = now;
-                                        }
-                                        itemUpdated = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (itemUpdated) changesMade = true;
                     }
                 }
                 
                 // 유효한 변경사항이 있을 때만 백업 파일을 생성
-                if (changesMade) {
-                    finalStateToBackup.lastSavedTimestamp = Date.now();
-                    localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP, JSON.stringify(finalStateToBackup));
+                if (hasChanges) {
+                    localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP, JSON.stringify(changesToBackup));
+                } else {
+                    // 유효한 변경사항이 없으면 기존 백업을 제거하여 혼동 방지
+                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
                 }
             } catch (err) {
-                console.error("Emergency backup save failed:", err);
+                console.error("Emergency changes backup failed:", err);
             }
             
             // 경고 메시지를 반환하여 페이지 이탈을 막음

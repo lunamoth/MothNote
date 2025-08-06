@@ -85,33 +85,97 @@ export const loadData = async () => {
         const mainStorageResult = await chrome.storage.local.get('appState');
         authoritativeData = mainStorageResult.appState;
 
-        // [버그 수정] --- 비정상 종료 데이터 복구 로직 (안전한 전체 상태 복구) ---
-        const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP);
+        // [버그 수정] --- 비정상 종료 데이터 복구 로직 (안전한 '변경사항' 기반 복구) ---
+        const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
         if (emergencyBackupJSON) {
             try {
-                const backupState = JSON.parse(emergencyBackupJSON);
+                const backupChanges = JSON.parse(emergencyBackupJSON);
+                const { performTransactionalUpdate } = await import('./itemActions.js');
                 
-                // 백업 데이터가 주 저장소 데이터보다 최신일 경우에만 복구를 진행합니다.
-                if (backupState && backupState.lastSavedTimestamp > (authoritativeData?.lastSavedTimestamp || 0)) {
-                    console.warn("비정상 종료로 인한 비상 백업 데이터 발견. 데이터를 복구합니다.");
-                    
-                    // 주 저장소에 백업 데이터를 덮어씁니다.
-                    await chrome.storage.local.set({ appState: backupState });
-                    
-                    // authoritativeData를 복구된 데이터로 교체합니다.
-                    authoritativeData = backupState;
-                    
-                    // 성공적으로 복구했으므로, 비상 백업을 제거합니다.
-                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP);
-                    
-                    recoveryMessage = '탭을 닫기 전 저장되지 않았던 모든 변경사항이 성공적으로 복구되었습니다.';
-                } else {
-                    // 백업이 최신이 아니거나 유효하지 않은 경우, 이제는 불필요하므로 제거합니다.
-                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_APPSTATE_BACKUP);
+                let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
+                
+                if(backupChanges.noteUpdate) {
+                    confirmMessage += `<strong>📝 노트 수정:</strong> '${backupChanges.noteUpdate.title.slice(0, 20)}...'<br>`;
                 }
+                if(backupChanges.itemRename) {
+                    const itemTypeStr = backupChanges.itemRename.type === 'folder' ? '📁 폴더' : '📝 노트';
+                    confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr} → '${backupChanges.itemRename.newName.slice(0, 20)}...'<br>`;
+                }
+                confirmMessage += "<br>이 변경사항을 복원하시겠습니까?";
+
+                const userConfirmed = await showConfirm({
+                    title: '📝 저장되지 않은 변경사항 복원',
+                    message: confirmMessage,
+                    isHtml: true,
+                    confirmText: '✅ 예, 복원합니다',
+                    cancelText: '❌ 아니요, 버립니다'
+                });
+
+                if (userConfirmed) {
+                    const { success } = await performTransactionalUpdate(latestData => {
+                        const now = Date.now();
+                        let changesApplied = false;
+
+                        // 1. 노트 내용 업데이트 복원
+                        if (backupChanges.noteUpdate) {
+                            const { noteId, title, content } = backupChanges.noteUpdate;
+                            for (const folder of latestData.folders) {
+                                const noteToUpdate = folder.notes.find(n => n.id === noteId);
+                                if (noteToUpdate) {
+                                    noteToUpdate.title = title;
+                                    noteToUpdate.content = content;
+                                    noteToUpdate.updatedAt = now;
+                                    folder.updatedAt = now;
+                                    changesApplied = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 2. 이름 변경 복원
+                        if (backupChanges.itemRename) {
+                            const { id, type, newName } = backupChanges.itemRename;
+                            if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                                const folderToRename = latestData.folders.find(f => f.id === id);
+                                if (folderToRename && !latestData.folders.some(f => f.id !== id && f.name.toLowerCase() === newName.toLowerCase())) {
+                                    folderToRename.name = newName;
+                                    folderToRename.updatedAt = now;
+                                    changesApplied = true;
+                                }
+                            } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
+                                for (const folder of latestData.folders) {
+                                    const noteToRename = folder.notes.find(n => n.id === id);
+                                    if (noteToRename) {
+                                        noteToRename.title = newName;
+                                        noteToRename.updatedAt = now;
+                                        folder.updatedAt = now;
+                                        changesApplied = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (changesApplied) {
+                            return { newData: latestData, successMessage: '✅ 변경사항이 성공적으로 복원되었습니다.' };
+                        }
+                        return null; // 적용할 변경이 없으면 업데이트 취소
+                    });
+                    
+                    if (!success) {
+                       showToast("복원 중 오류가 발생했습니다. 일부 변경사항이 적용되지 않았을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                    }
+                }
+                // 사용자가 복원을 선택했든 안 했든, 비상 백업은 이제 불필요하므로 제거
+                localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                
+                // 복원 작업 후에는 authoritativeData를 다시 로드해야 최신 상태를 반영
+                const updatedStorageResult = await chrome.storage.local.get('appState');
+                authoritativeData = updatedStorageResult.appState;
+
             } catch (e) {
-                // JSON 파싱 등에 실패한 경우, 다음 로딩 시도를 위해 백업을 남겨두고 경고를 출력합니다.
                 console.error("비상 백업 데이터 복구 실패. 백업은 제거되지 않았습니다.", e);
+                localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP); // 파싱 실패 시에도 제거
             }
         }
         // [버그 수정 끝] --------------------------------------------------------
