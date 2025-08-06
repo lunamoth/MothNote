@@ -63,8 +63,8 @@ const verifyAndSanitizeLoadedData = (data) => {
     const favorites = data.favorites || [];
     const lastActiveNotePerFolder = data.lastActiveNotePerFolder || {};
 
-    const allNoteIds = new Set();
-    const allFolderIds = new Set(); // [버그 수정] 폴더 ID 중복 검사를 위한 Set 추가
+    // [CRITICAL BUG FIX] 시스템 전체 ID의 고유성을 보장하기 위해 단일 Set으로 통합
+    const allIds = new Set();
     const idUpdateMap = new Map();
     let changesMade = false;
 
@@ -72,17 +72,17 @@ const verifyAndSanitizeLoadedData = (data) => {
     for (const folder of folders) {
         if (!folder || !folder.id) continue;
 
-        if (allFolderIds.has(folder.id)) {
-            // 중복된 폴더 ID 발견 시, 새로운 고유 ID 생성
+        if (allIds.has(folder.id)) {
+            // 중복된 ID 발견 시, 새로운 고유 ID 생성
             const oldId = folder.id;
-            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
+            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
             folder.id = newId; // 원본 데이터 객체의 ID를 직접 수정
             idUpdateMap.set(oldId, newId); // 변경사항 추적
-            allFolderIds.add(newId);
+            allIds.add(newId);
             changesMade = true;
-            console.warn(`[Data Sanitization] Duplicate folder ID found and fixed on load: ${oldId} -> ${newId}`);
+            console.warn(`[Data Sanitization] Duplicate ID (folder) found and fixed on load: ${oldId} -> ${newId}`);
         } else {
-            allFolderIds.add(folder.id);
+            allIds.add(folder.id);
         }
     }
 
@@ -96,17 +96,17 @@ const verifyAndSanitizeLoadedData = (data) => {
     for (const note of allNotesSources) {
         if (!note || !note.id) continue;
 
-        if (allNoteIds.has(note.id)) {
-            // 중복된 노트 ID 발견 시, 새로운 고유 ID 생성
+        if (allIds.has(note.id)) {
+            // 중복된 ID 발견 시, 새로운 고유 ID 생성
             const oldId = note.id;
-            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
             note.id = newId; // 원본 데이터 객체의 ID를 직접 수정
             idUpdateMap.set(oldId, newId); // 변경사항 추적
-            allNoteIds.add(newId);
+            allIds.add(newId);
             changesMade = true;
-            console.warn(`[Data Sanitization] Duplicate note ID found and fixed on load: ${oldId} -> ${newId}`);
+            console.warn(`[Data Sanitization] Duplicate ID (note) found and fixed on load: ${oldId} -> ${newId}`);
         } else {
-            allNoteIds.add(note.id);
+            allIds.add(note.id);
         }
     }
 

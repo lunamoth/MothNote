@@ -189,14 +189,11 @@ export const handleAddFolder = async () => {
         return;
     }
 
-    // [BUG FIX] ID 고유성 검사에 휴지통에 있는 폴더 ID도 포함
-    const allFolderIds = new Set(state.folders.map(f => f.id));
-    state.trash.forEach(item => {
-        if (item.type === CONSTANTS.ITEM_TYPE.FOLDER) {
-            allFolderIds.add(item.id);
-        }
-    });
-    const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allFolderIds);
+    // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
+    const allIds = new Set(state.noteMap.keys());
+    state.folders.forEach(f => allIds.add(f.id));
+    state.trash.forEach(item => allIds.add(item.id));
+    const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
     const trimmedName = name.trim();
 
     const { success } = await performTransactionalUpdate((latestData) => {
@@ -246,15 +243,11 @@ export const handleAddNote = async () => {
             return;
         }
         
-        // [BUG FIX] ID 고유성 검사에 휴지통에 있는 노트 ID도 포함
-        const allNoteIds = new Set(Array.from(state.noteMap.keys()));
-        state.trash.forEach(item => {
-            // 휴지통에 있는 노트도 ID 중복 검사에 포함 (type이 note거나, 레거시 데이터는 type이 없을 수 있음)
-            if (item.type === CONSTANTS.ITEM_TYPE.NOTE || !item.type) {
-                allNoteIds.add(item.id);
-            }
-        });
-        const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allNoteIds);
+        // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
+        const allIds = new Set(state.noteMap.keys());
+        state.folders.forEach(f => allIds.add(f.id));
+        state.trash.forEach(item => allIds.add(item.id));
+        const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
         const now = Date.now();
 
         const { success, payload } = await performTransactionalUpdate((latestData) => {
@@ -505,17 +498,26 @@ export const handleRestoreItem = async (id) => {
             }
             itemToRestoreInTx.name = finalFolderName;
             
-            const allKnownFolderIds = new Set(folders.map(f => f.id));
+            // [CRITICAL BUG FIX] ID 충돌 검사 대상을 시스템 전체 ID(폴더+노트)로 확장
+            const allExistingIds = new Set();
+            folders.forEach(f => {
+                allExistingIds.add(f.id);
+                f.notes.forEach(n => allExistingIds.add(n.id));
+            });
             trash.forEach(item => {
-                if (item.type === 'folder' && item.id !== id) {
-                    allKnownFolderIds.add(item.id);
+                if (item.id !== id) {
+                   allExistingIds.add(item.id);
+                   if (item.type === 'folder' && Array.isArray(item.notes)) {
+                       item.notes.forEach(note => allExistingIds.add(note.id));
+                   }
                 }
             });
             
-            if (allKnownFolderIds.has(itemToRestoreInTx.id)) {
+            if (allExistingIds.has(itemToRestoreInTx.id)) {
                 const oldId = itemToRestoreInTx.id;
-                const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allKnownFolderIds);
+                const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allExistingIds);
                 itemToRestoreInTx.id = newId;
+                allExistingIds.add(newId); // 새로 생성된 ID도 즉시 추가하여 트랜잭션 내 충돌 방지
 
                 const favoritesSet = new Set(latestData.favorites || []);
                 if (favoritesSet.has(oldId)) {
@@ -525,31 +527,14 @@ export const handleRestoreItem = async (id) => {
                 hadIdCollision = true;
             }
 
-            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 시스템 전체 노트로 확장 ---
-            const allExistingNoteIds = new Set();
-            // 1. 활성 폴더의 모든 노트 ID를 수집합니다.
-            folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
-            // 2. 휴지통에 있는 다른 항목의 노트 ID도 모두 수집합니다.
-            trash.forEach(item => {
-                // 현재 복원 중인 폴더 자체는 검사 대상에서 제외합니다.
-                if (item.id === id) return;
-
-                if (item.type === 'note' || !item.type) {
-                    allExistingNoteIds.add(item.id);
-                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
-                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
-                }
-            });
-            // --- [CRITICAL BUG FIX] 끝 ---
-
             const favoritesSet = new Set(latestData.favorites || []);
             const restoredNoteIds = new Set();
             
             itemToRestoreInTx.notes.forEach(note => {
-                if (restoredNoteIds.has(note.id) || allExistingNoteIds.has(note.id)) {
+                // allExistingIds는 이미 시스템의 모든 ID를 포함하므로, 이 Set만으로 검사
+                if (restoredNoteIds.has(note.id) || allExistingIds.has(note.id)) {
                     const oldId = note.id;
-                    const combinedIds = new Set([...allExistingNoteIds, ...restoredNoteIds]);
-                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedIds);
+                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                     note.id = newId;
                     
                     if (favoritesSet.has(oldId)) {
@@ -560,7 +545,7 @@ export const handleRestoreItem = async (id) => {
                 }
                 
                 restoredNoteIds.add(note.id);
-                allExistingNoteIds.add(note.id); 
+                allExistingIds.add(note.id); // 복원/수정된 노트 ID도 충돌 검사 대상에 즉시 추가
                 
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
@@ -583,26 +568,24 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
-            // --- [CRITICAL BUG FIX] 노트 ID 충돌 검사 대상을 시스템 전체 노트로 확장 ---
-            const allExistingNoteIds = new Set();
-            // 1. 활성 폴더의 모든 노트 ID를 수집합니다.
-            folders.forEach(f => f.notes.forEach(n => allExistingNoteIds.add(n.id)));
-            // 2. 휴지통에 있는 다른 항목의 노트 ID도 모두 수집합니다.
+            // [CRITICAL BUG FIX] ID 충돌 검사 대상을 시스템 전체 ID(폴더+노트)로 확장
+            const allExistingIds = new Set();
+            folders.forEach(f => {
+                allExistingIds.add(f.id);
+                f.notes.forEach(n => allExistingIds.add(n.id));
+            });
             trash.forEach(item => {
-                // 현재 복원 중인 노트 자체는 검사 대상에서 제외합니다.
-                if (item.id === id) return;
-
-                if (item.type === 'note' || !item.type) {
-                    allExistingNoteIds.add(item.id);
-                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
-                    item.notes.forEach(note => allExistingNoteIds.add(note.id));
+                if (item.id !== id) {
+                   allExistingIds.add(item.id);
+                   if (item.type === 'folder' && Array.isArray(item.notes)) {
+                       item.notes.forEach(note => allExistingIds.add(note.id));
+                   }
                 }
             });
-            // --- [CRITICAL BUG FIX] 끝 ---
             
-            if (allExistingNoteIds.has(itemToRestoreInTx.id)) {
+            if (allExistingIds.has(itemToRestoreInTx.id)) {
                  const oldId = itemToRestoreInTx.id;
-                 const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingNoteIds);
+                 const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                  itemToRestoreInTx.id = newId;
                  
                  const favoritesSet = new Set(latestData.favorites || []);
