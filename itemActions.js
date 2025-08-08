@@ -534,7 +534,9 @@ export const handleRestoreItem = async (id) => {
                 // allExistingIds는 이미 시스템의 모든 ID를 포함하므로, 이 Set만으로 검사
                 if (restoredNoteIds.has(note.id) || allExistingIds.has(note.id)) {
                     const oldId = note.id;
-                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
+                    // [BUG FIX] generateUniqueId에 모든 알려진 ID를 전달하여 충돌 방지
+                    const combinedExistingIds = new Set([...allExistingIds, ...restoredNoteIds]);
+                    const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedExistingIds);
                     note.id = newId;
                     
                     if (favoritesSet.has(oldId)) {

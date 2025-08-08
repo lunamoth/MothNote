@@ -9,6 +9,10 @@
         PARTICLE_DENSITY_RAIN_DIVISOR: 18000,
         MAX_PARTICLES: 250,
         MODAL_ACTIVE_CLASS: 'active',
+        // [수정] 갱신 주기(캐시 유효 시간) 설정
+        REFRESH_INTERVAL_MINUTES: 10,
+        // [추가] 상세 날씨 페이지 캐시 키
+        WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v1',
         // [삭제] 테마 키는 부모 창에서 관리
         WMO_MAP: {0:{description:"맑음",icon:"☀️",effect:null},1:{description:"대체로 맑음",icon:"🌤️",effect:null},2:{description:"부분적 흐림",icon:"🌥️",effect:null},3:{description:"흐림",icon:"☁️",effect:null},45:{description:"안개",icon:"🌫️",effect:null},48:{description:"서리 안개",icon:"🌫️❄️",effect:null},51:{description:"가벼운 이슬비",icon:"💧",effect:"rain"},53:{description:"보통 이슬비",icon:"💧",effect:"rain"},55:{description:"강한 이슬비",icon:"💧",effect:"rain"},56:{description:"가벼운 어는 이슬비",icon:"🥶💧",effect:"rain_snow"},57:{description:"강한 어는 이슬비",icon:"🥶💧",effect:"rain_snow"},61:{description:"가벼운 비",icon:"🌧️",effect:"rain"},63:{description:"보통 비",icon:"🌧️",effect:"rain"},65:{description:"강한 비",icon:"🌧️",effect:"rain"},66:{description:"가벼운 어는 비",icon:"🥶🌧️",effect:"rain_snow"},67:{description:"강한 어는 비",icon:"🥶🌧️",effect:"rain_snow"},71:{description:"가벼운 눈",icon:"❄️",effect:"snow"},73:{description:"보통 눈",icon:"❄️",effect:"snow"},75:{description:"강한 눈",icon:"❄️",effect:"snow"},77:{description:"싸락눈",icon:"❄️",effect:"snow"},80:{description:"가벼운 소나기",icon:"🌦️",effect:"rain"},81:{description:"보통 소나기",icon:"🌦️",effect:"rain"},82:{description:"강한 소나기",icon:"⛈️",effect:"rain"},85:{description:"가벼운 눈 소나기",icon:"🌨️",effect:"snow"},86:{description:"강한 눈 소나기",icon:"🌨️",effect:"snow"},95:{description:"천둥번개",icon:"⛈️",effect:"rain"},96:{description:"가벼운 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"},99:{description:"강한 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"}}
     };
@@ -164,7 +168,7 @@
                 updateChartInstanceColors(_appState.weeklyTempChartInstance, newChartColors, 'weekly');
             }
             if (_appState.hourlyTempChartInstance) {
-                updateChartInstanceColors(_appState.hourlyTempChartInstance, newChartColors, 'hourly');
+                updateChartInstanceColors(_appState.hourlyTempChartInstance, newColors, 'hourly');
             }
             if (_appState.weatherEffect.particles.length > 0) {
                 updateAllParticleColors();
@@ -674,6 +678,24 @@
             return;
         }
 
+        // [수정] 로컬 스토리지를 이용한 캐시 검사
+        try {
+            const cachedDataString = localStorage.getItem(CONFIG.WEATHER_DETAIL_CACHE_KEY);
+            if (cachedDataString) {
+                const cachedData = JSON.parse(cachedDataString);
+                const now = Date.now();
+                // 캐시가 유효하고, 위치 정보가 동일할 때 캐시 사용
+                if (cachedData.lat === LAT && cachedData.lon === LON && (now - cachedData.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) {
+                    processAndDisplayWeatherData(cachedData.data);
+                    renderSkeleton(false); // 스켈레톤 숨김
+                    return; // 캐시 사용했으므로 함수 종료
+                }
+            }
+        } catch(e) {
+            console.warn("날씨 캐시를 읽는 데 실패했습니다.", e);
+            localStorage.removeItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); // 오류 발생 시 캐시 삭제
+        }
+
         if (showSkeletonUI) renderSkeleton(true);
         clearError();
         if (DOM.aqiSection) DOM.aqiSection.style.display = 'none';
@@ -681,6 +703,20 @@
         try {
             const {data, url} = await fetchWeatherData();
             processAndDisplayWeatherData(data);
+
+            // [수정] 성공 시 캐시에 데이터 저장
+            try {
+                const cachePayload = {
+                    timestamp: Date.now(),
+                    lat: LAT,
+                    lon: LON,
+                    data: data
+                };
+                localStorage.setItem(CONFIG.WEATHER_DETAIL_CACHE_KEY, JSON.stringify(cachePayload));
+            } catch (e) {
+                console.warn("날씨 캐시 저장에 실패했습니다.", e);
+            }
+
             if (showSkeletonUI) renderSkeleton(false);
         } catch (errorInfo) {
             if (showSkeletonUI) renderSkeleton(false);
@@ -721,6 +757,13 @@
                 renderHourlyDataInModal(card.dataset.dateStr, card.dataset.dayName, card.dataset.monthDay);
             }
         });
+
+        // [수정] 페이지가 다시 보일 때 캐시를 고려하여 갱신 시도
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                loadWeatherData(false); // 스켈레톤 없이 부드럽게 갱신 (내부에서 캐시 체크)
+            }
+        });
     }
 
     function initialize() {
@@ -730,7 +773,7 @@
         }
         setupWeatherEffectsCanvas();
         setupEventListeners();
-        loadWeatherData();
+        loadWeatherData(); // 페이지 첫 로드 시에는 항상 갱신 시도 (내부에서 캐시 체크)
     }
 
     // --- START THE APP ---
