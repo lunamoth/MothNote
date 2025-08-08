@@ -161,14 +161,15 @@
 
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
-        // [수정] 차트와 파티클 색상 업데이트
         if (DOM.appContainer.style.display === 'block' || DOM.appContainer.style.display === '') {
             const newChartColors = getChartColors();
             if (_appState.weeklyTempChartInstance) {
+                // [BUG FIX] 변수명 오타 수정
                 updateChartInstanceColors(_appState.weeklyTempChartInstance, newChartColors, 'weekly');
             }
             if (_appState.hourlyTempChartInstance) {
-                updateChartInstanceColors(_appState.hourlyTempChartInstance, newColors, 'hourly');
+                // [BUG FIX] 변수명 오타 수정
+                updateChartInstanceColors(_appState.hourlyTempChartInstance, newChartColors, 'hourly');
             }
             if (_appState.weatherEffect.particles.length > 0) {
                 updateAllParticleColors();
@@ -632,7 +633,6 @@
     async function fetchWeatherData() {
         const dailyP = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,rain_sum,showers_sum,snowfall_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max";
         const hourlyP = "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,is_day";
-        // [수정] API 호출 시 동적으로 받은 위도/경도 사용
         const url = `${CONFIG.API_BASE_URL}?latitude=${LAT}&longitude=${LON}&current_weather=true&daily=${dailyP}&hourly=${hourlyP}&timezone=Asia/Seoul&forecast_days=7`;
 
         try {
@@ -653,10 +653,9 @@
         }
     }
 
-    function processAndDisplayWeatherData(weatherData) {
+    function processAndDisplayWeatherData(weatherData, timestamp) {
         _appState.hourlyFullData = weatherData.hourly;
         
-        // [수정] 지역 이름 고정 텍스트 제거
         DOM.mainTitle.textContent = `오늘과 주간 날씨`;
         DOM.subTitle.textContent = `현재 위치의 상세한 날씨 정보를 확인하세요.`;
 
@@ -667,47 +666,45 @@
         const currentWeatherDetails = getWeatherDetails(weatherData.current_weather.weathercode, weatherData.current_weather.is_day === 1);
         startWeatherEffect(currentWeatherDetails.effect);
         
-        const now = new Date();
-        DOM.lastUpdated.textContent = `마지막 업데이트: ${now.toLocaleDateString('ko-KR')} ${now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit'})}`;
+        const updateTime = new Date(timestamp);
+        DOM.lastUpdated.textContent = `마지막 업데이트: ${updateTime.toLocaleDateString('ko-KR')} ${updateTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit'})}`;
     }
 
-    async function loadWeatherData(showSkeletonUI = true) {
+    async function loadWeatherData() {
         if (!LAT || !LON) {
             renderError("위치 정보가 제공되지 않았습니다. MothNote 설정에서 위치를 지정해주세요.");
             renderSkeleton(false);
             return;
         }
 
-        // [수정] 로컬 스토리지를 이용한 캐시 검사
         try {
             const cachedDataString = localStorage.getItem(CONFIG.WEATHER_DETAIL_CACHE_KEY);
             if (cachedDataString) {
                 const cachedData = JSON.parse(cachedDataString);
                 const now = Date.now();
-                // 캐시가 유효하고, 위치 정보가 동일할 때 캐시 사용
                 if (cachedData.lat === LAT && cachedData.lon === LON && (now - cachedData.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) {
-                    processAndDisplayWeatherData(cachedData.data);
-                    renderSkeleton(false); // 스켈레톤 숨김
-                    return; // 캐시 사용했으므로 함수 종료
+                    processAndDisplayWeatherData(cachedData.data, cachedData.timestamp);
+                    renderSkeleton(false);
+                    return;
                 }
             }
-        } catch(e) {
+        } catch (e) {
             console.warn("날씨 캐시를 읽는 데 실패했습니다.", e);
-            localStorage.removeItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); // 오류 발생 시 캐시 삭제
+            localStorage.removeItem(CONFIG.WEATHER_DETAIL_CACHE_KEY);
         }
 
-        if (showSkeletonUI) renderSkeleton(true);
+        renderSkeleton(true);
         clearError();
         if (DOM.aqiSection) DOM.aqiSection.style.display = 'none';
 
         try {
             const {data, url} = await fetchWeatherData();
-            processAndDisplayWeatherData(data);
+            const fetchTimestamp = Date.now();
+            processAndDisplayWeatherData(data, fetchTimestamp);
 
-            // [수정] 성공 시 캐시에 데이터 저장
             try {
                 const cachePayload = {
-                    timestamp: Date.now(),
+                    timestamp: fetchTimestamp,
                     lat: LAT,
                     lon: LON,
                     data: data
@@ -717,15 +714,12 @@
                 console.warn("날씨 캐시 저장에 실패했습니다.", e);
             }
 
-            if (showSkeletonUI) renderSkeleton(false);
         } catch (errorInfo) {
-            if (showSkeletonUI) renderSkeleton(false);
-            
-            // [BUG FIX] errorInfo 객체의 구조를 확인하여 안전하게 오류 메시지를 추출합니다.
-            // fetchWeatherData 내에서 throw된 Error 객체는 originalError 속성이 없을 수 있습니다.
             const errorMessage = errorInfo?.originalError?.message || errorInfo?.message || '알 수 없는 오류';
-            const failedUrl = errorInfo?.failedUrl || null; // failedUrl이 없는 경우를 대비
+            const failedUrl = errorInfo?.failedUrl || null;
             renderError(`날씨 정보 로드 실패: ${errorMessage}`, failedUrl);
+        } finally {
+            renderSkeleton(false);
         }
     }
     
@@ -742,10 +736,7 @@
             }
         });
         
-        // [추가] 부모 창으로부터 테마 변경 메시지를 수신하는 리스너
         window.addEventListener('message', (event) => {
-            // 보안을 위해 origin을 확인할 수 있지만, 확장 프로그램 내부이므로 생략
-            // if (event.origin !== 'chrome-extension://...') return;
             if (event.data && event.data.type === 'setTheme') {
                 applyTheme(event.data.theme);
             }
@@ -758,22 +749,20 @@
             }
         });
 
-        // [수정] 페이지가 다시 보일 때 캐시를 고려하여 갱신 시도
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
-                loadWeatherData(false); // 스켈레톤 없이 부드럽게 갱신 (내부에서 캐시 체크)
+                loadWeatherData();
             }
         });
     }
 
     function initialize() {
-        // [수정] 초기 테마를 URL 파라미터에서 가져옴
         if (THEME) {
             applyTheme(THEME);
         }
         setupWeatherEffectsCanvas();
         setupEventListeners();
-        loadWeatherData(); // 페이지 첫 로드 시에는 항상 갱신 시도 (내부에서 캐시 체크)
+        loadWeatherData();
     }
 
     // --- START THE APP ---
