@@ -148,7 +148,8 @@ const handleSettingsReset = async () => {
         settingsZenMaxWidth.value = appSettings.zenMode.maxWidth; settingsZenMaxInput.value = appSettings.zenMode.maxWidth;
         settingsEditorFontFamily.value = appSettings.editor.fontFamily;
         settingsEditorFontSize.value = appSettings.editor.fontSize;
-        settingsWeatherLat.value = appSettings.weather.lat; settingsWeatherLon.value = appSettings.weather.lon;
+        settingsWeatherLat.value = appSettings.weather.lat;
+        settingsWeatherLon.value = appSettings.weather.lon;
         
         applySettings(appSettings);
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
@@ -247,7 +248,7 @@ class Dashboard {
             prevMonthBtn: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.prevMonthBtn),
             nextMonthBtn: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.nextMonthBtn),
             
-            // [BUG FIX] 날씨 뷰 관련 DOM 요소 참조 정리
+            // 날씨 뷰 관련 DOM 요소 참조 정리
             notesPanel: document.getElementById('notes-panel'),
             splitter2: document.getElementById('splitter-2'),
             mainContent: document.querySelector('.main-content'),
@@ -285,7 +286,7 @@ class Dashboard {
         this.dom.splitter2.style.display = 'none';
         this.dom.mainContent.style.display = 'none';
         
-        // [BUG FIX] 날씨 뷰 보이기 (display: grid로 변경)
+        // 날씨 뷰 보이기 (display: grid로 변경)
         this.dom.weatherViewContainer.style.display = 'grid';
         
         // 젠 모드 버튼 숨기기
@@ -297,12 +298,13 @@ class Dashboard {
         // 날씨 뷰 숨기기
         this.dom.weatherViewContainer.style.display = 'none';
         this.dom.weatherIframe.src = 'about:blank';
-
-        // 노트와 에디터 패널 다시 보이기
-        this.dom.notesPanel.style.display = 'flex';
-        this.dom.splitter2.style.display = ''; // 기본값으로 복원
-        this.dom.mainContent.style.display = 'flex';
-
+    
+        // [BUG FIX] 인라인 스타일을 제거하여 CSS 클래스 기반의 레이아웃 제어가 정상적으로 동작하도록 복원합니다.
+        // 이렇게 하면 젠 모드 전환 시 CSS 규칙이 올바르게 적용됩니다.
+        this.dom.notesPanel.style.removeProperty('display');
+        this.dom.splitter2.style.removeProperty('display');
+        this.dom.mainContent.style.removeProperty('display');
+    
         // 젠 모드 버튼 다시 보이기
         const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
         if (zenModeBtn) zenModeBtn.style.display = 'flex';
@@ -362,7 +364,6 @@ const handleTextareaKeyDown = (e) => { if (e.key === 'Tab') { e.preventDefault()
 const handleItemActionClick = (button, id, type) => { if (button.classList.contains('pin-btn')) handlePinNote(id); else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id); else if (button.classList.contains('delete-item-btn')) handleDelete(id, type); else if (button.classList.contains('restore-item-btn')) handleRestoreItem(id); else if (button.classList.contains('perm-delete-item-btn')) handlePermanentlyDeleteItem(id); };
 const handleListClick = (e, type) => { const li = e.target.closest('.item-list-entry'); if (!li) return; const id = li.dataset.id; const actionBtn = e.target.closest('.icon-button'); if (actionBtn) { handleItemActionClick(actionBtn, id, li.dataset.type); return; } if (type === CONSTANTS.ITEM_TYPE.FOLDER) changeActiveFolder(id); else if (type === CONSTANTS.ITEM_TYPE.NOTE) changeActiveNote(id); };
 const setupDragAndDrop = (listElement, type) => { if (!listElement) return; let dragOverIndicator; const getDragOverIndicator = () => { if (!dragOverIndicator) { dragOverIndicator = document.createElement('li'); dragOverIndicator.className = 'drag-over-indicator'; } return dragOverIndicator; }; listElement.addEventListener('dragstart', e => { const li = e.target.closest('.item-list-entry'); if (!li || !li.draggable) { e.preventDefault(); return; } draggedItemInfo.id = li.dataset.id; draggedItemInfo.type = type; if (type === CONSTANTS.ITEM_TYPE.NOTE) { const { folder } = findNote(draggedItemInfo.id); draggedItemInfo.sourceFolderId = folder?.id; } e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedItemInfo.id); setTimeout(() => li.classList.add(CONSTANTS.CLASSES.DRAGGING), 0); }); listElement.addEventListener('dragover', e => { e.preventDefault(); if (listElement !== folderList) return; const indicator = getDragOverIndicator(); const li = e.target.closest('.item-list-entry'); const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]'); if (!hasDraggableItems) { listElement.append(indicator); return; } if (!li || li.classList.contains(CONSTANTS.CLASSES.DRAGGING) || !li.draggable) { getDragOverIndicator().remove(); return; } const rect = li.getBoundingClientRect(), isAfter = e.clientY > rect.top + rect.height / 2; if (isAfter) li.after(indicator); else li.before(indicator); }); listElement.addEventListener('dragleave', e => { if (e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) getDragOverIndicator().remove(); }); listElement.addEventListener('drop', async e => { e.preventDefault(); if (listElement !== folderList || !draggedItemInfo.id) return; const indicator = getDragOverIndicator(); if(!indicator.parentElement) return; const draggedId = draggedItemInfo.id; const fromIndex = state.folders.findIndex(item => item.id === draggedId); if (fromIndex === -1) return; const originalNextElId = state.folders[fromIndex + 1]?.id; const dropNextElId = indicator.nextElementSibling?.dataset.id; indicator.remove(); if (originalNextElId === dropNextElId) { setState({}); return; } await performTransactionalUpdate((latestData) => { const { folders } = latestData; const fromIdx = folders.findIndex(item => item.id === draggedId); if (fromIdx === -1) return null; const [draggedItem] = folders.splice(fromIdx, 1); let toIdx = folders.findIndex(item => item.id === dropNextElId); if (toIdx === -1) folders.push(draggedItem); else folders.splice(toIdx, 0, draggedItem); draggedItem.updatedAt = Date.now(); return { newData: latestData, successMessage: null, postUpdateState: {} }; }); }); listElement.addEventListener('dragend', () => { const li = listElement.querySelector(`.${CONSTANTS.CLASSES.DRAGGING}`); if (li) li.classList.remove(CONSTANTS.CLASSES.DRAGGING); getDragOverIndicator().remove(); if (folderList) folderList.querySelector(`.${CONSTANTS.CLASSES.DROP_TARGET}`)?.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); draggedItemInfo = { id: null, type: null, sourceFolderId: null }; }); };
-// [BUG-C-CRITICAL 수정] 드래그 앤 드롭 시에도 데이터 유실을 방지하도록 로직 수정
 const setupNoteToFolderDrop = () => { if (!folderList) return; let currentDropTarget = null; folderList.addEventListener('dragenter', e => { if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return; const targetFolderLi = e.target.closest('.item-list-entry'); if (currentDropTarget && currentDropTarget !== targetFolderLi) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } if (targetFolderLi) { const folderId = targetFolderLi.dataset.id; const { ALL, RECENT } = CONSTANTS.VIRTUAL_FOLDERS; if (folderId !== draggedItemInfo.sourceFolderId && ![ALL.id, RECENT.id].includes(folderId)) { e.preventDefault(); targetFolderLi.classList.add(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = targetFolderLi; } } }); folderList.addEventListener('dragleave', e => { if (currentDropTarget && !e.currentTarget.contains(e.relatedTarget)) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } }); folderList.addEventListener('dragover', e => { if (draggedItemInfo.type === CONSTANTS.ITEM_TYPE.NOTE && currentDropTarget) e.preventDefault(); }); folderList.addEventListener('drop', async e => { e.preventDefault(); if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE || !currentDropTarget) return; const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id; currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; if (!(await saveCurrentNoteIfChanged())) { showToast("변경사항 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR); return; } const { TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS; if (targetFolderId === TRASH.id) { await performDeleteItem(noteId, CONSTANTS.ITEM_TYPE.NOTE); } else if (targetFolderId === FAVORITES.id) { const { item: note } = findNote(noteId); if (note && !state.favorites.has(noteId)) await handleToggleFavorite(noteId); } else { await performTransactionalUpdate((latestData) => { const { folders } = latestData; let noteToMove, sourceFolder; for (const folder of folders) { const noteIndex = folder.notes.findIndex(n => n.id === noteId); if (noteIndex > -1) { [noteToMove] = folder.notes.splice(noteIndex, 1); sourceFolder = folder; break; } } const targetFolder = folders.find(f => f.id === targetFolderId); if (!noteToMove || !targetFolder || sourceFolder.id === targetFolder.id) return null; const now = Date.now(); noteToMove.updatedAt = now; targetFolder.notes.unshift(noteToMove); sourceFolder.updatedAt = now; targetFolder.updatedAt = now; return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name), postUpdateState: {} }; }); } }); };
 const _focusAndScrollToListItem = (listElement, itemId) => { const itemEl = listElement.querySelector(`[data-id="${itemId}"]`); if (itemEl) { itemEl.focus(); itemEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } };
 const _navigateList = async (type, direction) => { if (isListNavigating) return; isListNavigating = true; try { await finishPendingRename(); const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList; if (!list) return; const items = Array.from(list.querySelectorAll('.item-list-entry')); if (items.length === 0) return; const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId; const currentIndex = items.findIndex(item => item.dataset.id === activeId); const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : items.length - 1) : (currentIndex + direction + items.length) % items.length; const nextId = items[nextIndex]?.dataset.id; if (!nextId) return; if (type === CONSTANTS.ITEM_TYPE.FOLDER) await changeActiveFolder(nextId); else await changeActiveNote(nextId); setTimeout(() => _focusAndScrollToListItem(list, nextId), 50); } finally { clearTimeout(keyboardNavDebounceTimer); keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV); setTimeout(() => { isListNavigating = false; }, 50); } };
@@ -391,7 +392,7 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
  } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
 const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) {
                 dashboard._initAnalogClock(true);
-                // [추가] iframe으로 테마 변경 메시지 전송
+                // iframe으로 테마 변경 메시지 전송
                 const weatherIframe = document.getElementById('weather-iframe');
                 if (weatherIframe && weatherIframe.contentWindow) {
                     weatherIframe.contentWindow.postMessage({ type: 'setTheme', theme: theme }, '*');
@@ -411,7 +412,7 @@ const setupGlobalEventListeners = () => {
         }
     });
     
-    // [버그 수정] 데이터 유실 방지를 위해 beforeunload 핸들러 로직 전면 수정
+    // 데이터 유실 방지를 위해 beforeunload 핸들러 로직 전면 수정
     window.addEventListener('beforeunload', (e) => {
         const isNoteDirty = state.isDirty && state.dirtyNoteId;
         const isRenaming = !!state.renamingItemId;
@@ -422,7 +423,7 @@ const setupGlobalEventListeners = () => {
             e.preventDefault();
             e.returnValue = message;
 
-            // [수정] 복잡한 데이터 조작 대신, 안전하게 변경사항 '원시 정보'만 기록
+            // 복잡한 데이터 조작 대신, 안전하게 변경사항 '원시 정보'만 기록
             try {
                 const changesToBackup = {};
                 let hasChanges = false;

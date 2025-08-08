@@ -684,7 +684,12 @@
             if (showSkeletonUI) renderSkeleton(false);
         } catch (errorInfo) {
             if (showSkeletonUI) renderSkeleton(false);
-            renderError(`날씨 정보 로드 실패: ${errorInfo.originalError.message}`, errorInfo.failedUrl);
+            
+            // [BUG FIX] errorInfo 객체의 구조를 확인하여 안전하게 오류 메시지를 추출합니다.
+            // fetchWeatherData 내에서 throw된 Error 객체는 originalError 속성이 없을 수 있습니다.
+            const errorMessage = errorInfo?.originalError?.message || errorInfo?.message || '알 수 없는 오류';
+            const failedUrl = errorInfo?.failedUrl || null; // failedUrl이 없는 경우를 대비
+            renderError(`날씨 정보 로드 실패: ${errorMessage}`, failedUrl);
         }
     }
     
