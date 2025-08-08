@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>상세 날씨</title>
+    <!-- [수정] 로컬 라이브러리 파일을 로드합니다. -->
+    <script src="./chart.umd.min.js"></script>
+    <script src="./chartjs-adapter-date-fns.bundle.min.js"></script>
+
+    <style>
+        :root {
+            /* 라이트 모드 색상 변수 */
+            --bg-color: #f4f7f6;
+            --card-bg-color: #ffffff;
+            --border-color: #e0e0e0;
+            --primary-text-color: #2c3e50;
+            --secondary-text-color: #7f8c8d;
+            --accent-color: #3498db;
+            --accent-color-warm: #e67e22;
+            --accent-color-cold: #3498db;
+            --rain-color: #3498db;
+            --snow-color: #5dade2;
+            --font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --skeleton-bg: #e9ecef;
+            --skeleton-shine: rgba(0, 0, 0, 0.04);
+            --shadow-color: rgba(0, 0, 0, 0.08);
+            --button-bg-color: #e9ecef;
+            --button-text-color: #2c3e50;
+            --button-hover-bg-color: #d1d8dd;
+            --spacing-unit: 8px; /* 8px 그리드 시스템 기준 단위 */
+        }
+
+        /* 다크 모드 색상 변수 */
+        :root[data-theme="dark"] {
+            --bg-color: #2c3e50;
+            --card-bg-color: #34495e;
+            --border-color: #4a6278;
+            --primary-text-color: #ecf0f1;
+            --secondary-text-color: #95a5a6; /* Slightly lighter for better contrast */
+            --accent-color: #5dade2; /* 약간 밝은 파랑 */
+            --accent-color-warm: #f39c12; /* 약간 밝은 주황 */
+            --accent-color-cold: #5dade2;
+            --rain-color: #5dade2;
+            --snow-color: #a9cce3; /* 약간 밝은 눈 색상 */
+            --skeleton-bg: #3b5368;
+            --skeleton-shine: rgba(255, 255, 255, 0.04);
+            --shadow-color: rgba(0, 0, 0, 0.2);
+            --button-bg-color: #4a6278;
+            --button-text-color: #ecf0f1;
+            --button-hover-bg-color: #5f7a93;
+        }
+
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--primary-text-color);
+            margin: 0;
+            padding: calc(var(--spacing-unit) * 3); /* 24px */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+            opacity: 0;
+            animation: fadeInPage 0.8s 0.2s ease-out forwards;
+            transition: background-color 0.3s ease, color 0.3s ease;
+			font-size: 17px; 
+        }
+
+        @keyframes fadeInPage {
+            to { opacity: 1; }
+        }
+
+        .theme-toggle-button {
+            /* 이 버튼은 부모 창(MothNote)에서 제어하므로 숨깁니다. */
+            display: none;
+        }
+
+        canvas#weather-effects-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; pointer-events: none;
+        }
+
+        .cloud-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -2; pointer-events: none; overflow: hidden;
+            opacity: 0.5;
+        }
+        .cloud {
+            position: absolute;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 100 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M77.5,60 C77.5,60 77.5,60 77.53,60 C81.03,60 84.19,58.82 86.65,56.78 C92.03,52.28 93.19,44.54 89.44,38.46 C89.07,37.88 88.66,37.33 88.22,36.81 C88.63,36.22 89,35.59 89.3,34.92 C92.8,28.14 90.29,19.91 83.94,15.83 C82.03,14.75 79.88,14.2 77.68,14.2 C76.32,14.2 75,14.42 73.79,14.85 C71.73,10.63 67.03,7.6 61.66,7.6 C55.03,7.6 49.53,11.94 47.87,17.91 C46.07,17.17 44.07,16.8 41.97,16.8 C34.22,16.8 27.92,22.2 27.07,29.67 C26.97,29.67 26.87,29.68 26.78,29.68 C22.03,29.68 18.13,32.81 16.73,37.01 C12.53,38.06 9.63,41.89 9.63,46.4 C9.63,51.93 14.01,56.3 19.53,56.3 L19.53,56.3 L72.38,56.3 C72.38,56.3 72.38,56.3 72.38,56.3S77.5,60 77.5,60Z' fill='%23000' fill-opacity='0.05'/%3E%3C/svg%3E");
+            background-repeat: repeat-x;
+            background-size: 250px auto;
+            width: 300%; height: 120px;
+            animation: moveClouds 80s linear infinite;
+        }
+        .cloud.cloud1 { top: 2%; animation-duration: 90s; }
+        .cloud.cloud2 { top: 10%; animation-duration: 70s; animation-delay: -15s; opacity: 0.7; background-size: 300px auto; }
+        .cloud.cloud3 { top: 18%; animation-duration: 100s; opacity: 0.8; background-size: 200px auto; }
+
+        @keyframes moveClouds {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100vw); }
+        }
+
+        .container { width: 100%; max-width: 1500px; }
+        header { text-align: center; margin-bottom: calc(var(--spacing-unit) * 4); position: relative; } /* 32px */
+        header h1 { font-size: 3em; font-weight: 300; color: var(--primary-text-color); margin-bottom: var(--spacing-unit); } /* 8px */
+        header p { font-size: 1.25em; color: var(--secondary-text-color); }
+
+        /* 스켈레톤 UI */
+        .skeleton { background-color: var(--skeleton-bg); border-radius: calc(var(--spacing-unit) * 1.25); /* 10px */ position: relative; overflow: hidden; }
+        .skeleton::before { background: linear-gradient(to right, transparent 0%, var(--skeleton-shine) 50%, transparent 100%); animation: skeletonShine 1.6s infinite; content: ""; position: absolute; top: 0; left: -150%; width: 100%; height: 100%;}
+        @keyframes skeletonShine { 0% { left: -150%; } 100% { left: 150%; } }
+        .skeleton-text { height: 1.2em; margin-bottom: calc(var(--spacing-unit) * 0.75); /* 6px */ border-radius: calc(var(--spacing-unit) * 0.5); /* 4px */ }
+        .skeleton-icon { width: 5em; height: 5em; border-radius: 50%; margin: 0 auto; }
+
+        .top-info-grid { display: grid; grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */ }
+
+        .current-weather-section, .aqi-section {
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 2); /* 16px */
+            padding: calc(var(--spacing-unit) * 3.5); /* 28px */
+            box-shadow: 0 6px 20px var(--shadow-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .current-weather-section h2, .aqi-section h2 {
+            font-size: 1.6em; font-weight: 600; color: var(--primary-text-color);
+            margin-top: 0; margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ border-bottom: 1px solid var(--border-color); padding-bottom: calc(var(--spacing-unit) * 1.5); /* 12px */
+            display: flex; align-items: center;
+            transition: color 0.3s ease, border-color 0.3s ease;
+        }
+        .current-weather-section h2::before { content: "🌦️"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
+        .aqi-section h2::before { content: "🌬️"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
+
+        .current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ }
+        .current-weather-main .icon { font-size: 6em; line-height: 1; filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.1));}
+        .current-weather-main .icon.sun { animation: gentleRotate 20s linear infinite paused; animation-play-state: running; }
+        @keyframes gentleRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .current-weather-main .temp-desc .temp { font-size: 4.5em; font-weight: 700; color: var(--primary-text-color); transition: color 0.3s ease;}
+        .current-weather-main .temp-desc .desc { font-size: 1.4em; color: var(--secondary-text-color); text-transform: capitalize; margin-top: calc(var(--spacing-unit) * 0.5); /* 4px */ transition: color 0.3s ease;}
+
+        .current-weather-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: calc(var(--spacing-unit) * 2); /* 16px */ }
+        .current-weather-details div { color: var(--secondary-text-color); font-size: 1em; background-color: var(--bg-color); padding: var(--spacing-unit) calc(var(--spacing-unit) * 1.5); /* 8px 12px */ border-radius: var(--spacing-unit); /* 8px */ border: 1px solid var(--border-color); transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;}
+        .current-weather-details div strong { color: var(--primary-text-color); font-weight: 600; transition: color 0.3s ease;}
+        .current-weather-details div::before { margin-right: var(--spacing-unit); } /* 8px */
+        .current-weather-details div:nth-child(1)::before { content: "🌡️"; } /* 체감 */
+        .current-weather-details div:nth-child(2)::before { content: "💧"; } /* 습도 */
+        .current-weather-details div:nth-child(3)::before { content: "💨"; } /* 풍속 */
+        .current-weather-details div:nth-child(4)::before { content: "🧭"; } /* 풍향 */
+        .current-weather-details div:nth-child(5)::before { content: "☔"; } /* 강수 */
+        .current-weather-details div:nth-child(6)::before { content: "⏰"; } /* 시간 */
+
+        .aqi-section { display: none; } /* AQI 섹션은 필요시 표시 */
+
+        .weekly-temp-chart-container {
+             background-color: var(--card-bg-color); border: 1px solid var(--border-color);
+             border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3); /* 24px */ margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */
+             height: 380px;
+             position: relative;
+             box-shadow: 0 6px 20px var(--shadow-color);
+             transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .weekly-temp-chart-container h2 {
+            font-size: 1.6em; font-weight: 600; margin-top:0; margin-bottom: calc(var(--spacing-unit) * 2.5); /* 20px */ text-align: center;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--primary-text-color); transition: color 0.3s ease;
+        }
+        .weekly-temp-chart-container h2::before { content: "📊"; margin-right: var(--spacing-unit); font-size: 1.1em;} /* 8px */
+
+        #weeklyTempChart { max-height: calc(100% - 50px); }
+
+        .forecast-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* 카드 최소 너비 300px, 간격 고려 */
+            gap: calc(var(--spacing-unit) * 3.5); /* 28px */
+            width: 100%;
+        }
+
+        .weather-card {
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3); /* 24px */
+            box-shadow: 0 6px 15px var(--shadow-color);
+            display: flex; flex-direction: column; gap: calc(var(--spacing-unit) * 2); /* 16px */
+            cursor: pointer;
+            opacity: 0;
+            transform: translateY(25px);
+            animation: cardFadeInUp 0.6s ease-out forwards;
+            transition: transform 0.2s ease-out, box-shadow 0.2s ease-out, background-color 0.3s ease, border-color 0.3s ease;
+            will-change: transform, box-shadow; /* 최적화 힌트 */
+        }
+        .weather-card:nth-child(1) { animation-delay: 0.15s; }
+        .weather-card:nth-child(2) { animation-delay: 0.25s; }
+        .weather-card:nth-child(3) { animation-delay: 0.35s; }
+        /* ... 이하 animation-delay 생략 ... */
+
+
+        @keyframes cardFadeInUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .weather-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+        }
+        :root[data-theme="dark"] .weather-card:hover {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+        }
+
+
+        .card-header {
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: calc(var(--spacing-unit) * 1.5); /* 12px */
+            transition: border-color 0.3s ease;
+            display: flex; /* Flexbox를 사용하여 날짜와 요일 정렬 */
+            flex-direction: column; /* 기본 수직 정렬 유지 */
+            align-items: center; /* 중앙 정렬 */
+        }
+        .card-header .date-wrapper { /* 날짜와 요일을 감싸는 div */
+            display: flex;
+            align-items: baseline; /* 텍스트 기준선 정렬 */
+            gap: calc(var(--spacing-unit) * 0.5); /* 4px, 날짜와 요일 사이 간격 */
+        }
+        .card-header .month-day { /* 날짜 (예: 00월 00일) */
+            font-size: 1.5em; /* 기존 요일 크기, 더 크게 */
+            font-weight: 700;
+            color: var(--primary-text-color);
+            transition: color 0.3s ease;
+        }
+        .card-header .day-name { /* 요일 (예: (월요일)) */
+            font-size: 0.95em; /* 기존 날짜 크기, 더 작게 */
+            color: var(--secondary-text-color);
+            transition: color 0.3s ease;
+            font-weight: 500;
+        }
+
+
+        .card-main-weather { display: flex; align-items: center; justify-content: space-between; gap: calc(var(--spacing-unit) * 2.5); /* 20px */ }
+        .card-main-weather .icon { font-size: 4.5em; animation: gentleBob 3s ease-in-out infinite alternate; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.08));}
+        @keyframes gentleBob { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+
+        .card-main-weather .temps { text-align: right; }
+        .card-main-weather .temps .temp-range { font-size: 1.3em; display: block; margin-bottom: calc(var(--spacing-unit) * 0.75); /* 6px */ font-weight: 500; color: var(--primary-text-color); transition: color 0.3s ease;}
+        .card-main-weather .temps .temp-min { color: var(--accent-color-cold); font-weight: 700; transition: color 0.3s ease;}
+        .card-main-weather .temps .temp-max { color: var(--accent-color-warm); font-weight: 700; transition: color 0.3s ease;}
+        .card-main-weather .weather-description { font-size: 1.15em; color: var(--secondary-text-color); text-transform: capitalize; margin-top: calc(var(--spacing-unit) * 0.5); /* 4px */ transition: color 0.3s ease;}
+
+        .card-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--spacing-unit) * 2); /* 16px */ font-size: 0.95em; }
+        .detail-item { background-color: var(--bg-color); padding: calc(var(--spacing-unit) * 1.5); /* 12px */ border-radius: var(--spacing-unit); /* 8px */ border: 1px solid var(--border-color); color: var(--secondary-text-color); display:flex; flex-direction: column; transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;}
+        .detail-item .label {
+            display: block;
+            font-size: 0.85em; /* Slightly smaller */
+            opacity: 0.8;    /* Slightly less prominent */
+            margin-bottom: calc(var(--spacing-unit) * 0.25); /* 2px */
+            color: var(--primary-text-color);
+            transition: color 0.3s ease;
+        }
+        .detail-item .value {
+            font-weight: 600;
+            font-size: 1em;
+            color: var(--primary-text-color);
+            transition: color 0.3s ease;
+        }
+        .detail-item .value .unit { font-size: 0.9em; opacity: 0.8; margin-left: calc(var(--spacing-unit) * 0.5); /* 4px */ }
+        .detail-item.feels-like::before { content: "🌡️"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+        .detail-item.precipitation::before { content: "💧"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+        .detail-item.wind::before { content: "💨"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+        .detail-item.uv-index::before { content: "☀️"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+        .detail-item.sunrise-sunset::before { content: "🌅"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+        .detail-item.precipitation-hours::before { content: "⏳"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+
+        /* 모달 스타일 */
+        .modal {
+            display: none; position: fixed; z-index: 1000;
+            left: 0; top: 0; width: 100%; height: 100%;
+            overflow: auto; background-color: rgba(40, 40, 60, 0.6);
+            opacity: 0; transition: opacity 0.3s ease-out;
+        }
+        :root[data-theme="dark"] .modal {
+            background-color: rgba(20, 20, 30, 0.7);
+        }
+        .modal.active { display: flex; opacity: 1; }
+        .modal-content {
+            background-color: var(--card-bg-color); color: var(--primary-text-color);
+            margin: auto; padding: calc(var(--spacing-unit) * 4); /* 32px */ border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 2); /* 16px */ width: 90%; max-width: 750px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.15);
+            transform: scale(0.95); transition: transform 0.3s ease-out, background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+            display: flex; flex-direction: column;
+        }
+        :root[data-theme="dark"] .modal-content {
+            box-shadow: 0 12px 35px rgba(0,0,0,0.3);
+        }
+
+        .modal.active .modal-content { transform: scale(1); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: calc(var(--spacing-unit) * 2); /* 16px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ flex-shrink: 0; transition: border-color 0.3s ease;}
+        .modal-header h2 { font-size: 1.8em; margin: 0; color: var(--primary-text-color); font-weight: 600; transition: color 0.3s ease;}
+        .close-button { color: var(--secondary-text-color); font-size: 2.2em; font-weight: bold; cursor: pointer; border:none; background: none; line-height: 1; transition: color 0.3s ease;}
+        .close-button:hover, .close-button:focus { color: var(--primary-text-color); }
+
+        /* 모달 내부 순서 변경: 차트 -> 리스트 */
+        .hourly-chart-wrapper { /* 차트가 먼저 오도록 순서 변경 대비 */
+            height: 320px;
+            position: relative;
+            flex-shrink: 0;
+            margin-bottom: calc(var(--spacing-unit) * 2.5); /* 20px, 차트와 리스트 사이 간격 */
+        }
+        #hourlyTempChart { max-height: 100%; }
+
+        .hourly-forecast-list {
+            overflow-y: auto; padding-right: calc(var(--spacing-unit) * 1.5); /* 12px for scrollbar */
+            flex-grow: 1;
+            min-height: 180px; /* 최소 높이 유지 */
+        }
+
+        .hourly-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: calc(var(--spacing-unit) * 1.75) calc(var(--spacing-unit) * 0.75); /* 14px 6px */
+            border-bottom: 1px solid var(--border-color);
+            transition: border-color 0.3s ease, background-color 0.2s ease;
+        }
+        .hourly-item:last-child { border-bottom: none; }
+        .hourly-item:hover { background-color: rgba(0,0,0,0.03); }
+        :root[data-theme="dark"] .hourly-item:hover { background-color: rgba(255,255,255,0.03); }
+
+        .hourly-item .time { font-weight: 600; width: 22%; color: var(--primary-text-color); transition: color 0.3s ease;}
+        .hourly-item .icon { font-size: 2em; width: 18%; text-align: center; }
+        .hourly-item .temp { width: 20%; text-align: right; font-weight: 500; color: var(--primary-text-color); transition: color 0.3s ease;}
+        .hourly-item .precip { width: 25%; text-align: right; font-size: 0.95em; color: var(--secondary-text-color); transition: color 0.3s ease;}
+        .hourly-item .desc { width: 15%; text-align: right; font-size: 0.9em; color: var(--secondary-text-color); text-transform: capitalize; transition: color 0.3s ease;}
+
+
+        #error { font-size: 1.3em; text-align: center; margin-top: calc(var(--spacing-unit) * 6); /* 48px */ width: 100%; color: #c0392b; }
+        #error span { font-size: 1.8em; display: block; margin-bottom: var(--spacing-unit); } /* 8px */
+        :root[data-theme="dark"] #error { color: #e74c3c; }
+
+
+        /* 로딩 스켈레톤 */
+        #loadingSkeleton { width: 100%; max-width: 1500px; }
+        .skeleton-current-weather-section, .skeleton-aqi-section { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3.5); /* 28px */ box-shadow: 0 6px 20px var(--shadow-color); transition: background-color 0.3s ease, border-color 0.3s ease; }
+        .skeleton-current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ }
+        .skeleton-current-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: calc(var(--spacing-unit) * 2); /* 16px */ }
+        .skeleton-forecast-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: calc(var(--spacing-unit) * 3.5); /* 28px */ }
+        .skeleton-card { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3); /* 24px */ transition: background-color 0.3s ease, border-color 0.3s ease;}
+
+        .last-updated-timestamp {
+            width: 100%;
+            text-align: center;
+            margin-top: calc(var(--spacing-unit) * 5); /* 40px */
+            padding-bottom: calc(var(--spacing-unit) * 2.5); /* 20px */
+            font-size: 0.9em;
+            color: var(--secondary-text-color);
+            transition: color 0.3s ease;
+        }
+
+        /* Added Icon Animations */
+        .icon.anim-cloud-drift { animation: cloudDrift 6s ease-in-out infinite alternate; }
+        @keyframes cloudDrift {
+            from { transform: translateX(-2px) var(--existing-transform, translateY(0)); }
+            to { transform: translateX(2px) var(--existing-transform, translateY(0)); }
+        }
+
+        .icon.anim-rain-drop { animation: rainDrop 1.2s ease-in-out infinite; }
+        @keyframes rainDrop {
+            0%, 100% { opacity: 1; transform: translateY(var(--existing-transform-y, 0)) var(--existing-transform-x, translateX(0)); }
+            50% { opacity: 0.6; transform: translateY(calc(var(--existing-transform-y, 0px) + 3px)) var(--existing-transform-x, translateX(0));}
+        }
+
+        .icon.anim-snow-flake { animation: snowTwirl 5s ease-in-out infinite alternate; }
+        @keyframes snowTwirl {
+            from { opacity: 0.7; transform: rotate(-7deg) var(--existing-transform, translateY(0)); }
+            to { opacity: 1; transform: rotate(7deg) var(--existing-transform, translateY(0)); }
+        }
+        /* Ensure gentleBob animation is defined if these are to be combined */
+        .card-main-weather .icon {
+            --existing-transform-y: 0; /* Default for when not bobbing */
+        }
+        .card-main-weather .icon.gentleBob-active { /* Class to control bobbing with other animations */
+            animation: gentleBob 3s ease-in-out infinite alternate;
+        }
+
+
+        @media (max-width: 768px) {
+            body { padding: calc(var(--spacing-unit) * 2); /* 16px */ padding-top: calc(var(--spacing-unit) * 8.5); /* 68px 테마 토글 버튼 공간 확보 */}
+            .theme-toggle-button { top: calc(var(--spacing-unit) * 2); /* 16px */ right: calc(var(--spacing-unit) * 2); /* 16px */ padding: var(--spacing-unit) calc(var(--spacing-unit) * 1.5); /* 8px 12px */ }
+            header h1 { font-size: 2.4em; }
+            header p { font-size: 1.1em; }
+            .current-weather-main .icon { font-size: 5em; }
+            .current-weather-main .temp-desc .temp { font-size: 3.5em; }
+            .forecast-container, .skeleton-forecast-container { grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ }
+            .weather-card { padding: calc(var(--spacing-unit) * 2.5); /* 20px */ gap: calc(var(--spacing-unit) * 1.5); /* 12px */ }
+            
+            .card-header .month-day { font-size: 1.3em; } /* 모바일에서 날짜 크기 조정 */
+            .card-header .day-name { font-size: 0.9em; }   /* 모바일에서 요일 크기 조정 */
+
+            .modal-content { width: 95%; padding: calc(var(--spacing-unit) * 3); /* 24px */ max-height: 85vh; }
+            .hourly-chart-wrapper { height: 250px; margin-bottom: calc(var(--spacing-unit) * 2); /* 16px */ } /* 모바일에서 차트 높이 및 간격 조정 */
+            .hourly-item .time { width: 25%; }
+            .hourly-item .icon { width: 20%; font-size: 1.8em; } /* 모바일 아이콘 크기 살짝 줄임 */
+            .hourly-item .temp { width: 25%; }
+            .hourly-item .precip { display: none; } /* 모바일에서는 강수확률 텍스트 숨김 */
+            .hourly-item .desc { width: 30%; font-size: 0.85em; } /* 모바일 설명 텍스트 크기 조정 */
+        }
+    </style>
+</head>
+<body>
+    <button id="themeToggle" class="theme-toggle-button">🌙 다크 모드</button>
+
+    <div class="cloud-overlay">
+        <div class="cloud cloud1"></div>
+        <div class="cloud cloud2"></div>
+        <div class="cloud cloud3"></div>
+    </div>
+    <canvas id="weather-effects-canvas"></canvas>
+
+    <div id="loadingSkeleton">
+        <header>
+            <div class="skeleton skeleton-text" style="width: 40%; height: 2.8em; margin: 0 auto calc(var(--spacing-unit) * 1);"></div>
+            <div class="skeleton skeleton-text" style="width: 60%; height: 1.2em; margin: 0 auto;"></div>
+        </header>
+        <div class="top-info-grid">
+            <section class="skeleton-current-weather-section">
+                <div class="skeleton skeleton-text" style="width: 30%; height: 1.4em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
+                <div class="skeleton-current-weather-main">
+                    <div class="skeleton skeleton-icon" style="width: 5.5em; height: 5.5em;"></div>
+                    <div>
+                        <div class="skeleton skeleton-text" style="width: 100px; height: 4em;"></div>
+                        <div class="skeleton skeleton-text" style="width: 150px; height: 1.3em; margin-top: calc(var(--spacing-unit) * 0.5);"></div>
+                    </div>
+                </div>
+                <div class="skeleton-current-details">
+                    <div class="skeleton skeleton-text" style="height: 2.5em;"></div> <div class="skeleton skeleton-text" style="height: 2.5em;"></div>
+                    <div class="skeleton skeleton-text" style="height: 2.5em;"></div> <div class="skeleton skeleton-text" style="height: 2.5em;"></div>
+                </div>
+            </section>
+        </div>
+        <div class="weekly-temp-chart-container skeleton" style="height: 380px; margin-bottom: calc(var(--spacing-unit) * 4);">
+             <div class="skeleton skeleton-text" style="width: 50%; height: 1.6em; margin: 0 auto calc(var(--spacing-unit) * 2.5);"></div>
+        </div>
+        <main class="skeleton-forecast-container">
+            <div class="skeleton-card" style="height: 320px;"></div> <div class="skeleton-card" style="height: 320px;"></div> <div class="skeleton-card" style="height: 320px;"></div>
+        </main>
+    </div>
+
+    <div class="container" id="appContainer" style="display:none;">
+        <header>
+            <h1 id="mainTitle">오늘과 주간 날씨</h1>
+            <p id="subTitle"></p>
+        </header>
+
+        <div class="top-info-grid">
+            <section class="current-weather-section">
+                <h2>현재 날씨</h2>
+                <div class="current-weather-main">
+                    <span class="icon" id="currentWeatherIcon"></span>
+                    <div class="temp-desc">
+                        <span class="temp" id="currentTemp"></span>
+                        <span class="desc" id="currentWeatherDesc"></span>
+                    </div>
+                </div>
+                <div class="current-weather-details">
+                    <div>체감: <strong id="currentApparentTemp"></strong></div>
+                    <div>습도: <strong id="currentHumidity"></strong></div>
+                    <div>풍속: <strong id="currentWindSpeed"></strong></div>
+                    <div>풍향: <strong id="currentWindDir"></strong></div>
+                    <div>강수(1h): <strong id="currentPrecipitation"></strong></div>
+                    <div>시간: <strong id="currentTime"></strong></div>
+                </div>
+            </section>
+             <section class="aqi-section" id="aqiSection" style="display: none;">
+                 <h2>대기 질 지수 (AQI)</h2>
+                 <div class="aqi-details">
+                     <div class="aqi-value" id="aqiValue">N/A</div>
+                     <div class="aqi-level" id="aqiLevel">정보 없음</div>
+                     <div class="aqi-pollutants">
+                         <span>(정보 로딩 중...)</span>
+                     </div>
+                 </div>
+             </section>
+        </div>
+
+        <section class="weekly-temp-chart-container">
+            <h2>주간 최고/최저 기온</h2>
+            <canvas id="weeklyTempChart"></canvas>
+        </section>
+
+        <main class="forecast-container" id="forecastContainer">
+            <!-- 날씨 카드가 여기에 동적으로 추가됩니다. -->
+        </main>
+    </div>
+
+    <div id="hourlyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">시간별 예보</h2>
+                <span class="close-button" id="closeModalButton">&times;</span>
+            </div>
+            <div class="hourly-chart-wrapper">
+                 <canvas id="hourlyTempChart"></canvas>
+            </div>
+            <div class="hourly-forecast-list" id="hourlyForecastList">
+                <!-- 시간별 예보 아이템이 여기에 동적으로 추가됩니다. -->
+            </div>
+        </div>
+    </div>
+
+    <div id="error" style="display:none;"><span>⚠️</span>날씨 정보를 가져오는데 실패했습니다. 나중에 다시 시도해주세요.</div>
+    <p id="lastUpdated" class="last-updated-timestamp"></p>
+
+    <script src="weather.js"></script>
+</body>
+</html>

@@ -246,6 +246,14 @@ class Dashboard {
             calendarMonthYear: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.calendarMonthYear),
             prevMonthBtn: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.prevMonthBtn),
             nextMonthBtn: document.getElementById(CONSTANTS.DASHBOARD.DOM_IDS.nextMonthBtn),
+            
+            // [BUG FIX] 날씨 뷰 관련 DOM 요소 참조 정리
+            notesPanel: document.getElementById('notes-panel'),
+            splitter2: document.getElementById('splitter-2'),
+            mainContent: document.querySelector('.main-content'),
+            weatherViewContainer: document.getElementById('weather-view-container'),
+            weatherIframe: document.getElementById('weather-iframe'),
+            closeWeatherViewBtn: document.getElementById('close-weather-view-btn'),
         };
         this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockAnimationId: null, digitalClockIntervalId: null, weatherFetchController: null, displayedMonth: null, clockFaceCache: null, };
         this.observer = null;
@@ -254,8 +262,63 @@ class Dashboard {
         this._setupVisibilityObserver(); this._initAnalogClock();
         if (document.body) new MutationObserver(() => this._initAnalogClock(true)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
         this.fetchWeather(); this.renderCalendar(); this._setupCalendarEvents();
+        this._setupWeatherViewEvents();
         window.addEventListener('unload', () => { if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort(); this._stopClocks(); });
     }
+    
+    _openWeatherView() {
+        const { lat, lon } = appSettings.weather;
+        
+        console.log("Opening weather view with settings:", appSettings.weather);
+        if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
+            console.error("Invalid lat/lon values:", lat, lon);
+            showToast("날씨 위치 정보가 올바르지 않습니다. 설정에서 위치를 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+        
+        const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+        
+        this.dom.weatherIframe.src = `weather.html?lat=${lat}&lon=${lon}&theme=${theme}`;
+        
+        // 노트와 에디터 패널 숨기기
+        this.dom.notesPanel.style.display = 'none';
+        this.dom.splitter2.style.display = 'none';
+        this.dom.mainContent.style.display = 'none';
+        
+        // [BUG FIX] 날씨 뷰 보이기 (display: grid로 변경)
+        this.dom.weatherViewContainer.style.display = 'grid';
+        
+        // 젠 모드 버튼 숨기기
+        const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
+        if (zenModeBtn) zenModeBtn.style.display = 'none';
+    }
+
+    _closeWeatherView() {
+        // 날씨 뷰 숨기기
+        this.dom.weatherViewContainer.style.display = 'none';
+        this.dom.weatherIframe.src = 'about:blank';
+
+        // 노트와 에디터 패널 다시 보이기
+        this.dom.notesPanel.style.display = 'flex';
+        this.dom.splitter2.style.display = ''; // 기본값으로 복원
+        this.dom.mainContent.style.display = 'flex';
+
+        // 젠 모드 버튼 다시 보이기
+        const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
+        if (zenModeBtn) zenModeBtn.style.display = 'flex';
+    }
+    
+    _setupWeatherViewEvents() {
+        if(this.dom.weatherContainer) {
+            this.dom.weatherContainer.style.cursor = 'pointer';
+            this.dom.weatherContainer.title = '클릭하여 상세 날씨 보기';
+            this.dom.weatherContainer.addEventListener('click', () => this._openWeatherView());
+        }
+        if(this.dom.closeWeatherViewBtn) {
+            this.dom.closeWeatherViewBtn.addEventListener('click', () => this._closeWeatherView());
+        }
+    }
+    
     _setupVisibilityObserver() {
         if (!this.dom.panel) return;
         this.observer = new IntersectionObserver((entries) => { entries.forEach(entry => { if (entry.isIntersecting) this._startClocks(); else this._stopClocks(); }); });
@@ -326,7 +389,14 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
         await saveCurrentNoteIfChanged();
     });
  } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
-const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) dashboard._initAnalogClock(true); }); } };
+const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) {
+                dashboard._initAnalogClock(true);
+                // [추가] iframe으로 테마 변경 메시지 전송
+                const weatherIframe = document.getElementById('weather-iframe');
+                if (weatherIframe && weatherIframe.contentWindow) {
+                    weatherIframe.contentWindow.postMessage({ type: 'setTheme', theme: theme }, '*');
+                }
+            } }); } };
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
 const setupGlobalEventListeners = () => {

@@ -61,6 +61,12 @@
 
         <div class="splitter" id="splitter-1"></div>
 
+        <!-- [BUG FIX] 중복된 요소들을 제거하고, 닫기 버튼을 컨테이너 안으로 이동 -->
+        <div id="weather-view-container" style="display: none;">
+            <button id="close-weather-view-btn" class="ripple-effect" title="날씨 뷰 닫기">❌</button>
+            <iframe id="weather-iframe" src="about:blank"></iframe>
+        </div>
+
         <nav class="panel" id="notes-panel">
             <header class="panel-header">
                 <h2 id="notes-panel-title">📝 노트</h2>
@@ -237,6 +243,8 @@
         </li>
     </template>
     
+   <!-- [BUG FIX] 중복된 날씨 뷰 컨테이너 관련 코드를 모두 제거했습니다. -->
+	
     <button id="zen-mode-toggle-btn" class="ripple-effect" title="🧘 젠 모드">🧘</button>
     <button id="theme-toggle-btn" class="ripple-effect" title="🎨 테마 전환">🌙</button>
 
