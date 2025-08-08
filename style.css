@@ -370,7 +370,7 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .placeholder { display: flex; flex-direction: column; gap: 10px; justify-content: center; align-items: center; height: 100%; font-size: 18px; color: var(--font-color-dim); text-align: center; }
-    .placeholder-icon { font-size: 50px; }
+    .placeholder-icon { font-size: 100px; }
     
     .modal {
         background: var(--material-thick-bg);
