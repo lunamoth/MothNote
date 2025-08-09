@@ -1,7 +1,7 @@
 // storage.js
 
 import { state, setState, buildNoteMap, CONSTANTS } from './state.js';
-import { showToast, showConfirm, importFileInput, sortNotes, showAlert } from './components.js';
+import { showToast, showConfirm, importFileInput, sortNotes, showAlert, showPrompt } from './components.js';
 import { updateNoteCreationDates } from './itemActions.js';
 
 
@@ -191,7 +191,6 @@ export const loadData = async () => {
         if (emergencyBackupJSON) {
             try {
                 const backupChanges = JSON.parse(emergencyBackupJSON);
-                const { performTransactionalUpdate } = await import('./itemActions.js');
                 
                 let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
                 
@@ -213,6 +212,43 @@ export const loadData = async () => {
                 });
 
                 if (userConfirmed) {
+                    // --- [CRITICAL BUG FIX] START ---
+                    // 트랜잭션 실행 전, 이름 변경 충돌을 미리 확인하고 사용자에게 해결을 요청합니다.
+                    if (backupChanges.itemRename) {
+                        const { id, type, newName } = backupChanges.itemRename;
+                        const foldersToCheck = authoritativeData?.folders || [];
+                        const isConflict = foldersToCheck.some(f => 
+                            (type === 'folder' && f.id !== id && f.name.toLowerCase() === newName.toLowerCase())
+                        );
+
+                        if (isConflict) {
+                            const resolvedName = await showPrompt({
+                                title: '✏️ 이름 충돌 해결',
+                                message: CONSTANTS.MESSAGES.ERROR.RENAME_CONFLICT_ON_RECOVERY(newName),
+                                initialValue: `${newName} (복사본)`,
+                                validationFn: (value) => {
+                                    const trimmedValue = value.trim();
+                                    if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
+                                    if (foldersToCheck.some(f => f.name.toLowerCase() === trimmedValue.toLowerCase())) {
+                                        return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+                                    }
+                                    return { isValid: true };
+                                }
+                            });
+
+                            if (resolvedName) {
+                                // 사용자가 새 이름을 입력하면 백업 객체를 수정하여 복원을 계속합니다.
+                                backupChanges.itemRename.newName = resolvedName.trim();
+                            } else {
+                                // 사용자가 취소하면 이름 변경 복원만 제외하고 나머지는 계속 진행합니다.
+                                showToast(CONSTANTS.MESSAGES.ERROR.RENAME_RECOVERY_CANCELED, CONSTANTS.TOAST_TYPE.ERROR);
+                                delete backupChanges.itemRename;
+                            }
+                        }
+                    }
+                    // --- [CRITICAL BUG FIX] END ---
+
+                    const { performTransactionalUpdate } = await import('./itemActions.js');
                     const { success } = await performTransactionalUpdate(latestData => {
                         const now = Date.now();
                         let changesApplied = false;
@@ -234,11 +270,12 @@ export const loadData = async () => {
                         }
 
                         // 2. 이름 변경 복원
+                        // [개선] 이제 충돌이 해결되었으므로, 조건 검사 없이 안전하게 적용합니다.
                         if (backupChanges.itemRename) {
                             const { id, type, newName } = backupChanges.itemRename;
                             if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
                                 const folderToRename = latestData.folders.find(f => f.id === id);
-                                if (folderToRename && !latestData.folders.some(f => f.id !== id && f.name.toLowerCase() === newName.toLowerCase())) {
+                                if (folderToRename) {
                                     folderToRename.name = newName;
                                     folderToRename.updatedAt = now;
                                     changesApplied = true;
@@ -426,7 +463,9 @@ MothNote는 단순한 메모장을 넘어, 당신의 일상과 작업을 한곳�
             
             setState({
                 ...state, ...initialAppState, favorites: new Set(),
-                activeFolderId: fId, activeNoteId: nId, totalNoteCount: 1,
+                activeFolderId: fId,
+                activeNoteId: null,
+                totalNoteCount: 1,
             });
             
             buildNoteMap();

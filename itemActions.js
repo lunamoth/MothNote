@@ -165,6 +165,20 @@ const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
     return nextItem?.id ?? null;
 };
 
+// [CRITICAL BUG FIX] ID 고유성 검사를 위해 시스템의 모든 ID를 수집하는 헬퍼 함수
+const collectAllIds = () => {
+    const allIds = new Set(state.noteMap.keys());
+    state.folders.forEach(f => allIds.add(f.id));
+    state.trash.forEach(item => {
+        allIds.add(item.id);
+        // 휴지통의 폴더 안에 있는 노트 ID까지 재귀적으로 추가
+        if (item.type === 'folder' && Array.isArray(item.notes)) {
+            item.notes.forEach(note => allIds.add(note.id));
+        }
+    });
+    return allIds;
+};
+
 export const handleAddFolder = async () => {
     await finishPendingRename();
     
@@ -190,9 +204,7 @@ export const handleAddFolder = async () => {
     }
 
     // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
-    const allIds = new Set(state.noteMap.keys());
-    state.folders.forEach(f => allIds.add(f.id));
-    state.trash.forEach(item => allIds.add(item.id));
+    const allIds = collectAllIds();
     const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
     const trimmedName = name.trim();
 
@@ -244,9 +256,7 @@ export const handleAddNote = async () => {
         }
         
         // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
-        const allIds = new Set(state.noteMap.keys());
-        state.folders.forEach(f => allIds.add(f.id));
-        state.trash.forEach(item => allIds.add(item.id));
+        const allIds = collectAllIds();
         const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
         const now = Date.now();
 

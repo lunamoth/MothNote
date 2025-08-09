@@ -113,7 +113,11 @@ export const CONSTANTS = {
             WEATHER_CITY_NOT_FOUND: '🌦️ 도시를 찾을 수 없습니다. 다른 이름으로 검색해보세요.',
             INVALID_LATITUDE: '🤔 유효하지 않은 위도 값입니다. (-90 ~ 90)',
             INVALID_LONGITUDE: '🤔 유효하지 않은 경도 값입니다. (-180 ~ 180)',
-            RESERVED_NAME: '🚫 시스템에서 사용하는 이름으로는 변경할 수 없습니다.'
+            RESERVED_NAME: '🚫 시스템에서 사용하는 이름으로는 변경할 수 없습니다.',
+            // --- [CRITICAL BUG FIX] START ---
+            RENAME_CONFLICT_ON_RECOVERY: name => `'${name}'(으)로의 이름 변경을 복원할 수 없습니다. 해당 이름이 이미 다른 곳에서 사용 중입니다. 복원하려면 새 이름을 입력해주세요.`,
+            RENAME_RECOVERY_CANCELED: '이름 변경 복원이 취소되었습니다.',
+            // --- [CRITICAL BUG FIX] END ---
         },
         CONFIRM: {
             PERM_DELETE: name => `💥 '${name}' 항목을 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없어요! 😱`,
