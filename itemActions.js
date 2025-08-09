@@ -774,14 +774,34 @@ export async function saveCurrentNoteIfChanged() {
         return { newData: latestData, successMessage: null, postUpdateState: {} };
     });
     
+    // --- [CRITICAL BUG FIX START] ---
+    // 자동 저장과 사용자 입력 간의 경쟁 상태로 인한 데이터 유실을 방지합니다.
     if (success) {
-        setState({ isDirty: false, dirtyNoteId: null });
-        updateSaveStatus('saved');
+        // 저장이 성공한 후, state에 저장된 값과 현재 UI(편집기)의 값을 비교합니다.
+        const { item: justSavedNote } = findNote(noteId);
+        const liveTitle = noteTitleInput.value;
+        const liveContent = noteContentTextarea.value;
+
+        const isStillDirty = justSavedNote && (justSavedNote.title !== liveTitle || justSavedNote.content !== liveContent);
+
+        if (isStillDirty) {
+            // 저장하는 동안 사용자가 추가로 내용을 입력한 경우입니다.
+            // isDirty 상태를 true로 유지하고, 변경 상태를 다시 표시한 후,
+            // 새로운 자동 저장을 예약합니다.
+            setState({ isDirty: true, dirtyNoteId: noteId });
+            updateSaveStatus('dirty'); 
+            handleUserInput(); // 새로운 변경사항에 대한 자동 저장 타이머를 다시 시작
+        } else {
+            // UI와 저장된 상태가 일치하는 경우, '저장 완료'로 처리합니다.
+            setState({ isDirty: false, dirtyNoteId: null });
+            updateSaveStatus('saved');
+        }
         // [버그 수정] 성공적인 저장 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
         // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
     } else {
         updateSaveStatus('dirty');
     }
+    // --- [CRITICAL BUG FIX END] ---
 
     return success;
 }

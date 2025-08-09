@@ -269,27 +269,40 @@ export const loadData = async () => {
                             }
                         }
 
-                        // 2. 이름 변경 복원
-                        // [개선] 이제 충돌이 해결되었으므로, 조건 검사 없이 안전하게 적용합니다.
+                        // [BUG FIX] 2. 이름 변경 복원 (휴지통 포함)
                         if (backupChanges.itemRename) {
                             const { id, type, newName } = backupChanges.itemRename;
+                            let itemToRename = null;
+                            let parentFolder = null;
+
                             if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-                                const folderToRename = latestData.folders.find(f => f.id === id);
-                                if (folderToRename) {
-                                    folderToRename.name = newName;
-                                    folderToRename.updatedAt = now;
+                                // 폴더는 활성 폴더 또는 휴지통에서 찾음
+                                itemToRename = latestData.folders.find(f => f.id === id) || latestData.trash.find(item => item.id === id && item.type === 'folder');
+                                if (itemToRename) {
+                                    itemToRename.name = newName;
+                                    itemToRename.updatedAt = now;
                                     changesApplied = true;
                                 }
                             } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
+                                // 노트는 활성 폴더들 또는 휴지통의 폴더 내부에서 찾음
                                 for (const folder of latestData.folders) {
-                                    const noteToRename = folder.notes.find(n => n.id === id);
-                                    if (noteToRename) {
-                                        noteToRename.title = newName;
-                                        noteToRename.updatedAt = now;
-                                        folder.updatedAt = now;
-                                        changesApplied = true;
-                                        break;
+                                    const note = folder.notes.find(n => n.id === id);
+                                    if (note) { itemToRename = note; parentFolder = folder; break; }
+                                }
+                                if (!itemToRename) {
+                                    for (const trashItem of latestData.trash) {
+                                        if (trashItem.type === 'folder' && Array.isArray(trashItem.notes)) {
+                                            const note = trashItem.notes.find(n => n.id === id);
+                                            if (note) { itemToRename = note; break; }
+                                        }
                                     }
+                                }
+                                
+                                if (itemToRename) {
+                                    itemToRename.title = newName;
+                                    itemToRename.updatedAt = now;
+                                    if (parentFolder) parentFolder.updatedAt = now;
+                                    changesApplied = true;
                                 }
                             }
                         }

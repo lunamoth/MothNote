@@ -134,8 +134,8 @@ const updateListItemElement = (li, item, type) => {
     const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
     const isBeingRenamed = state.renamingItemId === item.id;
     
-    let isDraggable = !isVirtual && !isTrashView;
-    if (type === CONSTANTS.ITEM_TYPE.NOTE) isDraggable = !isTrashView;
+    // [BUG FIX] 휴지통에서는 어떤 아이템도 드래그할 수 없도록 로직 수정
+    const isDraggable = !isVirtual && !isTrashView;
     
     li.draggable = isDraggable && !isBeingRenamed;
 
