@@ -48,7 +48,7 @@ export const saveSession = () => {
 };
 
 /**
- * [BUG-C-CRITICAL 수정] 로드된 데이터의 무결성을 검증하고 ID 충돌을 자동 복구하는 함수
+ * [BUG-C-CRITICAL 전면 수정] 로드된 데이터의 무결성을 검증하고 ID 충돌을 자동 복구하는 함수
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
  * @returns {{sanitizedData: object, wasSanitized: boolean}} - 복구된 데이터와 복구 여부
  */
@@ -57,82 +57,73 @@ const verifyAndSanitizeLoadedData = (data) => {
         return { sanitizedData: data, wasSanitized: false };
     }
 
-    // 데이터의 각 부분을 안전하게 추출
     const folders = data.folders || [];
     const trash = data.trash || [];
     const favorites = data.favorites || [];
-    const lastActiveNotePerFolder = data.lastActiveNotePerFolder || {};
 
-    // [CRITICAL BUG FIX] 시스템 전체 ID의 고유성을 보장하기 위해 단일 Set으로 통합
-    const allIds = new Set();
     const idUpdateMap = new Map();
     let changesMade = false;
 
-    // [버그 수정] 1. 폴더 ID 중복을 먼저 검사하고 수정합니다.
-    for (const folder of folders) {
-        if (!folder || !folder.id) continue;
+    // --- 1. 모든 ID를 먼저 수집하여 완전한 중복 검사 환경을 만듭니다. ---
+    const checkSet = new Set();
+    const fixItems = (items) => {
+        for (const item of items) {
+            if (!item || !item.id) continue;
+            
+            if (checkSet.has(item.id)) {
+                // 중복 발견
+                const oldId = item.id;
+                const prefix = (item.type === 'folder' ? CONSTANTS.ID_PREFIX.FOLDER : CONSTANTS.ID_PREFIX.NOTE);
+                // [BUG FIX] generateUniqueId에 모든 ID가 포함된 Set을 전달하여 완벽한 고유성 보장
+                const newId = generateUniqueId(prefix, checkSet);
+                item.id = newId;
+                checkSet.add(newId); // 새로 생성된 ID도 즉시 추가
+                idUpdateMap.set(oldId, newId);
+                changesMade = true;
+                console.warn(`[Data Sanitization] Duplicate ID found and fixed on load: ${oldId} -> ${newId}`);
+            } else {
+                checkSet.add(item.id);
+            }
 
-        if (allIds.has(folder.id)) {
-            // 중복된 ID 발견 시, 새로운 고유 ID 생성
-            const oldId = folder.id;
-            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
-            folder.id = newId; // 원본 데이터 객체의 ID를 직접 수정
-            idUpdateMap.set(oldId, newId); // 변경사항 추적
-            allIds.add(newId);
-            changesMade = true;
-            console.warn(`[Data Sanitization] Duplicate ID (folder) found and fixed on load: ${oldId} -> ${newId}`);
-        } else {
-            allIds.add(folder.id);
+            // 폴더인 경우, 내부 노트도 재귀적으로 처리
+            if (item.type === 'folder' && Array.isArray(item.notes)) {
+                fixItems(item.notes);
+            }
         }
-    }
+    };
 
-    // 시스템의 모든 노트(폴더 내, 휴지통 속 폴더 내, 휴지통의 단일 노트)를 하나의 배열로 만듭니다.
-    const allNotesSources = [
-        ...folders.flatMap(f => (f.notes || [])),
-        ...trash.filter(item => item && (item.type === 'note' || !item.type)),
-        ...trash.filter(item => item && item.type === 'folder').flatMap(f => (f.notes || []))
-    ];
+    fixItems(folders);
+    fixItems(trash);
 
-    for (const note of allNotesSources) {
-        if (!note || !note.id) continue;
 
-        if (allIds.has(note.id)) {
-            // 중복된 ID 발견 시, 새로운 고유 ID 생성
-            const oldId = note.id;
-            const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
-            note.id = newId; // 원본 데이터 객체의 ID를 직접 수정
-            idUpdateMap.set(oldId, newId); // 변경사항 추적
-            allIds.add(newId);
-            changesMade = true;
-            console.warn(`[Data Sanitization] Duplicate ID (note) found and fixed on load: ${oldId} -> ${newId}`);
-        } else {
-            allIds.add(note.id);
-        }
-    }
-
+    // --- 2. ID 변경이 있었다면, 모든 참조를 업데이트합니다. ---
     if (changesMade) {
-        // 즐겨찾기 목록에서 변경된 ID를 업데이트
+        // 2-1. 즐겨찾기 목록 업데이트
         const newFavorites = new Set();
         for (const favId of favorites) {
             newFavorites.add(idUpdateMap.get(favId) || favId);
         }
         data.favorites = Array.from(newFavorites);
 
-        // 폴더별 마지막 활성 노트 목록에서 변경된 ID를 업데이트
-        for (const folderId in lastActiveNotePerFolder) {
-            const lastActiveId = lastActiveNotePerFolder[folderId];
-            if (idUpdateMap.has(lastActiveId)) {
-                lastActiveNotePerFolder[folderId] = idUpdateMap.get(lastActiveId);
-            }
-        }
-        
-        // [버그 수정] 2. 휴지통에 있는 노트의 originalFolderId가 변경된 폴더 ID를 참조하는 경우 업데이트
+        // 2-2. 휴지통에 있는 노트의 originalFolderId 업데이트
         for (const item of trash) {
             if (item && (item.type === 'note' || !item.type) && item.originalFolderId) {
                 if (idUpdateMap.has(item.originalFolderId)) {
                     item.originalFolderId = idUpdateMap.get(item.originalFolderId);
                 }
             }
+        }
+        
+        // 2-3. 폴더별 마지막 활성 노트 ID 업데이트
+        if (data.lastActiveNotePerFolder) {
+            const newLastActiveMap = {};
+            for (const oldFolderId in data.lastActiveNotePerFolder) {
+                const newFolderId = idUpdateMap.get(oldFolderId) || oldFolderId;
+                const oldNoteId = data.lastActiveNotePerFolder[oldFolderId];
+                const newNoteId = idUpdateMap.get(oldNoteId) || oldNoteId;
+                newLastActiveMap[newFolderId] = newNoteId;
+            }
+            data.lastActiveNotePerFolder = newLastActiveMap;
         }
     }
 
@@ -178,15 +169,17 @@ export const loadData = async () => {
         const mainStorageResult = await chrome.storage.local.get('appState');
         authoritativeData = mainStorageResult.appState;
         
-        // [BUG-C-CRITICAL 수정] 로드된 데이터의 무결성을 검증하고 자동 복구합니다.
+        // [BUG-C-CRITICAL 수정 및 통합] 로드된 데이터의 무결성을 검증하고 자동 복구합니다.
         if (authoritativeData) {
             // 데이터의 깊은 복사본을 만들어 원본 오염 없이 안전하게 검증합니다.
             const { sanitizedData, wasSanitized } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
             authoritativeData = sanitizedData;
+            
             if (wasSanitized) {
                 // 자동 복구가 발생했음을 사용자에게 알리고, 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
                 await chrome.storage.local.set({ appState: authoritativeData });
-                const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다.";
+                const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다. 앱이 정상적으로 동작합니다.";
+                // recoveryMessage가 이미 있을 경우, 새 메시지를 추가합니다.
                 recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
                 console.log("Sanitized data has been saved back to storage.");
             }
