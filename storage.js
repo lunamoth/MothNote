@@ -269,14 +269,14 @@ export const loadData = async () => {
                             }
                         }
 
-                        // [BUG FIX] 2. 이름 변경 복원 (휴지통 포함)
+                        // [CRITICAL BUG FIX & COMMENT FIX] 2. 이름 변경 복원 (활성 폴더 및 휴지통 모두 검색)
                         if (backupChanges.itemRename) {
                             const { id, type, newName } = backupChanges.itemRename;
                             let itemToRename = null;
                             let parentFolder = null;
 
                             if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-                                // 폴더는 활성 폴더 또는 휴지통에서 찾음
+                                // 활성 폴더 또는 휴지통에서 폴더 찾기
                                 itemToRename = latestData.folders.find(f => f.id === id) || latestData.trash.find(item => item.id === id && item.type === 'folder');
                                 if (itemToRename) {
                                     itemToRename.name = newName;
@@ -284,16 +284,25 @@ export const loadData = async () => {
                                     changesApplied = true;
                                 }
                             } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
-                                // 노트는 활성 폴더들 또는 휴지통의 폴더 내부에서 찾음
+                                // 활성 폴더들의 노트에서 먼저 검색
                                 for (const folder of latestData.folders) {
                                     const note = folder.notes.find(n => n.id === id);
                                     if (note) { itemToRename = note; parentFolder = folder; break; }
                                 }
+                                
+                                // 활성 폴더에 없으면 휴지통에서 검색 (휴지통의 최상위 또는 폴더 내부 노트)
                                 if (!itemToRename) {
                                     for (const trashItem of latestData.trash) {
+                                        if (trashItem.id === id && (trashItem.type === 'note' || !trashItem.type)) {
+                                            itemToRename = trashItem;
+                                            break;
+                                        }
                                         if (trashItem.type === 'folder' && Array.isArray(trashItem.notes)) {
-                                            const note = trashItem.notes.find(n => n.id === id);
-                                            if (note) { itemToRename = note; break; }
+                                            const noteInTrashFolder = trashItem.notes.find(n => n.id === id);
+                                            if (noteInTrashFolder) {
+                                                itemToRename = noteInTrashFolder;
+                                                break;
+                                            }
                                         }
                                     }
                                 }
