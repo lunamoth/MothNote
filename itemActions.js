@@ -632,7 +632,9 @@ export const handlePermanentlyDeleteItem = async (id) => {
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.PERM_DELETE, message: message, confirmText: '💥 삭제', confirmButtonType: 'danger' },
         () => performTransactionalUpdate(latestData => {
-            const itemIndex = latestData.trash.findIndex(i => i.id === id);
+            const originalTrashItems = [...latestData.trash];
+            const itemIndex = originalTrashItems.findIndex(i => i.id === id);
+            
             if (itemIndex === -1) return null;
             
             const [deletedItem] = latestData.trash.splice(itemIndex, 1);
@@ -640,8 +642,7 @@ export const handlePermanentlyDeleteItem = async (id) => {
             let postUpdateState = {};
             if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
             if (state.activeNoteId === id) {
-                const trashItems = state.trash; 
-                postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, trashItems);
+                postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, originalTrashItems);
             }
             
             // [BUG FIX] 영구 삭제 시 폴더에 포함된 노트의 즐겨찾기 상태도 함께 정리합니다.
