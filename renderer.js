@@ -391,11 +391,13 @@ export const renderEditor = () => {
     const content = activeNote.content ?? '';
     const charCount = content.length;
     const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
+    const lineCount = content ? (content.match(/\n/g) || []).length + 1 : 0;
     
     document.getElementById(DOM_IDS.updatedDate).textContent = `🕒 수정일: ${formatDate(activeNote.updatedAt)}`;
     document.getElementById(DOM_IDS.createdDate).textContent = `📅 생성일: ${formatDate(activeNote.createdAt)}`;
     document.getElementById(DOM_IDS.wordCount).textContent = `✍️ 단어: ${wordCount}`;
     document.getElementById(DOM_IDS.charCount).textContent = `🔠 글자: ${charCount}`;
+    document.getElementById(DOM_IDS.lineCount).textContent = `📊 줄: ${lineCount}`;
 
     if (isReadOnly) {
         document.getElementById(DOM_IDS.updatedDate).textContent = activeNote.deletedAt ? `🗑️ 삭제일: ${formatDate(activeNote.deletedAt)}` : '';

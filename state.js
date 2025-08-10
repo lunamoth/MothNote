@@ -62,6 +62,7 @@ export const CONSTANTS = {
             createdDate: 'created-date',
             wordCount: 'word-count',
             charCount: 'char-count',
+            lineCount: 'line-count',
             saveStatus: 'save-status-indicator',
             placeholderIcon: 'placeholder-icon'
         }
