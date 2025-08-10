@@ -9,7 +9,8 @@ import {
     addNoteBtn,
     formatDate
 } from './components.js';
-import { updateSaveStatus, clearSortedNotesCache } from './renderer.js';
+// [버그 수정] 현재 UI에 표시된 노트 목록 캐시('sortedNotesCache')를 가져오기 위해 import 구문 수정
+import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navigationActions.js';
 
 let globalSaveLock = Promise.resolve();
@@ -382,14 +383,15 @@ export const handleDelete = async (id, type) => {
 };
 
 export const performDeleteItem = (id, type) => {
+    // [버그 수정] 트랜잭션 시작 전에, 현재 UI에 표시된 노트 목록(사용자가 보고 있는 목록)을 캡처합니다.
+    const currentNotesInView = sortedNotesCache.result || [];
+
     return performTransactionalUpdate(latestData => {
         const { folders, trash } = latestData;
         let successMessage = '', postUpdateState = {};
         const now = Date.now();
 
         if (state.renamingItemId === id) postUpdateState.renamingItemId = null;
-        
-        // [BUG-C-CRITICAL 수정] `withConfirmation`에서 사전 저장을 보장하므로 isDirty 상태 처리 로직 불필요
         
         if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
             const folderIndex = folders.findIndex(f => f.id === id);
@@ -412,11 +414,11 @@ export const performDeleteItem = (id, type) => {
                 postUpdateState.activeNoteId = null;
             }
         } else { // NOTE
-            let noteToMove, sourceFolder, originalNotesInView; // [CRITICAL BUG FIX] 변수 추가
+            // [버그 수정] 불필요하고 잘못된 결과를 초래하던 'originalNotesInView' 변수 제거
+            let noteToMove, sourceFolder;
             for(const folder of folders) {
                 const noteIndex = folder.notes.findIndex(n => n.id === id);
                 if (noteIndex !== -1) {
-                    originalNotesInView = [...folder.notes]; // [CRITICAL BUG FIX] 삭제 전 노트 목록 복사
                     [noteToMove] = folder.notes.splice(noteIndex, 1);
                     sourceFolder = folder;
                     break;
@@ -437,9 +439,8 @@ export const performDeleteItem = (id, type) => {
             successMessage = CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_TO_TRASH(noteToMove.title || '제목 없음');
             
             if (state.activeNoteId === id) {
-                // [CRITICAL BUG FIX] 트랜잭션 외부의 `state`가 아닌, 트랜잭션 내부의 복사된 데이터를 사용
-                const sortedOriginalNotes = sortNotes(originalNotesInView, state.noteSortOrder);
-                postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, sortedOriginalNotes);
+                // [버그 수정] 물리적 폴더 목록 대신, 외부에서 캡처한 'currentNotesInView'(현재 UI 목록)를 사용해 다음 노트를 결정합니다.
+                postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, currentNotesInView);
             }
         }
         
