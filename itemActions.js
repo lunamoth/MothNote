@@ -946,3 +946,70 @@ export const startRename = async (liElement, type) => {
         nameSpan.addEventListener('keydown', onKeydown);
     }, 0);
 };
+
+// [TAB KEY BUG FIX - FINAL ROBUST VERSION]
+const handleTextareaKeyDown = (e) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const textarea = e.target;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+
+        if (start === end) {
+            // Case 1: No selection (single cursor)
+            if (e.shiftKey) {
+                // Outdent for single cursor
+                const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+                const line = text.substring(lineStart, start);
+                if (line.startsWith('\t')) {
+                    textarea.value = text.substring(0, lineStart) + text.substring(lineStart + 1);
+                    textarea.selectionStart = textarea.selectionEnd = start - 1;
+                } else if (line.startsWith(' ')) {
+                    const spaces = line.match(/^ */)[0].length;
+                    const removeCount = Math.min(spaces, 4);
+                    textarea.value = text.substring(0, lineStart) + text.substring(lineStart + removeCount);
+                    textarea.selectionStart = textarea.selectionEnd = start - removeCount;
+                }
+            } else {
+                // Indent for single cursor
+                textarea.value = text.substring(0, start) + '\t' + text.substring(end);
+                textarea.selectionStart = textarea.selectionEnd = start + 1;
+            }
+        } else {
+            // Case 2: Text is selected (single or multi-line)
+            const firstLineStart = text.lastIndexOf('\n', start - 1) + 1;
+            
+            let lastLineEnd = text.indexOf('\n', end);
+            if (lastLineEnd === -1) lastLineEnd = text.length;
+            if (end > firstLineStart && text[end - 1] === '\n') lastLineEnd = end - 1;
+
+            const selectedBlock = text.substring(firstLineStart, lastLineEnd);
+            const lines = selectedBlock.split('\n');
+            
+            let modifiedBlock;
+            if (e.shiftKey) { // Outdent
+                modifiedBlock = lines.map(line => {
+                    if (line.startsWith('\t')) return line.substring(1);
+                    if (line.startsWith(' ')) {
+                        const spaces = line.match(/^ */)[0].length;
+                        return line.substring(Math.min(spaces, 4));
+                    }
+                    return line;
+                }).join('\n');
+            } else { // Indent
+                modifiedBlock = lines.map(line => line.length > 0 ? '\t' + line : line).join('\n');
+            }
+
+            textarea.value = text.substring(0, firstLineStart) + modifiedBlock + text.substring(lastLineEnd);
+            
+            textarea.selectionStart = firstLineStart;
+            textarea.selectionEnd = firstLineStart + modifiedBlock.length;
+        }
+
+        handleUserInput();
+    }
+};
+
+// 이 함수는 app.js에서 호출되어야 하므로 export 합니다.
+export { handleTextareaKeyDown };
