@@ -588,12 +588,29 @@ const sanitizeContentData = data => {
         return acc;
     }, []) : [];
     
-    const sanitizedFavorites = Array.isArray(data.favorites) 
-        ? data.favorites.map(oldId => idMap.get(oldId)).filter(Boolean)
-        : [];
+    // [BUG FIX] 즐겨찾기 목록을 실제 존재하는 노트 ID만 남도록 정제합니다.
+    // 1. 모든 유효한 최종 노트 ID를 수집합니다.
+    const finalNoteIds = new Set();
+    sanitizedFolders.forEach(folder => {
+        folder.notes.forEach(note => finalNoteIds.add(note.id));
+    });
+    sanitizedTrash.forEach(item => {
+        if (item.type === 'note') {
+            finalNoteIds.add(item.id);
+        } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+            item.notes.forEach(note => finalNoteIds.add(note.id));
+        }
+    });
+
+    // 2. 원본 favorites 배열을 순회하며 유효성 검사를 수행합니다.
+    const sanitizedFavorites = (Array.isArray(data.favorites) ? data.favorites : [])
+        .map(oldId => idMap.get(oldId) || oldId) // ID가 변경되었다면 새 ID로 매핑하고, 아니면 기존 ID 사용
+        .filter(finalId => finalNoteIds.has(finalId)); // 최종 노트 ID 목록에 존재하는 ID만 필터링
 
     return {
-        folders: sanitizedFolders, trash: sanitizedTrash, favorites: sanitizedFavorites 
+        folders: sanitizedFolders,
+        trash: sanitizedTrash,
+        favorites: Array.from(new Set(sanitizedFavorites)) // 중복을 제거하여 최종 반환
     };
 };
 
