@@ -691,15 +691,33 @@ export const handleEmptyTrash = async () => {
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 삭제', confirmButtonType: 'danger' },
         () => performTransactionalUpdate(latestData => {
             let postUpdateState = {};
+
+            // [BUG FIX] 삭제될 모든 노트 ID를 수집하여 현재 활성 노트가 포함되는지 확인합니다.
+            const noteIdsInTrash = new Set();
+            latestData.trash.forEach(item => {
+                if (item.type === 'note' || !item.type) {
+                    noteIdsInTrash.add(item.id);
+                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                    item.notes.forEach(note => noteIdsInTrash.add(note.id));
+                }
+            });
+
+            // 현재 '휴지통' 폴더를 보고 있을 경우, '모든 노트'로 전환합니다.
             if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
                 postUpdateState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 postUpdateState.activeNoteId = null;
+            } 
+            // 다른 폴더를 보고 있더라도, 활성 노트가 삭제 대상에 포함되면 ID를 초기화합니다.
+            else if (state.activeNoteId && noteIdsInTrash.has(state.activeNoteId)) {
+                postUpdateState.activeNoteId = null;
             }
+
+            // 이름 변경 중인 아이템이 휴지통에 있다면 상태를 초기화합니다.
             if (state.renamingItemId && state.trash.some(item => item.id === state.renamingItemId)) {
                 postUpdateState.renamingItemId = null;
             }
 
-            // [BUG FIX] 휴지통을 비울 때 폴더 내 노트들의 즐겨찾기 상태도 모두 제거합니다.
+            // 휴지통을 비울 때 폴더 내 노트들의 즐겨찾기 상태도 모두 제거합니다.
             const favoritesSet = new Set(latestData.favorites || []);
             latestData.trash.forEach(item => {
                 if (item.type === 'note' || !item.type) {
