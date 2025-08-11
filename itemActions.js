@@ -54,13 +54,31 @@ export const forceResolvePendingRename = () => {
     }
 };
 
+// [BUG FIX] 이름 변경 중 다른 작업 실행 시, 변경 사항이 유실되는 'Major' 버그를 수정합니다.
+// .blur() 이벤트에 의존하는 대신, 이름 변경 완료 로직을 직접 호출하여 이벤트 경합(Race Condition)을 원천적으로 차단합니다.
 export const finishPendingRename = async () => {
+    // 현재 이름 변경 작업이 진행 중인지 확인합니다.
     if (state.renamingItemId && pendingRenamePromise) {
-        const renamingElement = document.querySelector(`[data-id="${state.renamingItemId}"] .item-name`);
-        if (renamingElement) {
-            renamingElement.blur();
-            await pendingRenamePromise;
+        const id = state.renamingItemId;
+        // DOM에서 이름 변경 중인 li 요소를 찾습니다.
+        const renamingElementWrapper = document.querySelector(`.item-list-entry[data-id="${id}"]`);
+        
+        if (!renamingElementWrapper) {
+            // 만약 요소가 사라졌다면(예: 다른 탭에서의 변경), 강제로 상태를 정리합니다.
+            forceResolvePendingRename();
+            return;
+        }
+
+        const type = renamingElementWrapper.dataset.type;
+        const nameSpan = renamingElementWrapper.querySelector('.item-name');
+
+        if (nameSpan) {
+            // 핵심 수정: .blur()를 호출하는 대신, _handleRenameEnd 함수를 직접 호출합니다.
+            // 이렇게 하면 이벤트 발생 순서에 상관없이 변경 사항이 안정적으로 저장됩니다.
+            // 'true'를 전달하여 변경 내용을 저장하도록 지시합니다.
+            await _handleRenameEnd(id, type, nameSpan, true);
         } else {
+            // span을 찾을 수 없는 예외적인 경우에도 상태를 정리합니다.
             forceResolvePendingRename();
         }
     }
@@ -859,8 +877,19 @@ export async function handleUserInput() {
 }
 
 
+// [BUG FIX] 안정성 강화를 위해 `_handleRenameEnd` 함수에 진입 가드(guard)를 추가합니다.
+// 이벤트 경합으로 인해 이 함수가 짧은 시간 내에 여러 번 호출되더라도, 실제 저장 로직은 단 한 번만 실행되도록 보장합니다.
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
+    // --- 가드(Guard) 추가 시작 ---
+    // 이미 이 이름 변경 작업이 처리 중이거나 완료되었다면, 즉시 함수를 종료하여 중복 실행을 방지합니다.
+    if (state.renamingItemId !== id || !pendingRenamePromise) {
+        return;
+    }
+    // --- 가드(Guard) 추가 끝 ---
+
     nameSpan.contentEditable = false;
+    
+    // Promise를 즉시 해결하여, 이 함수를 기다리는 다른 로직(await finishPendingRename)이 계속 진행될 수 있도록 합니다.
     if (resolvePendingRename) {
         resolvePendingRename();
         resolvePendingRename = null;
@@ -880,12 +909,14 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
     const newName = nameSpan.textContent.trim();
 
+    // 저장하지 않거나(예: Esc 키 누름), 이름이 변경되지 않았다면 상태만 초기화하고 종료합니다.
     if (!shouldSave || newName === originalName) {
         setState({ renamingItemId: null });
         if (nameSpan) nameSpan.textContent = originalName;
         return;
     }
     
+    // 트랜잭션을 통해 실제 데이터 저장을 수행합니다.
     const { success } = await performTransactionalUpdate(latestData => {
         let itemToRename, parentFolder, isDuplicate = false;
         const now = Date.now();
@@ -914,7 +945,8 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         
         itemToRename.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
-
+        
+        // postUpdateState에서 renamingItemId를 null로 설정하여, 이름 변경 상태를 종료합니다.
         return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
     });
 
@@ -922,6 +954,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         // [버그 수정] 성공적인 이름 변경 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
         // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
     } else {
+        // 실패 시, UI를 원래 이름으로 되돌리고 상태를 초기화합니다.
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
     }

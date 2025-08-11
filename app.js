@@ -486,6 +486,13 @@ const setupGlobalEventListeners = () => {
 const init = async () => {
     try {
         window.isInitializing = true;
+        
+        // [BUG FIX] `dashboard` 객체 참조 오류 해결을 위한 초기화 순서 변경
+        // 1. Dashboard 인스턴스를 먼저 생성합니다.
+        dashboard = new Dashboard();
+        
+        // 2. 이제 dashboard 객체가 존재하는 상태에서 설정을 로드하고 적용합니다.
+        //    `applySettings` 내부에서 `dashboard.fetchWeather()`가 안전하게 호출될 수 있습니다.
         loadAndApplySettings();
         
         setupEventListeners();
@@ -511,7 +518,7 @@ const init = async () => {
             showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
         }
         
-        dashboard = new Dashboard();
+        // 3. Dashboard의 나머지 초기화 작업을 수행합니다.
         dashboard.init();
         setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
 
