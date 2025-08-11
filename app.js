@@ -291,8 +291,11 @@ class Dashboard {
         // 날씨 뷰 보이기 (display: grid로 변경)
         this.dom.weatherViewContainer.style.display = 'grid';
         
-        // 젠 모드 버튼 숨기기
+        // [버그 수정] 관련 없는 플로팅 액션 버튼(마크다운, 젠 모드)만 숨깁니다.
+        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
         const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
+        
+        if (markdownToggleBtn) markdownToggleBtn.style.display = 'none';
         if (zenModeBtn) zenModeBtn.style.display = 'none';
     }
 
@@ -307,9 +310,13 @@ class Dashboard {
         this.dom.splitter2.style.removeProperty('display');
         this.dom.mainContent.style.removeProperty('display');
     
-        // 젠 모드 버튼 다시 보이기
+        // [버그 수정] 숨겼던 플로팅 액션 버튼을 다시 표시합니다.
+        // 인라인 스타일을 제거하여 CSS 및 JS(렌더러)가 올바르게 제어하도록 합니다.
+        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
         const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
-        if (zenModeBtn) zenModeBtn.style.display = 'flex';
+        
+        if (markdownToggleBtn) markdownToggleBtn.style.removeProperty('display');
+        if (zenModeBtn) zenModeBtn.style.removeProperty('display');
     }
     
     _setupWeatherViewEvents() {
