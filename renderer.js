@@ -3,11 +3,12 @@
 import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
 import {
     folderList, noteList, addNoteBtn, emptyTrashBtn, notesPanelTitle, noteSortSelect,
-    editorContainer, placeholderContainer, noteTitleInput, noteContentTextarea,
+    editorContainer, placeholderContainer, noteTitleInput, noteContentTextarea, noteContentView,
     itemTemplate, saveStatusIndicator,
     formatDate, sortNotes
 } from './components.js';
 import { toYYYYMMDD } from './itemActions.js';
+import snarkdown from './snarkdown.js';
 
 
 const highlightText = (container, text, term) => {
@@ -364,6 +365,18 @@ export const updateSaveStatus = (status) => {
 export const renderEditor = () => {
     const { item: activeNote, isInTrash } = findNote(state.activeNoteId);
 
+    const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
+    if (markdownToggleBtn) {
+        markdownToggleBtn.style.display = activeNote ? 'flex' : 'none';
+        if (state.isMarkdownView) {
+            markdownToggleBtn.textContent = '✏️';
+            markdownToggleBtn.title = '✏️ 편집 모드로 전환';
+        } else {
+            markdownToggleBtn.textContent = 'Ⓜ️';
+            markdownToggleBtn.title = 'Ⓜ️ 마크다운 미리보기';
+        }
+    }
+
     if (!activeNote) {
         editorContainer.style.display = 'none';
         placeholderContainer.style.display = 'flex';
@@ -378,14 +391,19 @@ export const renderEditor = () => {
     editorContainer.style.display = 'flex';
     placeholderContainer.style.display = 'none';
 
-    // [SIMPLIFIED] 읽기 전용 상태는 휴지통 여부로만 결정
+    editorContainer.classList.toggle('markdown-view-mode', state.isMarkdownView);
+
     const isReadOnly = isInTrash;
-    noteTitleInput.readOnly = isReadOnly;
+    noteTitleInput.readOnly = isReadOnly || state.isMarkdownView;
     noteContentTextarea.readOnly = isReadOnly;
     editorContainer.classList.toggle(CONSTANTS.CLASSES.READONLY, isReadOnly);
 
     if (document.activeElement !== noteTitleInput) noteTitleInput.value = activeNote.title ?? '';
     if (document.activeElement !== noteContentTextarea) noteContentTextarea.value = activeNote.content ?? '';
+    
+    if (state.isMarkdownView) {
+        noteContentView.innerHTML = snarkdown(activeNote.content ?? '');
+    }
     
     const { DOM_IDS } = CONSTANTS.EDITOR;
     const content = activeNote.content ?? '';

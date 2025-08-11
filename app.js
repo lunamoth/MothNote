@@ -4,7 +4,7 @@ import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteM
 import { loadData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {
     folderList, noteList, addFolderBtn, addNoteBtn, emptyTrashBtn, searchInput, clearSearchBtn, noteSortSelect,
-    noteTitleInput, noteContentTextarea, shortcutGuideBtn, settingsBtn,
+    noteTitleInput, noteContentTextarea, noteContentView, shortcutGuideBtn, settingsBtn,
     showToast, showShortcutModal, sortNotes, showDatePickerPopover, showConfirm as showConfirmModal,
     settingsModal, settingsModalCloseBtn, settingsTabs,
     settingsCol1Width, settingsCol2Width,
@@ -32,6 +32,7 @@ import {
     changeActiveFolder, changeActiveNote, handleSearchInput, 
     handleClearSearch, handleSortChange, confirmNavigation 
 } from './navigationActions.js';
+import snarkdown from './snarkdown.js';
 
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
@@ -389,18 +390,59 @@ const setupEventListeners = () => { if(folderList) { folderList.addEventListener
     noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged()); 
     // [버그 수정] 이곳에서 handleTextareaKeyDown 함수를 직접 정의하는 대신, import된 함수를 사용합니다.
     noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
-    noteContentTextarea.addEventListener('mousedown', async () => {
-        await saveCurrentNoteIfChanged();
-    });
  } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
-const setupFeatureToggles = () => { const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn'); const themeToggleBtn = document.getElementById('theme-toggle-btn'); if (zenModeToggleBtn) { const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true'; if (zenModeActive) document.body.classList.add('zen-mode'); zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘'; zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; zenModeToggleBtn.addEventListener('click', async () => { if (!(await confirmNavigation())) return; const isActive = document.body.classList.toggle('zen-mode'); localStorage.setItem('mothnote-zen-mode', isActive); zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘'; zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드'; }); } if(themeToggleBtn) { const currentTheme = localStorage.getItem('theme'); if (currentTheme === 'dark') { document.body.classList.add('dark-mode'); themeToggleBtn.textContent = '☀️'; } themeToggleBtn.addEventListener('click', () => { document.body.classList.toggle('dark-mode'); const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light'; themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙'; localStorage.setItem('theme', theme); if (dashboard) {
+
+const setupFeatureToggles = () => {
+    const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn');
+    const themeToggleBtn = document.getElementById('theme-toggle-btn');
+    const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
+
+    if (markdownToggleBtn) {
+        markdownToggleBtn.addEventListener('click', async () => {
+            if (!state.isMarkdownView) {
+                if (!(await confirmNavigation())) return;
+            }
+            setState({ isMarkdownView: !state.isMarkdownView });
+        });
+    }
+
+    if (zenModeToggleBtn) {
+        const zenModeActive = localStorage.getItem('mothnote-zen-mode') === 'true';
+        if (zenModeActive) document.body.classList.add('zen-mode');
+        zenModeToggleBtn.textContent = zenModeActive ? '↔️' : '🧘';
+        zenModeToggleBtn.title = zenModeActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
+        zenModeToggleBtn.addEventListener('click', async () => {
+            if (!(await confirmNavigation())) return;
+            const isActive = document.body.classList.toggle('zen-mode');
+            localStorage.setItem('mothnote-zen-mode', isActive);
+            zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘';
+            zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
+        });
+    }
+
+    if(themeToggleBtn) {
+        const currentTheme = localStorage.getItem('theme');
+        if (currentTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            themeToggleBtn.textContent = '☀️';
+        }
+        themeToggleBtn.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+            themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            localStorage.setItem('theme', theme);
+            if (dashboard) {
                 dashboard._initAnalogClock(true);
                 // iframe으로 테마 변경 메시지 전송
                 const weatherIframe = document.getElementById('weather-iframe');
                 if (weatherIframe && weatherIframe.contentWindow) {
                     weatherIframe.contentWindow.postMessage({ type: 'setTheme', theme: theme }, '*');
                 }
-            } }); } };
+            }
+        });
+    }
+};
+
 const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITEM_TYPE.FOLDER); setupDragAndDrop(noteList, CONSTANTS.ITEM_TYPE.NOTE); setupNoteToFolderDrop(); };
 
 const setupGlobalEventListeners = () => {

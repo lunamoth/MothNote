@@ -364,6 +364,93 @@
     #note-title-input { background: transparent; border: none; color: var(--font-color); font-weight: 700; font-family: var(--editor-font-family); font-size: calc(var(--editor-font-size, 17px) + 11px); padding: 32px var(--spacing-xl) var(--spacing-md); width: 100%; outline: none; flex-shrink: 0; }
     #note-content-textarea { background: transparent; border: none; color: var(--font-color); line-height: 1.7; width: 100%; flex-grow: 1; outline: none; resize: none; padding: 0 var(--spacing-xl) var(--spacing-xl); font-family: var(--editor-font-family); font-size: var(--editor-font-size, 17px); }
     
+    .editor-area.markdown-view-mode #note-content-textarea { display: none; }
+    .editor-area:not(.markdown-view-mode) #note-content-view { display: none; }
+
+    /* --- 마크다운 뷰어 스타일 --- */
+    .note-content-view {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding: 0 var(--spacing-xl) var(--spacing-xl);
+        font-family: var(--editor-font-family);
+        font-size: var(--editor-font-size, 17px);
+        line-height: 1.7;
+        color: var(--font-color);
+        cursor: default;
+    }
+    .note-content-view:empty::before {
+        content: "마크다운 미리보기 모드입니다. 편집하려면 상단 버튼을 눌러주세요.";
+        color: var(--font-color-dim);
+        font-style: italic;
+    }
+    .note-content-view > *:first-child { margin-top: 0; }
+    .note-content-view h1, .note-content-view h2, .note-content-view h3, .note-content-view h4, .note-content-view h5, .note-content-view h6 {
+        font-weight: 600;
+        margin: 1.5em 0 0.8em;
+        padding-bottom: 0.3em;
+        border-bottom: 1px solid var(--divider-color);
+        line-height: 1.3;
+    }
+    .note-content-view h1 { font-size: 2em; }
+    .note-content-view h2 { font-size: 1.5em; }
+    .note-content-view h3 { font-size: 1.25em; }
+    .note-content-view p { margin-bottom: 1em; }
+    .note-content-view ul, .note-content-view ol {
+        margin: 0 0 1em 2em;
+        padding: 0;
+    }
+    .note-content-view li { margin-bottom: 0.4em; }
+    .note-content-view blockquote {
+        margin: 1.5em 0;
+        padding: 0.5em 1em;
+        border-left: 4px solid var(--accent-color);
+        background-color: var(--input-bg-color);
+        color: var(--font-color-dim);
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    }
+    .note-content-view blockquote > p { margin-bottom: 0; }
+    .note-content-view code {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+        background-color: var(--input-bg-color);
+        color: var(--font-color);
+        padding: .2em .4em;
+        margin: 0;
+        font-size: 85%;
+        border-radius: 6px;
+    }
+    .note-content-view pre {
+        margin: 1.5em 0;
+        padding: var(--spacing-md);
+        background-color: var(--input-bg-color);
+        border-radius: var(--radius-sm);
+        overflow-x: auto;
+    }
+    .note-content-view pre code {
+        padding: 0;
+        background-color: transparent;
+        font-size: 100%;
+    }
+    .note-content-view hr {
+        border: none;
+        border-top: 2px solid var(--divider-color);
+        margin: 2em 0;
+    }
+    .note-content-view a {
+        color: var(--accent-color);
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .note-content-view a:hover {
+        text-decoration: underline;
+    }
+    .note-content-view img {
+        max-width: 100%;
+        height: auto;
+        border-radius: var(--radius-sm);
+        margin: 1em 0;
+    }
+
+
     #save-status-indicator { display: flex; align-items: center; gap: 6px; transition: opacity 0.3s ease; opacity: 0; }
     #save-status-indicator.visible { opacity: 1; }
     #save-status-indicator.saving::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--font-color-dim); border-top-color: var(--font-color); border-radius: 50%; animation: spin 1s linear infinite; }
@@ -536,7 +623,7 @@
     .toast.error { background-color: var(--danger-color); }
     @keyframes slideIn-out { 0%, 100% { opacity: 0; transform: translateX(100%); } 10%, 90% { opacity: 1; transform: translateX(0); } }
 
-    #zen-mode-toggle-btn, #theme-toggle-btn {
+    #markdown-toggle-btn, #zen-mode-toggle-btn, #theme-toggle-btn {
         position: fixed; top: 24px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-color);
         background-color: var(--material-regular-bg);
         -webkit-backdrop-filter: var(--blur-effect); backdrop-filter: var(--blur-effect);
@@ -544,11 +631,15 @@
         transition: all 0.3s ease; z-index: 1000;
         overflow: hidden;
     }
+    #markdown-toggle-btn { right: 140px; }
     #zen-mode-toggle-btn { right: 84px; }
     #theme-toggle-btn { right: 28px; }
-	#zen-mode-toggle-btn:hover, #theme-toggle-btn:hover { transform: scale(1.1); box-shadow: 0 0 10px var(--accent-color); }
+	#markdown-toggle-btn:hover, #zen-mode-toggle-btn:hover, #theme-toggle-btn:hover { transform: scale(1.1); box-shadow: 0 0 10px var(--accent-color); }
+    #markdown-toggle-btn.active { color: var(--accent-color); }
     
-    .editor-area.readonly #note-title-input, .editor-area.readonly #note-content-textarea { 
+    .editor-area.readonly #note-title-input, 
+    .editor-area.readonly #note-content-textarea,
+    .editor-area.readonly .note-content-view { 
         cursor: default; 
         background-color: var(--input-bg-color); 
         opacity: 0.8; 

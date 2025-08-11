@@ -100,6 +100,7 @@
             
             <div id="editor-container" class="editor-area" style="display: none;">
                 <input type="text" id="note-title-input" placeholder="🏷️ 제목을 입력하세요">
+                <div id="note-content-view" class="note-content-view"></div>
                 <textarea id="note-content-textarea" placeholder="✍️ 자유롭게 노트를 써보세요..."></textarea>
                 <div id="editor-footer">
                     <span id="char-count"></span>
@@ -246,6 +247,7 @@
     
    <!-- [BUG FIX] 중복된 날씨 뷰 컨테이너 관련 코드를 모두 제거했습니다. -->
 	
+    <button id="markdown-toggle-btn" class="ripple-effect" title="Ⓜ️ 마크다운 미리보기">Ⓜ️</button>
     <button id="zen-mode-toggle-btn" class="ripple-effect" title="🧘 젠 모드">🧘</button>
     <button id="theme-toggle-btn" class="ripple-effect" title="🎨 테마 전환">🌙</button>
 

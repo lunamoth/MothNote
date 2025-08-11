@@ -1,3 +1,5 @@
+// components.js
+
 import { state, CONSTANTS } from './state.js';
 
 // --- DOM 요소 캐싱 ---
@@ -10,7 +12,7 @@ export const searchInput = getEl('search-input'), clearSearchBtn = getEl('clear-
 export const noteSortSelect = getEl('note-sort-select');
 export const importFileInput = getEl('import-file-input');
 export const editorContainer = getEl(CONSTANTS.EDITOR.DOM_IDS.container), placeholderContainer = getEl('placeholder-container');
-export const noteTitleInput = getEl(CONSTANTS.EDITOR.DOM_IDS.titleInput), noteContentTextarea = getEl(CONSTANTS.EDITOR.DOM_IDS.contentTextArea);
+export const noteTitleInput = getEl(CONSTANTS.EDITOR.DOM_IDS.titleInput), noteContentTextarea = getEl(CONSTANTS.EDITOR.DOM_IDS.contentTextArea), noteContentView = getEl(CONSTANTS.EDITOR.DOM_IDS.contentView);
 export const editorFooter = getEl(CONSTANTS.EDITOR.DOM_IDS.footer), toastContainer = getEl('toast-container');
 const modal = getEl('modal'), modalTitle = getEl('modal-title'), modalMessage = getEl('modal-message');
 const modalErrorMessage = getEl('modal-error-message');

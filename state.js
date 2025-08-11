@@ -57,6 +57,7 @@ export const CONSTANTS = {
             container: 'editor-container',
             titleInput: 'note-title-input',
             contentTextArea: 'note-content-textarea',
+            contentView: 'note-content-view',
             footer: 'editor-footer',
             updatedDate: 'updated-date',
             createdDate: 'created-date',
@@ -144,6 +145,7 @@ export let state = {
     preSearchActiveNoteId: null,
     dateFilter: null,
     renamingItemId: null,
+    isMarkdownView: false,
 
     // --- 파생/캐시 데이터 ---
     noteMap: new Map(),

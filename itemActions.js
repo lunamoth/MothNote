@@ -7,7 +7,8 @@ import {
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
     editorContainer,
     addNoteBtn,
-    formatDate
+    formatDate,
+    noteContentView
 } from './components.js';
 // [버그 수정] 현재 UI에 표시된 노트 목록 캐시('sortedNotesCache')를 가져오기 위해 import 구문 수정
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
