@@ -32,7 +32,6 @@ import {
     changeActiveFolder, changeActiveNote, handleSearchInput, 
     handleClearSearch, handleSortChange, confirmNavigation 
 } from './navigationActions.js';
-import snarkdown from './snarkdown.js';
 
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;

@@ -8,7 +8,8 @@ import {
     formatDate, sortNotes
 } from './components.js';
 import { toYYYYMMDD } from './itemActions.js';
-import snarkdown from './snarkdown.js';
+// [수정] { marked }를 marked로 변경하여 default export를 가져옵니다.
+import { marked } from './marked.esm.js';
 
 
 const highlightText = (container, text, term) => {
@@ -402,7 +403,8 @@ export const renderEditor = () => {
     if (document.activeElement !== noteContentTextarea) noteContentTextarea.value = activeNote.content ?? '';
     
     if (state.isMarkdownView) {
-        noteContentView.innerHTML = snarkdown(activeNote.content ?? '');
+        // [수정] snarkdown을 marked.parse로 교체합니다.
+        noteContentView.innerHTML = marked.parse(activeNote.content ?? '');
     }
     
     const { DOM_IDS } = CONSTANTS.EDITOR;
