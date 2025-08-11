@@ -1,7 +1,8 @@
 // itemActions.js
 
-import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
-import { generateUniqueId } from './storage.js';
+// [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
+import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap, generateUniqueId } from './state.js';
+// import { generateUniqueId } from './storage.js'; // <- 이 줄을 삭제하고 위와 같이 state.js에서 가져옵니다.
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
