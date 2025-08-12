@@ -20,7 +20,11 @@ const highlightText = (container, text, term) => {
     }
 
     const fragment = document.createDocumentFragment();
-    const regex = new RegExp(`(${term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
+
+    // [버그 수정] 사용자가 입력한 검색어에 포함된 모든 정규식 메타 문자를 이스케이프 처리하여
+    // 'Invalid regular expression' 오류를 방지합니다.
+    const escapedTerm = term.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+    const regex = new RegExp(`(${escapedTerm})`, 'gi');
     const parts = safeText.split(regex);
 
     parts.forEach(part => {
