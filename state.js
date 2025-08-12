@@ -260,7 +260,8 @@ export const generateUniqueId = (prefix, existingIds) => {
     if (typeof crypto?.randomUUID === 'function') {
         let id;
         do {
-            id = crypto.randomUUID();
+            // [BUG FIX] 생성된 UUID 앞에 prefix를 일관되게 추가합니다.
+            id = `${prefix}${crypto.randomUUID()}`;
         } while (existingIds.has(id));
         return id;
     }
