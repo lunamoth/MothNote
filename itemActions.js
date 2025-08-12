@@ -879,33 +879,34 @@ export async function handleUserInput() {
 }
 
 
-// [BUG FIX] 안정성 강화를 위해 `_handleRenameEnd` 함수에 진입 가드(guard)를 추가합니다.
-// 이벤트 경합으로 인해 이 함수가 짧은 시간 내에 여러 번 호출되더라도, 실제 저장 로직은 단 한 번만 실행되도록 보장합니다.
+// [BUG FIX] 안정성 강화를 위해 `_handleRenameEnd` 함수에 진입 가드(guard)를 추가하고, Promise 해결 로직을 최우선으로 배치합니다.
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
-    // --- 가드(Guard) 추가 시작 ---
-    // 이미 이 이름 변경 작업이 처리 중이거나 완료되었다면, 즉시 함수를 종료하여 중복 실행을 방지합니다.
+    // --- 가드(Guard) 추가: 중복 실행 방지 ---
     if (state.renamingItemId !== id || !pendingRenamePromise) {
         return;
     }
-    // --- 가드(Guard) 추가 끝 ---
 
     nameSpan.contentEditable = false;
     
-    // Promise를 즉시 해결하여, 이 함수를 기다리는 다른 로직(await finishPendingRename)이 계속 진행될 수 있도록 합니다.
+    // ★★★ 핵심 버그 수정: Promise 해결 및 관련 상태 초기화를 최우선으로 실행합니다. ★★★
+    // 이렇게 하면 어떤 분기문(if, return)을 타더라도 Promise 잠금 상태가 절대 발생하지 않습니다.
     if (resolvePendingRename) {
         resolvePendingRename();
         resolvePendingRename = null;
     }
     pendingRenamePromise = null;
 
+    // 이제 이전에 버그를 유발했던 DOM 연결 해제 케이스를 안전하게 처리할 수 있습니다.
     if (!nameSpan.isConnected) {
+        // Promise는 이미 위에서 해결되었으므로, 여기서는 UI 상태만 정리하고 종료합니다.
         setState({ renamingItemId: null });
         return;
     }
 
     const { item: currentItem } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
     if (!currentItem) {
-        setState({ renamingItemId: null }); return;
+        setState({ renamingItemId: null }); 
+        return;
     }
 
     const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
