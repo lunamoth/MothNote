@@ -31,11 +31,11 @@ export const saveSession = () => {
 /**
  * [BUG-C-CRITICAL 전면 수정] 로드된 데이터의 무결성을 검증하고 ID 충돌을 자동 복구하는 함수
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
- * @returns {{sanitizedData: object, wasSanitized: boolean}} - 복구된 데이터와 복구 여부
+ * @returns {{sanitizedData: object, wasSanitized: boolean, idUpdateMap: Map<string, string>}} - 복구된 데이터와 복구 여부, 그리고 ID 변경 맵
  */
 const verifyAndSanitizeLoadedData = (data) => {
     if (!data || typeof data !== 'object') {
-        return { sanitizedData: data, wasSanitized: false };
+        return { sanitizedData: data, wasSanitized: false, idUpdateMap: new Map() };
     }
 
     const folders = data.folders || [];
@@ -108,7 +108,7 @@ const verifyAndSanitizeLoadedData = (data) => {
         }
     }
 
-    return { sanitizedData: data, wasSanitized: changesMade };
+    return { sanitizedData: data, wasSanitized: changesMade, idUpdateMap };
 };
 
 
@@ -117,6 +117,8 @@ const verifyAndSanitizeLoadedData = (data) => {
 export const loadData = async () => {
     let recoveryMessage = null;
     let authoritativeData = null; // [버그 수정] 데이터 로딩 순서 제어를 위해 변수 위치 변경
+    // [MAJOR BUG FIX] ID 변경 내역을 저장할 맵을 선언합니다.
+    let idUpdateMap = new Map();
 
     try {
         // [BUG-C-01 수정] 가져오기(Import) 작업의 원자성(Atomicity) 보장 로직
@@ -153,8 +155,10 @@ export const loadData = async () => {
         // [BUG-C-CRITICAL 수정 및 통합] 로드된 데이터의 무결성을 검증하고 자동 복구합니다.
         if (authoritativeData) {
             // 데이터의 깊은 복사본을 만들어 원본 오염 없이 안전하게 검증합니다.
-            const { sanitizedData, wasSanitized } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
+            // [MAJOR BUG FIX] idUpdateMap을 반환받아 세션 데이터 보정에 사용합니다.
+            const { sanitizedData, wasSanitized, idUpdateMap: returnedMap } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
             authoritativeData = sanitizedData;
+            idUpdateMap = returnedMap;
             
             if (wasSanitized) {
                 // 자동 복구가 발생했음을 사용자에게 알리고, 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
@@ -346,8 +350,12 @@ export const loadData = async () => {
             }
 
             if (lastSession) {
-                finalState.activeFolderId = lastSession.f;
-                finalState.activeNoteId = lastSession.n;
+                // [MAJOR BUG FIX] ID 변경 맵을 사용하여 세션 데이터의 참조 무결성을 보장합니다.
+                const correctedFolderId = idUpdateMap.get(lastSession.f) || lastSession.f;
+                const correctedNoteId = idUpdateMap.get(lastSession.n) || lastSession.n;
+
+                finalState.activeFolderId = correctedFolderId;
+                finalState.activeNoteId = correctedNoteId;
                 finalState.noteSortOrder = lastSession.s ?? 'updatedAt_desc';
                 finalState.lastActiveNotePerFolder = lastSession.l ?? {};
             }
