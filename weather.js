@@ -671,8 +671,10 @@
     }
 
     async function loadWeatherData() {
-        if (!LAT || !LON) {
-            renderError("위치 정보가 제공되지 않았습니다. MothNote 설정에서 위치를 지정해주세요.");
+        // [BUG FIX] URL 파라미터로 받은 위도/경도 값에 대한 유효성 검사를 강화합니다.
+        // NaN, null, undefined 및 유효 범위를 벗어난 값을 모두 확인합니다.
+        if (isNaN(LAT) || isNaN(LON) || LAT < -90 || LAT > 90 || LON < -180 || LON > 180) {
+            renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다.");
             renderSkeleton(false);
             return;
         }
