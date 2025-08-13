@@ -118,10 +118,20 @@ const handleSettingsSave = () => {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR); isSavingSettings = false; return;
     }
 
+    // [BUG FIX] parseInt 결과가 NaN일 경우, 기본값으로 대체하여 레이아웃 깨짐을 방지합니다.
+    const defaults = CONSTANTS.DEFAULT_SETTINGS;
     const newSettings = {
-        layout: { col1: parseInt(settingsCol1Input.value, 10), col2: parseInt(settingsCol2Input.value, 10) },
-        zenMode: { maxWidth: parseInt(settingsZenMaxInput.value, 10) },
-        editor: { fontFamily: finalFontFamily, fontSize: parseInt(settingsEditorFontSize.value, 10) || CONSTANTS.DEFAULT_SETTINGS.editor.fontSize },
+        layout: {
+            col1: parseInt(settingsCol1Input.value, 10) || defaults.layout.col1,
+            col2: parseInt(settingsCol2Input.value, 10) || defaults.layout.col2
+        },
+        zenMode: {
+            maxWidth: parseInt(settingsZenMaxInput.value, 10) || defaults.zenMode.maxWidth
+        },
+        editor: {
+            fontFamily: finalFontFamily,
+            fontSize: parseInt(settingsEditorFontSize.value, 10) || defaults.editor.fontSize
+        },
         weather: { lat, lon }
     };
 
