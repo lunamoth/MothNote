@@ -714,7 +714,7 @@ export const handleEmptyTrash = async () => {
     const message = CONSTANTS.MESSAGES.CONFIRM.EMPTY_TRASH(state.trash.length);
 
     await withConfirmation(
-        { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 삭제', confirmButtonType: 'danger' },
+        { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 영구적으로 삭제', confirmButtonType: 'danger' },
         () => performTransactionalUpdate(latestData => {
             let postUpdateState = {};
 
