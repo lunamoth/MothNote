@@ -152,12 +152,34 @@ export const loadData = async () => {
             const backupPayload = backupResult.appState_backup;
             console.warn("Incomplete import detected. Rolling back to previous data.");
             
-            await chrome.storage.local.set({ appState: backupPayload.appState });
+            // --- START OF FIX ---
+            // [BUG-C-CRITICAL 수정] 롤백할 백업 데이터의 무결성을 검증하고 정제합니다.
+            // JSON.parse(JSON.stringify(...))로 깊은 복사본을 만들어 원본 오염 없이 안전하게 처리합니다.
+            const { sanitizedData, wasSanitized } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(backupPayload.appState || {})));
+            
+            if (wasSanitized) {
+                console.warn("[Rollback] The backup data itself required sanitization before restoration.");
+            }
+            
+            // 정제된 (안전한) 데이터로 롤백을 수행합니다.
+            await chrome.storage.local.set({ appState: sanitizedData });
+        
+            // 설정 데이터도 안전하게 처리합니다.
             if (backupPayload.settings) {
-                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
+                try {
+                    // [개선] 설정 데이터도 파싱-정제 과정을 거쳐 안전하게 복원합니다.
+                    const parsedSettings = JSON.parse(backupPayload.settings);
+                    const sanitizedSettings = sanitizeSettings(parsedSettings);
+                    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                } catch (e) {
+                    // 설정 복원 실패 시, 기본값으로 돌아가도록 기존 설정을 제거합니다.
+                    console.error("Failed to parse or sanitize settings from backup. Using defaults.", e);
+                    localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+                }
             } else {
                 localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
             }
+            // --- END OF FIX ---
             
             await chrome.storage.local.remove('appState_backup');
             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
