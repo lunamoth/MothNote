@@ -215,27 +215,39 @@ const handleWeatherCitySearch = async () => {
 };
 
 const setupSettingsModal = () => {
-    settingsBtn.addEventListener('click', openSettingsModal);
-    settingsModalCloseBtn.addEventListener('click', () => settingsModal.close());
-    settingsSaveBtn.addEventListener('click', handleSettingsSave);
-    settingsResetBtn.addEventListener('click', handleSettingsReset);
-    settingsExportBtn.addEventListener('click', () => handleExport(appSettings));
-    settingsImportBtn.addEventListener('click', () => handleImport());
+    // [BUG FIX] DOM 요소가 null일 경우를 대비하여 방어 코드를 추가합니다.
+    if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+    if (settingsModalCloseBtn) settingsModalCloseBtn.addEventListener('click', () => settingsModal.close());
+    if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', handleSettingsSave);
+    if (settingsResetBtn) settingsResetBtn.addEventListener('click', handleSettingsReset);
+    if (settingsExportBtn) settingsExportBtn.addEventListener('click', () => handleExport(appSettings));
+    if (settingsImportBtn) settingsImportBtn.addEventListener('click', () => handleImport());
 
-    settingsModal.addEventListener('close', () => {
-        if (!isSavingSettings) { applySettings(appSettings); }
-        isSavingSettings = false;
-    });
+    if (settingsModal) {
+        settingsModal.addEventListener('close', () => {
+            if (!isSavingSettings) { applySettings(appSettings); }
+            isSavingSettings = false;
+        });
+    }
 
-    settingsTabs.addEventListener('click', (e) => {
-        const target = e.target.closest('.settings-tab-btn'); if (!target) return;
-        document.querySelector('.settings-tab-btn.active').classList.remove('active');
-        target.classList.add('active');
-        document.querySelector('.settings-tab-panel.active').classList.remove('active');
-        document.getElementById(`settings-tab-${target.dataset.tab}`).classList.add('active');
-    });
+    if (settingsTabs) {
+        settingsTabs.addEventListener('click', (e) => {
+            const target = e.target.closest('.settings-tab-btn'); if (!target) return;
+            const activeTabBtn = document.querySelector('.settings-tab-btn.active');
+            if (activeTabBtn) activeTabBtn.classList.remove('active');
+            target.classList.add('active');
+
+            const activeTabPanel = document.querySelector('.settings-tab-panel.active');
+            if (activeTabPanel) activeTabPanel.classList.remove('active');
+            
+            const tabPanel = document.getElementById(`settings-tab-${target.dataset.tab}`);
+            if (tabPanel) tabPanel.classList.add('active');
+        });
+    }
     
     const bindSliderAndInput = (slider, input, cssVarName, unit) => {
+        // [BUG FIX] slider 또는 input이 null일 경우 함수를 즉시 종료합니다.
+        if (!slider || !input) return;
         const updateStyle = (value) => { document.documentElement.style.setProperty(cssVarName, `${value}${unit}`); };
         slider.addEventListener('input', () => { const value = slider.value; input.value = value; updateStyle(value); });
         input.addEventListener('input', () => { let value = parseInt(input.value, 10); const min = parseInt(input.min, 10); const max = parseInt(input.max, 10); if (isNaN(value)) return; slider.value = Math.max(min, Math.min(value, max)); updateStyle(value); });
@@ -246,11 +258,18 @@ const setupSettingsModal = () => {
     bindSliderAndInput(settingsCol2Width, settingsCol2Input, '--column-notes-width', '%');
     bindSliderAndInput(settingsZenMaxWidth, settingsZenMaxInput, '--zen-max-width', 'px');
 
-    settingsEditorFontFamily.addEventListener('input', (e) => { document.documentElement.style.setProperty('--editor-font-family', e.target.value); });
-    settingsEditorFontSize.addEventListener('input', (e) => { document.documentElement.style.setProperty('--editor-font-size', `${e.target.value}px`); });
+    if (settingsEditorFontFamily) {
+        settingsEditorFontFamily.addEventListener('input', (e) => { document.documentElement.style.setProperty('--editor-font-family', e.target.value); });
+    }
+    if (settingsEditorFontSize) {
+        settingsEditorFontSize.addEventListener('input', (e) => { document.documentElement.style.setProperty('--editor-font-size', `${e.target.value}px`); });
+    }
 
-    settingsWeatherCitySearchBtn.addEventListener('click', handleWeatherCitySearch);
-    settingsWeatherCitySearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleWeatherCitySearch(); } });
+    if (settingsWeatherCitySearchBtn) settingsWeatherCitySearchBtn.addEventListener('click', handleWeatherCitySearch);
+    if (settingsWeatherCitySearch) {
+        settingsWeatherCitySearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleWeatherCitySearch(); } });
+    }
+    // settingsWeatherCityResults는 동적으로 내용이 채워지므로, 전역 클릭 이벤트는 null 체크 없이 유지합니다.
     document.addEventListener('click', (e) => { if (settingsWeatherCityResults && !settingsWeatherCitySearch.contains(e.target) && !settingsWeatherCityResults.contains(e.target)) { settingsWeatherCityResults.style.display = 'none'; } });
 };
 
@@ -397,22 +416,48 @@ const handleGlobalKeyDown = (e) => { if (e.altKey && !e.ctrlKey && !e.metaKey &&
 const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
 const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { appSettings.layout[settingsKey] = parseInt(sliderElement.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
 const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); appSettings.zenMode.maxWidth = parseInt(settingsZenMaxWidth.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
-const setupEventListeners = () => { if(folderList) { folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER)); folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER)); } if(noteList) { noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE)); noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE)); } if(addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder); if(addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote); if(emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash); if(noteTitleInput) { 
-    noteTitleInput.addEventListener('input', handleUserInput); 
-    noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged());
-    noteTitleInput.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            await saveCurrentNoteIfChanged();
-            noteContentTextarea.focus();
-        }
-    });
- } if(noteContentTextarea) { 
-    noteContentTextarea.addEventListener('input', handleUserInput); 
-    noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged()); 
-    // [버그 수정] 이곳에서 handleTextareaKeyDown 함수를 직접 정의하는 대신, import된 함수를 사용합니다.
-    noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
- } if(searchInput) searchInput.addEventListener('input', handleSearchInput); if(clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch); if(noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange); if(shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal); setupSettingsModal(); setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input); setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input); setupZenModeResize(); };
+const setupEventListeners = () => {
+    // [BUG FIX] 모든 이벤트 리스너 바인딩 전에 null 체크를 일관되게 적용합니다.
+    if (folderList) {
+        folderList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.FOLDER));
+        folderList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.FOLDER));
+        folderList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.FOLDER));
+    }
+    if (noteList) {
+        noteList.addEventListener('click', e => handleListClick(e, CONSTANTS.ITEM_TYPE.NOTE));
+        noteList.addEventListener('dblclick', e => handleRename(e, CONSTANTS.ITEM_TYPE.NOTE));
+        noteList.addEventListener('keydown', e => handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE));
+    }
+    if (addFolderBtn) addFolderBtn.addEventListener('click', handleAddFolder);
+    if (addNoteBtn) addNoteBtn.addEventListener('click', handleAddNote);
+    if (emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash);
+    if (noteTitleInput) {
+        noteTitleInput.addEventListener('input', handleUserInput);
+        noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged());
+        noteTitleInput.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                await saveCurrentNoteIfChanged();
+                noteContentTextarea.focus();
+            }
+        });
+    }
+    if (noteContentTextarea) {
+        noteContentTextarea.addEventListener('input', handleUserInput);
+        noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged());
+        noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
+    }
+    if (searchInput) searchInput.addEventListener('input', handleSearchInput);
+    if (clearSearchBtn) clearSearchBtn.addEventListener('click', handleClearSearch);
+    if (noteSortSelect) noteSortSelect.addEventListener('change', handleSortChange);
+    if (shortcutGuideBtn) shortcutGuideBtn.addEventListener('click', showShortcutModal);
+    
+    // 이 함수들은 내부에서 null 체크를 수행하도록 수정되었거나, 원래부터 방어적으로 작성되었습니다.
+    setupSettingsModal();
+    setupSplitter('splitter-1', '--column-folders-width', 'col1', settingsCol1Width, settingsCol1Input);
+    setupSplitter('splitter-2', '--column-notes-width', 'col2', settingsCol2Width, settingsCol2Input);
+    setupZenModeResize();
+};
 
 const setupFeatureToggles = () => {
     const zenModeToggleBtn = document.getElementById('zen-mode-toggle-btn');

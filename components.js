@@ -63,6 +63,18 @@ export const formatDate = d => {
 
 export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration = CONSTANTS.TOAST_DURATION) => {
     if (!toastContainer) return;
+
+    // [BUG FIX] duration이 0이면 UI를 가리는 문제를 방지하기 위해 토스트 대신 모달(showAlert)로 처리합니다.
+    // 이는 사용자의 확인이 반드시 필요한 중요한 메시지(예: 심각한 오류)에 해당합니다.
+    if (duration === 0) {
+        showAlert({
+            title: type === CONSTANTS.TOAST_TYPE.ERROR ? '❗️ 오류' : '🔔 알림',
+            message: message,
+            confirmText: '✅ 확인',
+        });
+        return; // 여기서 함수 실행을 종료합니다.
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     
@@ -72,21 +84,10 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration
         toast.textContent = message;
     }
     
-    if (duration === 0) {
-        toast.style.animation = 'none';
-        toast.style.opacity = '1';
-        toast.style.transform = 'translateX(0)';
-        
-        const closeButton = document.createElement('button');
-        closeButton.textContent = '×';
-        closeButton.style.cssText = 'position: absolute; top: 4px; right: 8px; background:none; border:none; color:inherit; font-size:20px; cursor:pointer; padding: 4px; line-height: 1;';
-        closeButton.onclick = () => toast.remove();
-        toast.appendChild(closeButton);
-    } else {
-        setTimeout(() => {
-            if (toast.parentElement) toast.remove();
-        }, duration);
-    }
+    // 이제 duration이 0인 경우는 없으므로, 해당 조건 분기(if/else)가 필요 없습니다.
+    setTimeout(() => {
+        if (toast.parentElement) toast.remove();
+    }, duration);
 
     toastContainer.appendChild(toast);
 };
