@@ -13,7 +13,7 @@ import { marked } from './marked.esm.js';
 
 const highlightText = (container, text, term) => {
     const safeText = text ?? '';
-    container.innerHTML = ''; 
+    container.innerHTML = '';
     if (!term || !safeText) {
         container.textContent = safeText;
         return;
@@ -21,21 +21,32 @@ const highlightText = (container, text, term) => {
 
     const fragment = document.createDocumentFragment();
 
-    // [버그 수정] 사용자가 입력한 검색어에 포함된 모든 정규식 메타 문자를 이스케이프 처리하여
-    // 'Invalid regular expression' 오류를 방지합니다.
+    // [성능 개선] 기존 split 방식 대신 exec 루프를 사용하여 대용량 텍스트 하이라이트 성능을 개선합니다.
     const escapedTerm = term.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
     const regex = new RegExp(`(${escapedTerm})`, 'gi');
-    const parts = safeText.split(regex);
 
-    parts.forEach(part => {
-        if (part.toLowerCase() === term.toLowerCase()) {
-            const mark = document.createElement('mark');
-            mark.textContent = part;
-            fragment.appendChild(mark);
-        } else {
-            fragment.appendChild(document.createTextNode(part));
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(safeText)) !== null) {
+        // 마지막 인덱스와 현재 찾은 부분 사이의 텍스트 (일치하지 않는 부분)
+        if (match.index > lastIndex) {
+            fragment.appendChild(document.createTextNode(safeText.substring(lastIndex, match.index)));
         }
-    });
+
+        // 일치하는 부분
+        const mark = document.createElement('mark');
+        mark.textContent = match[0];
+        fragment.appendChild(mark);
+
+        lastIndex = regex.lastIndex;
+    }
+
+    // 마지막으로 찾은 부분 이후의 나머지 텍스트
+    if (lastIndex < safeText.length) {
+        fragment.appendChild(document.createTextNode(safeText.substring(lastIndex)));
+    }
+
     container.appendChild(fragment);
 };
 

@@ -47,9 +47,23 @@ const verifyAndSanitizeLoadedData = (data) => {
 
     // --- 1. 모든 ID를 먼저 수집하여 완전한 중복 검사 환경을 만듭니다. ---
     const checkSet = new Set();
+    
+    // [BUG FIX] 무한 루프 방지를 위해 방문한 객체를 추적하는 Set을 추가합니다.
+    const visited = new WeakSet();
+
     const fixItems = (items) => {
+        if (!Array.isArray(items)) return; // items가 배열이 아닌 경우 방어
         for (const item of items) {
             if (!item || !item.id) continue;
+            
+            // [BUG FIX] 순환 참조가 감지되면 재귀를 중단합니다.
+            if (item.type === 'folder' && visited.has(item)) {
+                console.warn(`[Data Sanitization] Circular reference detected and skipped for folder ID: ${item.id}`);
+                // 순환을 유발하는 notes 배열을 비워서 문제를 해결합니다.
+                item.notes = []; 
+                changesMade = true;
+                continue; // 다음 아이템으로 넘어감
+            }
             
             if (checkSet.has(item.id)) {
                 // 중복 발견
@@ -68,6 +82,8 @@ const verifyAndSanitizeLoadedData = (data) => {
 
             // 폴더인 경우, 내부 노트도 재귀적으로 처리
             if (item.type === 'folder' && Array.isArray(item.notes)) {
+                // [BUG FIX] 재귀 호출 전에 현재 폴더를 방문 목록에 추가합니다.
+                visited.add(item);
                 fixItems(item.notes);
             }
         }
