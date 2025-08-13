@@ -171,14 +171,21 @@ const handleSettingsReset = async () => {
 
 const handleWeatherCitySearch = async () => {
     const query = settingsWeatherCitySearch.value.trim();
-    if (query.length < 2) { settingsWeatherCityResults.style.display = 'none'; return; }
+    if (query.length < 2) {
+        settingsWeatherCityResults.innerHTML = '';
+        settingsWeatherCityResults.style.display = 'none';
+        return;
+    }
+
+    // 요청 전에 이전 결과를 즉시 초기화하여 사용자 혼란을 방지합니다.
+    settingsWeatherCityResults.innerHTML = '';
+    settingsWeatherCityResults.style.display = 'none';
 
     try {
         const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`);
         if (!response.ok) throw new Error('Network response was not ok.');
         const data = await response.json();
         
-        settingsWeatherCityResults.innerHTML = '';
         if (data.results && data.results.length > 0) {
             data.results.forEach(city => {
                 const li = document.createElement('li');
@@ -196,15 +203,14 @@ const handleWeatherCitySearch = async () => {
                     showToast(CONSTANTS.MESSAGES.SUCCESS.WEATHER_LOCATION_UPDATED);
                 });
                 settingsWeatherCityResults.appendChild(li);
-});
+            });
             settingsWeatherCityResults.style.display = 'block';
         } else {
-            settingsWeatherCityResults.style.display = 'none';
             showToast(CONSTANTS.MESSAGES.ERROR.WEATHER_CITY_NOT_FOUND, CONSTANTS.TOAST_TYPE.ERROR);
         }
     } catch (error) {
         console.error('Error fetching city data:', error);
-        settingsWeatherCityResults.style.display = 'none';
+        // 목록은 이미 함수 시작 시 초기화되었으므로 추가 작업이 필요 없습니다.
     }
 };
 

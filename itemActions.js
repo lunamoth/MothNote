@@ -197,6 +197,12 @@ const collectAllIds = () => {
             item.notes.forEach(note => allIds.add(note.id));
         }
     });
+
+    // --- 수정된 부분 ---
+    // 가상 폴더 ID도 충돌 방지를 위해 전체 ID 목록에 포함시킵니다.
+    Object.values(CONSTANTS.VIRTUAL_FOLDERS).forEach(vf => allIds.add(vf.id));
+    // --- 수정 끝 ---
+
     return allIds;
 };
 
