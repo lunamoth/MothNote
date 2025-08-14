@@ -20,11 +20,16 @@ export const confirmNavigation = async () => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
-    await finishPendingRename();
+    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+    const renameSuccess = await finishPendingRename();
+    if (!renameSuccess) {
+        showToast("이름 변경 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return false; // 이름 변경 실패 시 작업 중단하고 실패를 반환
+    }
 
-    if (state.activeNoteId === newNoteId) return;
+    if (state.activeNoteId === newNoteId) return true;
 
-    if (!(await confirmNavigation())) return;
+    if (!(await confirmNavigation())) return false;
 
     if (newNoteId && state.activeFolderId) {
         setState({
@@ -37,10 +42,16 @@ export const changeActiveNote = async (newNoteId) => {
     
     setState({ activeNoteId: newNoteId });
     saveSession();
+    return true; // 성공적으로 노트를 변경했음을 반환
 };
 
 export const changeActiveFolder = async (newFolderId, options = {}) => {
-    await finishPendingRename();
+    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+    const renameSuccess = await finishPendingRename();
+    if (!renameSuccess) {
+        showToast("이름 변경 저장에 실패하여 폴더 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return; // 이름 변경 실패 시 작업 중단
+    }
 
     if (state.activeFolderId === newFolderId && !state.dateFilter) return;
 
@@ -139,13 +150,24 @@ const handleSearch = (searchTerm) => {
 };
 
 export const handleSearchInput = async (e) => {
-    await finishPendingRename();
+    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+    const renameSuccess = await finishPendingRename();
+    if (!renameSuccess) {
+        showToast("이름 변경 저장에 실패하여 검색을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        // 검색 입력을 되돌릴 필요는 없으므로, 여기서 return 합니다.
+        return;
+    }
     const term = e.target.value;
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
 
 export const handleClearSearch = async () => {
-    await finishPendingRename();
+    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+    const renameSuccess = await finishPendingRename();
+    if (!renameSuccess) {
+        showToast("이름 변경 저장에 실패하여 검색 지우기를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     clearTimeout(searchDebounceTimer);
     if (searchInput.value === '') return;
     searchInput.value = '';

@@ -68,7 +68,7 @@ export const finishPendingRename = async () => {
         if (!renamingElementWrapper) {
             // 만약 요소가 사라졌다면(예: 다른 탭에서의 변경), 강제로 상태를 정리합니다.
             forceResolvePendingRename();
-            return;
+            return true; // 요소가 없으면 더 이상 할 작업이 없으므로 성공으로 간주
         }
 
         const type = renamingElementWrapper.dataset.type;
@@ -77,13 +77,15 @@ export const finishPendingRename = async () => {
         if (nameSpan) {
             // 핵심 수정: .blur()를 호출하는 대신, _handleRenameEnd 함수를 직접 호출합니다.
             // 이렇게 하면 이벤트 발생 순서에 상관없이 변경 사항이 안정적으로 저장됩니다.
-            // 'true'를 전달하여 변경 내용을 저장하도록 지시합니다.
-            await _handleRenameEnd(id, type, nameSpan, true);
+            // 'true'를 전달하여 변경 내용을 저장하도록 지시하며, _handleRenameEnd의 결과를 직접 반환합니다.
+            return await _handleRenameEnd(id, type, nameSpan, true);
         } else {
             // span을 찾을 수 없는 예외적인 경우에도 상태를 정리합니다.
             forceResolvePendingRename();
+            return true; // span이 없으면 더 이상 할 작업이 없으므로 성공으로 간주
         }
     }
+    return true; // 이름 변경 중이 아니면 항상 성공
 };
 
 let calendarRenderer = () => {};
@@ -188,28 +190,37 @@ const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
 
 // [CRITICAL BUG FIX] ID 고유성 검사를 위해 시스템의 모든 ID를 수집하는 헬퍼 함수
 const collectAllIds = () => {
-    const allIds = new Set(state.noteMap.keys());
-    state.folders.forEach(f => allIds.add(f.id));
+    const allIds = new Set();
+
+    // 1. 모든 활성 폴더 및 그 안의 노트를 순회하며 ID를 수집합니다.
+    state.folders.forEach(folder => {
+        allIds.add(folder.id);
+        if (Array.isArray(folder.notes)) {
+            folder.notes.forEach(note => allIds.add(note.id));
+        }
+    });
+
+    // 2. 휴지통의 모든 아이템을 순회하며 ID를 수집합니다.
+    // (휴지통의 폴더는 내부에 노트만 포함하므로, 1단계 깊이의 탐색만 필요합니다.)
     state.trash.forEach(item => {
         allIds.add(item.id);
-        // 휴지통의 폴더 안에 있는 노트 ID까지 재귀적으로 추가
         if (item.type === 'folder' && Array.isArray(item.notes)) {
             item.notes.forEach(note => allIds.add(note.id));
         }
     });
-
-    // --- 수정된 부분 ---
-    // 가상 폴더 ID도 충돌 방지를 위해 전체 ID 목록에 포함시킵니다.
+    
+    // 3. 시스템에서 사용하는 가상 폴더의 ID도 충돌 방지를 위해 포함시킵니다.
     Object.values(CONSTANTS.VIRTUAL_FOLDERS).forEach(vf => allIds.add(vf.id));
-    // --- 수정 끝 ---
 
     return allIds;
 };
 
 export const handleAddFolder = async () => {
-    await finishPendingRename();
+    if (!(await finishPendingRename())) {
+        showToast("이름 변경 저장에 실패하여 폴더 추가를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     
-    // [BUG-C-CRITICAL 수정] 프롬프트가 끝난 후에 변경사항을 저장하도록 순서 변경
     const name = await showPrompt({
         title: CONSTANTS.MODAL_TITLES.NEW_FOLDER,
         placeholder: '📁 폴더 이름을 입력하세요',
@@ -230,7 +241,6 @@ export const handleAddFolder = async () => {
         return;
     }
 
-    // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
     const allIds = collectAllIds();
     const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
     const trimmedName = name.trim();
@@ -271,7 +281,10 @@ export const handleAddNote = async () => {
     if(addNoteBtn) addNoteBtn.disabled = true;
 
     try {
-        await finishPendingRename();
+        if (!(await finishPendingRename())) {
+            showToast("이름 변경 저장에 실패하여 노트 추가를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
         if (!(await confirmNavigation())) return;
 
         const { ALL, RECENT, TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
@@ -282,7 +295,6 @@ export const handleAddNote = async () => {
             return;
         }
         
-        // [CRITICAL BUG FIX] ID 고유성 검사를 시스템 전체 ID로 확장
         const allIds = collectAllIds();
         const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
         const now = Date.now();
@@ -390,9 +402,10 @@ export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, d
 });
 
 export const handleDelete = async (id, type) => {
-    // [BUG-C-CRITICAL 수정] 여기서 변경사항을 미리 저장하지 않습니다.
-    // `withConfirmation` 헬퍼가 모달 확인 후에 저장하도록 처리합니다.
-    await finishPendingRename();
+    if (!(await finishPendingRename())) {
+        showToast("이름 변경 저장에 실패하여 삭제를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     
     const { item } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
     if (!item) return;
@@ -409,7 +422,6 @@ export const handleDelete = async (id, type) => {
 };
 
 export const performDeleteItem = (id, type) => {
-    // [버그 수정] 트랜잭션 시작 전에, 현재 UI에 표시된 노트 목록(사용자가 보고 있는 목록)을 캡처합니다.
     const currentNotesInView = sortedNotesCache.result || [];
 
     return performTransactionalUpdate(latestData => {
@@ -440,7 +452,6 @@ export const performDeleteItem = (id, type) => {
                 postUpdateState.activeNoteId = null;
             }
         } else { // NOTE
-            // [버그 수정] 불필요하고 잘못된 결과를 초래하던 'originalNotesInView' 변수 제거
             let noteToMove, sourceFolder;
             for(const folder of folders) {
                 const noteIndex = folder.notes.findIndex(n => n.id === id);
@@ -465,7 +476,6 @@ export const performDeleteItem = (id, type) => {
             successMessage = CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_TO_TRASH(noteToMove.title || '제목 없음');
             
             if (state.activeNoteId === id) {
-                // [버그 수정] 물리적 폴더 목록 대신, 외부에서 캡처한 'currentNotesInView'(현재 UI 목록)를 사용해 다음 노트를 결정합니다.
                 postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, currentNotesInView);
             }
         }
@@ -475,7 +485,10 @@ export const performDeleteItem = (id, type) => {
 };
 
 export const handleRestoreItem = async (id) => {
-    await finishPendingRename();
+    if (!(await finishPendingRename())) {
+        showToast("이름 변경 저장에 실패하여 복원을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
 
     const itemToRestore = state.trash.find(item => item.id === id);
     if (!itemToRestore) return;
@@ -513,7 +526,6 @@ export const handleRestoreItem = async (id) => {
         }
     }
 
-    // [BUG-C-CRITICAL 수정] 모든 모달 상호작용이 끝난 후 변경사항 저장
     if (!(await saveCurrentNoteIfChanged())) {
         showToast("변경사항 저장에 실패하여 복원 작업을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return;
@@ -535,7 +547,6 @@ export const handleRestoreItem = async (id) => {
             }
             itemToRestoreInTx.name = finalFolderName;
             
-            // [CRITICAL BUG FIX] ID 충돌 검사 대상을 시스템 전체 ID(폴더+노트)로 확장
             const allExistingIds = new Set();
             folders.forEach(f => {
                 allExistingIds.add(f.id);
@@ -554,7 +565,7 @@ export const handleRestoreItem = async (id) => {
                 const oldId = itemToRestoreInTx.id;
                 const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allExistingIds);
                 itemToRestoreInTx.id = newId;
-                allExistingIds.add(newId); // 새로 생성된 ID도 즉시 추가하여 트랜잭션 내 충돌 방지
+                allExistingIds.add(newId);
 
                 const favoritesSet = new Set(latestData.favorites || []);
                 if (favoritesSet.has(oldId)) {
@@ -568,10 +579,8 @@ export const handleRestoreItem = async (id) => {
             const restoredNoteIds = new Set();
             
             itemToRestoreInTx.notes.forEach(note => {
-                // allExistingIds는 이미 시스템의 모든 ID를 포함하므로, 이 Set만으로 검사
                 if (restoredNoteIds.has(note.id) || allExistingIds.has(note.id)) {
                     const oldId = note.id;
-                    // [BUG FIX] generateUniqueId에 모든 알려진 ID를 전달하여 충돌 방지
                     const combinedExistingIds = new Set([...allExistingIds, ...restoredNoteIds]);
                     const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedExistingIds);
                     note.id = newId;
@@ -584,7 +593,7 @@ export const handleRestoreItem = async (id) => {
                 }
                 
                 restoredNoteIds.add(note.id);
-                allExistingIds.add(note.id); // 복원/수정된 노트 ID도 충돌 검사 대상에 즉시 추가
+                allExistingIds.add(note.id);
                 
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
@@ -607,7 +616,6 @@ export const handleRestoreItem = async (id) => {
                  return null;
             }
             
-            // [CRITICAL BUG FIX] ID 충돌 검사 대상을 시스템 전체 ID(폴더+노트)로 확장
             const allExistingIds = new Set();
             folders.forEach(f => {
                 allExistingIds.add(f.id);
@@ -658,7 +666,10 @@ export const handleRestoreItem = async (id) => {
 };
 
 export const handlePermanentlyDeleteItem = async (id) => {
-    await finishPendingRename();
+    if (!(await finishPendingRename())) {
+        showToast("이름 변경 저장에 실패하여 영구 삭제를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
 
     const item = state.trash.find(i => i.id === id);
     if (!item) return;
@@ -682,7 +693,6 @@ export const handlePermanentlyDeleteItem = async (id) => {
                 postUpdateState.activeNoteId = getNextActiveNoteAfterDeletion(id, originalTrashItems);
             }
             
-            // [BUG FIX] 영구 삭제 시 폴더에 포함된 노트의 즐겨찾기 상태도 함께 정리합니다.
             const favoritesSet = new Set(latestData.favorites || []);
             const initialSize = favoritesSet.size;
 
@@ -708,7 +718,10 @@ export const handlePermanentlyDeleteItem = async (id) => {
 };
 
 export const handleEmptyTrash = async () => {
-    await finishPendingRename();
+    if (!(await finishPendingRename())) {
+        showToast("이름 변경 저장에 실패하여 휴지통 비우기를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     if (state.trash.length === 0) return;
 
     const message = CONSTANTS.MESSAGES.CONFIRM.EMPTY_TRASH(state.trash.length);
@@ -718,7 +731,6 @@ export const handleEmptyTrash = async () => {
         () => performTransactionalUpdate(latestData => {
             let postUpdateState = {};
 
-            // [BUG FIX] 삭제될 모든 노트 ID를 수집하여 현재 활성 노트가 포함되는지 확인합니다.
             const noteIdsInTrash = new Set();
             latestData.trash.forEach(item => {
                 if (item.type === 'note' || !item.type) {
@@ -728,22 +740,18 @@ export const handleEmptyTrash = async () => {
                 }
             });
 
-            // 현재 '휴지통' 폴더를 보고 있을 경우, '모든 노트'로 전환합니다.
             if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
                 postUpdateState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
                 postUpdateState.activeNoteId = null;
             } 
-            // 다른 폴더를 보고 있더라도, 활성 노트가 삭제 대상에 포함되면 ID를 초기화합니다.
             else if (state.activeNoteId && noteIdsInTrash.has(state.activeNoteId)) {
                 postUpdateState.activeNoteId = null;
             }
 
-            // 이름 변경 중인 아이템이 휴지통에 있다면 상태를 초기화합니다.
             if (state.renamingItemId && state.trash.some(item => item.id === state.renamingItemId)) {
                 postUpdateState.renamingItemId = null;
             }
 
-            // 휴지통을 비울 때 폴더 내 노트들의 즐겨찾기 상태도 모두 제거합니다.
             const favoritesSet = new Set(latestData.favorites || []);
             latestData.trash.forEach(item => {
                 if (item.type === 'note' || !item.type) {
@@ -792,7 +800,6 @@ export async function saveCurrentNoteIfChanged() {
         let finalTitle = noteTitleInput.value.trim();
         const content = noteContentTextarea.value;
         
-        // --- [NEW] 자동 제목 생성 로직 ---
         if (!finalTitle && content) {
             let firstLine = content.split('\n')[0].trim();
             if (firstLine) {
@@ -803,13 +810,8 @@ export async function saveCurrentNoteIfChanged() {
                     firstLine = firstLine.slice(0, limit) + '...';
                 }
                 finalTitle = firstLine;
-                
-                // [BUG FIX] 데이터-UI 비동기화 및 데이터 유실 방지를 위해 UI 직접 조작 코드를 제거했습니다.
-                // 저장이 성공적으로 완료된 후, 중앙 상태(state)가 업데이트되고,
-                // 이를 구독하는 렌더링 파이프라인이 UI를 안전하게 업데이트합니다.
             }
         }
-        // --- [NEW] 로직 끝 ---
 
         noteToSave.title = finalTitle;
         noteToSave.content = content;
@@ -819,10 +821,7 @@ export async function saveCurrentNoteIfChanged() {
         return { newData: latestData, successMessage: null, postUpdateState: {} };
     });
     
-    // --- [CRITICAL BUG FIX START] ---
-    // 자동 저장과 사용자 입력 간의 경쟁 상태로 인한 데이터 유실을 방지합니다.
     if (success) {
-        // 저장이 성공한 후, state에 저장된 값과 현재 UI(편집기)의 값을 비교합니다.
         const { item: justSavedNote } = findNote(noteId);
         const liveTitle = noteTitleInput.value;
         const liveContent = noteContentTextarea.value;
@@ -830,23 +829,16 @@ export async function saveCurrentNoteIfChanged() {
         const isStillDirty = justSavedNote && (justSavedNote.title !== liveTitle || justSavedNote.content !== liveContent);
 
         if (isStillDirty) {
-            // 저장하는 동안 사용자가 추가로 내용을 입력한 경우입니다.
-            // isDirty 상태를 true로 유지하고, 변경 상태를 다시 표시한 후,
-            // 새로운 자동 저장을 예약합니다.
             setState({ isDirty: true, dirtyNoteId: noteId });
             updateSaveStatus('dirty'); 
-            handleUserInput(); // 새로운 변경사항에 대한 자동 저장 타이머를 다시 시작
+            handleUserInput();
         } else {
-            // UI와 저장된 상태가 일치하는 경우, '저장 완료'로 처리합니다.
             setState({ isDirty: false, dirtyNoteId: null });
             updateSaveStatus('saved');
         }
-        // [버그 수정] 성공적인 저장 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
-        // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
     } else {
         updateSaveStatus('dirty');
     }
-    // --- [CRITICAL BUG FIX END] ---
 
     return success;
 }
@@ -886,16 +878,16 @@ export async function handleUserInput() {
 
 
 // [BUG FIX] 안정성 강화를 위해 `_handleRenameEnd` 함수에 진입 가드(guard)를 추가하고, Promise 해결 로직을 최우선으로 배치합니다.
+// 이제 트랜잭션의 성공 여부(boolean)를 반환합니다.
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     // --- 가드(Guard) 추가: 중복 실행 방지 ---
     if (state.renamingItemId !== id || !pendingRenamePromise) {
-        return;
+        return true; // 이미 처리되었거나 대상이 아니면 성공
     }
 
     nameSpan.contentEditable = false;
     
     // ★★★ 핵심 버그 수정: Promise 해결 및 관련 상태 초기화를 최우선으로 실행합니다. ★★★
-    // 이렇게 하면 어떤 분기문(if, return)을 타더라도 Promise 잠금 상태가 절대 발생하지 않습니다.
     if (resolvePendingRename) {
         resolvePendingRename();
         resolvePendingRename = null;
@@ -904,15 +896,14 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 
     // 이제 이전에 버그를 유발했던 DOM 연결 해제 케이스를 안전하게 처리할 수 있습니다.
     if (!nameSpan.isConnected) {
-        // Promise는 이미 위에서 해결되었으므로, 여기서는 UI 상태만 정리하고 종료합니다.
         setState({ renamingItemId: null });
-        return;
+        return true;
     }
 
     const { item: currentItem } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
     if (!currentItem) {
         setState({ renamingItemId: null }); 
-        return;
+        return true;
     }
 
     const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
@@ -922,7 +913,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     if (!shouldSave || newName === originalName) {
         setState({ renamingItemId: null });
         if (nameSpan) nameSpan.textContent = originalName;
-        return;
+        return true; // 저장할 필요 없으면 성공
     }
     
     // 트랜잭션을 통해 실제 데이터 저장을 수행합니다.
@@ -955,18 +946,16 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         itemToRename.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         
-        // postUpdateState에서 renamingItemId를 null로 설정하여, 이름 변경 상태를 종료합니다.
         return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
     });
 
-    if (success) {
-        // [버그 수정] 성공적인 이름 변경 작업이 관련 없는 비상 백업을 삭제하는 문제를 해결합니다.
-        // 비상 백업 제거는 데이터 로드 시 복원/거부 단계에서만 처리되어야 합니다.
-    } else {
+    if (!success) {
         // 실패 시, UI를 원래 이름으로 되돌리고 상태를 초기화합니다.
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
     }
+    
+    return success; // 트랜잭션의 성공 여부를 반환
 };
 
 export const startRename = async (liElement, type) => {
@@ -975,7 +964,10 @@ export const startRename = async (liElement, type) => {
     if (Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
 
     if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId !== id) {
-        await changeActiveNote(id);
+        if (!(await changeActiveNote(id))) {
+             showToast("노트 전환에 실패하여 이름 변경을 시작할 수 없습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+             return;
+        }
     }
     
     setState({ renamingItemId: id });
