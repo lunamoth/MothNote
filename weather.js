@@ -759,9 +759,10 @@
     }
 
     function initialize() {
-        if (THEME) {
-            applyTheme(THEME);
-        }
+        // [BUG FIX] THEME 파라미터가 없을 경우 'light'를 기본값으로 사용하여 스타일 깨짐을 방지합니다.
+        const activeTheme = THEME || 'light';
+        applyTheme(activeTheme);
+
         setupWeatherEffectsCanvas();
         setupEventListeners();
         loadWeatherData();
