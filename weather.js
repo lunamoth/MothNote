@@ -24,16 +24,18 @@
     const THEME = urlParams.get('theme');
 
     const ICON_ANIMATION_MAP = {
-        '☀️': 'sun',
-        '☁️': 'anim-cloud-drift',
-        '🌥️': 'anim-cloud-drift',
-        '🌤️': 'anim-cloud-drift',
-        '🌧️': 'anim-rain-drop',
-        '💧': 'anim-rain-drop',
-        '🌦️': 'anim-rain-drop',
-        '⛈️': 'anim-rain-drop',
-        '❄️': 'anim-snow-flake',
-        '🌨️': 'anim-snow-flake',
+        '☀️': ['sun'], // ☀️ 아이콘은 'sun' 클래스만 가집니다.
+        '☁️': ['anim-cloud-drift', 'gentleBob-active'], // ☁️ 아이콘은 두 개의 애니메이션을 가집니다.
+        '🌥️': ['anim-cloud-drift', 'gentleBob-active'],
+        '🌤️': ['anim-cloud-drift', 'gentleBob-active'],
+        '🌧️': ['anim-rain-drop', 'gentleBob-active'],
+        '💧': ['anim-rain-drop', 'gentleBob-active'],
+        '🌦️': ['anim-rain-drop', 'gentleBob-active'],
+        '⛈️': ['anim-rain-drop', 'gentleBob-active'],
+        '❄️': ['anim-snow-flake', 'gentleBob-active'],
+        '🌨️': ['anim-snow-flake', 'gentleBob-active'],
+        // [BUG FIX] 기본 gentleBob 애니메이션을 여기에 추가합니다.
+        'default': ['gentleBob-active']
     };
 
     // --- DOM ELEMENT CACHING ---
@@ -111,21 +113,30 @@
         return cardinals[Math.round(deg / 22.5) % 16];
     }
 
+    // [BUG FIX] 아이콘 애니메이션 적용 로직 전면 수정
     function applySpecificIconAnimation(element, iconChar) {
         if (!element) return;
 
-        const classes = Array.from(element.classList);
-        for (const cls of classes) {
-            if (cls.startsWith('anim-') || cls === 'gentleBob-active' || cls === 'sun') {
-                element.classList.remove(cls);
+        // 1. 모든 기존 애니메이션 관련 클래스를 확실하게 제거합니다.
+        const classesToRemove = Array.from(element.classList).filter(cls =>
+            cls.startsWith('anim-') || cls === 'gentleBob-active' || cls === 'sun'
+        );
+        if (classesToRemove.length > 0) {
+            element.classList.remove(...classesToRemove);
+        }
+
+        // 2. 새 애니메이션 클래스를 찾습니다.
+        let classesToAdd = ICON_ANIMATION_MAP['default']; // 기본값 설정
+        for (const key in ICON_ANIMATION_MAP) {
+            if (iconChar.includes(key) && key !== 'default') {
+                classesToAdd = ICON_ANIMATION_MAP[key];
+                break; // 가장 먼저 일치하는 키를 사용
             }
         }
-        for (const key in ICON_ANIMATION_MAP) {
-            if (iconChar.includes(key)) {
-                if (key === '🌦️' && iconChar.includes('⛈️')) continue;
-                element.classList.add(ICON_ANIMATION_MAP[key]);
-                if (ICON_ANIMATION_MAP[key] !== 'sun') break; 
-            }
+        
+        // 3. 찾은 새 애니메이션 클래스를 추가합니다.
+        if (classesToAdd && classesToAdd.length > 0) {
+            element.classList.add(...classesToAdd);
         }
     }
     
