@@ -94,6 +94,9 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration
 
 // [버그 수정] 모달 이벤트 처리 로직을 표준적이고 안정적인 방식으로 전면 재작성
 const _showModalInternal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
+    // [BUG FIX] 모달을 열기 전, 현재 포커스를 받은 요소를 저장합니다.
+    const elementToFocusOnClose = document.activeElement;
+
     return new Promise(resolve => {
         // --- 1. UI 설정 ---
         modalTitle.textContent = title;
@@ -171,6 +174,15 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
             modalInput.removeEventListener('keydown', handleKeydown);
             modal.removeEventListener('close', handleClose);
             
+            // [BUG FIX] 모달이 닫힌 후, 이전에 저장해 둔 요소로 포커스를 되돌립니다.
+            try {
+                if (elementToFocusOnClose && typeof elementToFocusOnClose.focus === 'function') {
+                    elementToFocusOnClose.focus();
+                }
+            } catch (e) {
+                console.warn("Failed to restore focus to the previous element.", e);
+            }
+
             // --- 5. 결과 반환 ---
             // modal.returnValue 값을 기반으로 Promise의 결과를 결정
             let result = null;
