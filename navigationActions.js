@@ -12,6 +12,9 @@ import { clearSortedNotesCache } from './renderer.js';
 let searchDebounceTimer;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
+// [수정] 폴더 전환 중 중복 호출을 막기 위한 잠금 변수
+let isChangingFolder = false;
+
 export const confirmNavigation = async () => {
     if (!state.isDirty) {
         return true;
@@ -46,44 +49,54 @@ export const changeActiveNote = async (newNoteId) => {
 };
 
 export const changeActiveFolder = async (newFolderId, options = {}) => {
-    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
-    const renameSuccess = await finishPendingRename();
-    if (!renameSuccess) {
-        showToast("이름 변경 저장에 실패하여 폴더 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-        return; // 이름 변경 실패 시 작업 중단
+    // [수정] 이미 다른 폴더로 전환하는 작업이 진행 중이라면, 새로운 요청을 무시합니다.
+    if (isChangingFolder) return;
+    isChangingFolder = true; // 잠금을 설정하여 중복 실행을 방지합니다.
+
+    try {
+        // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+        const renameSuccess = await finishPendingRename();
+        if (!renameSuccess) {
+            showToast("이름 변경 저장에 실패하여 폴더 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            return; // 이름 변경 실패 시 작업 중단
+        }
+
+        if (state.activeFolderId === newFolderId && !state.dateFilter) return;
+
+        if (!options.force && !(await confirmNavigation())) return;
+        
+        const { item: folder } = findFolder(newFolderId);
+        const notesInFolder = folder?.notes ?? [];
+        
+        let nextActiveNoteId = null;
+        const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
+
+        if (lastActiveNoteId && notesInFolder.some(n => n.id === lastActiveNoteId)) {
+            nextActiveNoteId = lastActiveNoteId;
+        } 
+        else if (notesInFolder.length > 0) {
+            const isSortable = folder?.isSortable !== false;
+            const notesToSelectFrom = isSortable
+                ? sortNotes(notesInFolder, state.noteSortOrder)
+                : notesInFolder;
+            nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
+        }
+
+        setState({
+            activeFolderId: newFolderId,
+            activeNoteId: nextActiveNoteId,
+            dateFilter: null,
+            preSearchActiveNoteId: null,
+            searchTerm: ''
+        });
+        
+        if (searchInput) searchInput.value = '';
+        saveSession();
+    } finally {
+        // [수정] try 블록의 코드가 어떤 경로로 종료되든(성공, return, 에러 발생 등)
+        // 항상 잠금을 해제하여 다음 요청을 받을 수 있도록 보장합니다.
+        isChangingFolder = false;
     }
-
-    if (state.activeFolderId === newFolderId && !state.dateFilter) return;
-
-    if (!options.force && !(await confirmNavigation())) return;
-    
-    const { item: folder } = findFolder(newFolderId);
-    const notesInFolder = folder?.notes ?? [];
-    
-    let nextActiveNoteId = null;
-    const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
-
-    if (lastActiveNoteId && notesInFolder.some(n => n.id === lastActiveNoteId)) {
-        nextActiveNoteId = lastActiveNoteId;
-    } 
-    else if (notesInFolder.length > 0) {
-        const isSortable = folder?.isSortable !== false;
-        const notesToSelectFrom = isSortable
-            ? sortNotes(notesInFolder, state.noteSortOrder)
-            : notesInFolder;
-        nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
-    }
-
-    setState({
-        activeFolderId: newFolderId,
-        activeNoteId: nextActiveNoteId,
-        dateFilter: null,
-        preSearchActiveNoteId: null,
-        searchTerm: ''
-    });
-    
-    if (searchInput) searchInput.value = '';
-    saveSession();
 };
 
 const getCurrentViewNotes = () => {
