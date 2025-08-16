@@ -165,6 +165,11 @@ const handleSettingsReset = async () => {
         
         applySettings(appSettings);
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
+        
+        // [BUG FIX] 브라우저가 CSS 변수 변경을 렌더링할 수 있도록 짧은 지연을 줍니다.
+        // 50ms는 사용자가 인지하기 어려운 시간이지만 렌더링에는 충분합니다.
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
         settingsModal.close();
     }
 };
