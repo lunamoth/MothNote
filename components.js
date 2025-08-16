@@ -89,7 +89,8 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration
         if (toast.parentElement) toast.remove();
     }, duration);
 
-    toastContainer.appendChild(toast);
+    // [개선] appendChild 대신 prepend를 사용하여 새 토스트가 항상 맨 위에 표시되도록 합니다.
+    toastContainer.prepend(toast);
 };
 
 // [버그 수정] 모달 이벤트 처리 로직을 표준적이고 안정적인 방식으로 전면 재작성
@@ -302,9 +303,12 @@ export const showDatePickerPopover = ({ initialDate }) => {
 };
 
 export const showShortcutModal = () => {
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const ctrlOrCmd = isMac ? 'Cmd' : 'Ctrl';
+
     const shortcuts = [
-        { key: 'Alt + Shift + N', desc: '✨ 새 폴더 추가' },
-        { key: 'Alt + N', desc: '✍️ 새 노트 추가' },
+        { key: 'Alt + Shift + N', desc: '✨ 새 폴더 만들기' },
+        { key: 'Alt + N', desc: '✍️ 새 노트 만들기' },
         { key: 'F2 / 더블클릭', desc: '✏️ 폴더/노트 이름 변경' },
         { key: '↑ / ↓', desc: '↕️ 폴더/노트 이동' },
 		{ key: 'Enter', desc: '↵️ 폴더/노트 선택' },
