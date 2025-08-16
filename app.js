@@ -623,23 +623,37 @@ const init = async () => {
     try {
         window.isInitializing = true;
         
-        // [BUG FIX] `dashboard` 객체 참조 오류 해결을 위한 초기화 순서 변경
-        // 1. Dashboard 인스턴스를 먼저 생성합니다.
-        dashboard = new Dashboard();
-        
-        // 2. 이제 dashboard 객체가 존재하는 상태에서 설정을 로드하고 적용합니다.
-        //    `applySettings` 내부에서 `dashboard.fetchWeather()`가 안전하게 호출될 수 있습니다.
-        loadAndApplySettings();
-        
+        // --- 1. 핵심 경로 초기화 (실패 시 앱 전체 중단) ---
+        // 이 블록의 기능들은 앱의 기본 동작을 위해 반드시 성공해야 합니다.
         setupEventListeners();
-        setupFeatureToggles();
-        initializeDragAndDrop();
         setupImportHandler();
         setupGlobalEventListeners();
-        setupRippleEffect();
-        
         subscribe(renderAll);
         
+        const { recoveryMessage } = await loadData();
+        if (recoveryMessage) {
+            showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
+        }
+
+    } catch (e) {
+        // 핵심 경로 실패는 복구가 거의 불가능하므로 사용자에게 심각한 오류를 알립니다.
+        console.error("Critical initialization failed, app cannot start:", e);
+        showToast("앱의 핵심 기능을 불러오는 데 실패했습니다. 확장 프로그램을 재설치해야 할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
+        // finally 블록에서 isInitializing 플래그가 설정되도록 여기서 함수를 종료합니다.
+        return;
+    } finally {
+        // 성공하든 실패하든 초기화 상태 플래그는 해제합니다.
+        window.isInitializing = false;
+    }
+
+    // --- 2. 부가 기능 초기화 (개별 실패 처리) ---
+    // 이 블록의 기능들은 실패하더라도 앱의 핵심 기능(노트 작성/읽기)은 계속 동작해야 합니다.
+    
+    try {
+        // 대시보드는 가장 복잡하고 실패 가능성이 있는 부가 기능입니다.
+        dashboard = new Dashboard();
+        
+        // 대시보드에 의존하는 구독 로직을 이 블록 안으로 이동시킵니다.
         let prevState = { ...state };
         subscribe(() => {
             if (prevState.dateFilter && !state.dateFilter && dashboard) {
@@ -649,20 +663,39 @@ const init = async () => {
             prevState = { ...state };
         });
 
-        const { recoveryMessage } = await loadData();
-        if (recoveryMessage) {
-            showToast(recoveryMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
-        }
-        
-        // 3. Dashboard의 나머지 초기화 작업을 수행합니다.
         dashboard.init();
         setCalendarRenderer(dashboard.renderCalendar.bind(dashboard));
-
     } catch (e) {
-        console.error("Initialization failed critically:", e);
-        showToast("앱 초기화 중 심각한 오류가 발생했습니다. 확장 프로그램을 재설치해야 할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
-    } finally {
-        window.isInitializing = false;
+        console.warn("Dashboard module failed to initialize. The app will continue without it.", e);
+        // 사용자에게는 방해되는 오류 메시지를 보여주지 않습니다.
+    }
+
+    try {
+        // 설정 로딩/적용은 실패하더라도 기본값으로 동작할 수 있습니다.
+        loadAndApplySettings();
+    } catch(e) {
+        console.warn("Failed to load and apply settings. Using default values.", e);
+    }
+    
+    try {
+        // UI 토글 버튼(젠모드, 테마) 설정
+        setupFeatureToggles();
+    } catch(e) {
+        console.warn("Feature toggles (Zen mode, Theme) failed to initialize.", e);
+    }
+
+    try {
+        // 드래그 앤 드롭 기능 설정
+        initializeDragAndDrop();
+    } catch(e) {
+        console.warn("Drag and Drop functionality failed to initialize.", e);
+    }
+    
+    try {
+        // 꾸밈 효과(Ripple) 설정
+        setupRippleEffect();
+    } catch(e) {
+        console.warn("Ripple effect setup failed.", e);
     }
 };
 

@@ -258,7 +258,17 @@ export const renderFolders = () => {
 
     if (state.folders.length > 0) {
         fragment.appendChild(createSectionHeader('내 폴더'));
-        state.folders.forEach(folder => fragment.appendChild(createListItemElement(folder, CONSTANTS.ITEM_TYPE.FOLDER)));
+        state.folders.forEach(folder => {
+            // [BUG FIX & DEFENSIVE CODE]
+            // folder 객체나 folder.id가 유효하지 않은 경우(null, undefined 등),
+            // 렌더링을 건너뛰고 콘솔에 경고를 남겨 문제를 즉시 파악할 수 있도록 합니다.
+            // 이렇게 하면 손상된 데이터 하나 때문에 전체 폴더 목록 렌더링이 실패하는 것을 방지합니다.
+            if (!folder || typeof folder.id === 'undefined' || folder.id === null) {
+                console.warn('Skipping rendering of an invalid folder object:', folder);
+                return; // 현재 반복을 건너뛰고 다음 폴더로 넘어갑니다.
+            }
+            fragment.appendChild(createListItemElement(folder, CONSTANTS.ITEM_TYPE.FOLDER));
+        });
     }
     
     fragment.appendChild(createListItemElement(CONSTANTS.VIRTUAL_FOLDERS.TRASH, CONSTANTS.ITEM_TYPE.FOLDER));
