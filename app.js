@@ -553,6 +553,10 @@ const setupFeatureToggles = () => {
             document.body.classList.add('dark-mode');
             themeToggleBtn.textContent = '☀️';
         }
+
+        // [수정] FOUC 방지를 위해 테마 적용이 완료되었음을 알리는 클래스를 추가합니다.
+        document.body.classList.add('theme-applied');
+
         themeToggleBtn.addEventListener('click', () => {
             document.body.classList.toggle('dark-mode');
             const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';

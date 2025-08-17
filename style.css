@@ -1,3 +1,16 @@
+body {
+    /* FOUC 방지를 위해 초기에는 콘텐츠를 숨깁니다. */
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.2s ease-in; /* 부드럽게 나타나는 효과 */
+}
+
+body.theme-applied {
+    /* 테마 적용이 완료되면 콘텐츠를 보여줍니다. */
+    visibility: visible;
+    opacity: 1;
+}
+
 @layer base, layout, components;
 
 @layer base {

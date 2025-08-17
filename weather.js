@@ -785,6 +785,9 @@
         const activeTheme = THEME || 'light';
         applyTheme(activeTheme);
 
+        // [수정] FOUC 방지를 위해 테마 적용이 완료되었음을 알리는 클래스를 추가합니다.
+        document.body.classList.add('theme-applied');
+
         setupWeatherEffectsCanvas();
         setupEventListeners();
         loadWeatherData();
