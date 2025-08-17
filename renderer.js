@@ -5,10 +5,44 @@ import {
     folderList, noteList, addNoteBtn, emptyTrashBtn, notesPanelTitle, noteSortSelect,
     editorContainer, placeholderContainer, noteTitleInput, noteContentTextarea, noteContentView,
     itemTemplate, saveStatusIndicator,
-    formatDate, sortNotes
+    formatDate, sortNotes, showToast
 } from './components.js';
 import { toYYYYMMDD } from './itemActions.js';
-import { marked } from './marked.esm.js';
+// [수정] 정적 임포트를 제거합니다. 이제 동적으로 불러올 것입니다.
+// import { marked } from './marked.esm.js';
+
+// [수정] marked 모듈을 저장할 변수를 선언합니다. 한 번 로드하면 재사용합니다.
+let markedModule = null;
+
+// [수정] marked 모듈을 안전하게 로드하는 비동기 함수를 추가합니다.
+async function getMarkedParser() {
+    if (markedModule) {
+        return markedModule;
+    }
+    try {
+        // 동적 import()를 사용하여 모듈 로드를 시도합니다.
+        const marked = await import('./marked.esm.js');
+        markedModule = marked.marked; // 실제 marked 객체를 할당
+        return markedModule;
+    } catch (error) {
+        console.error("Markdown parser (marked.js)를 로드하는 데 실패했습니다.", error);
+        showToast("미리보기 기능을 로드할 수 없습니다. 파일이 누락되었을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 6000);
+        
+        // 미리보기 버튼을 비활성화하여 사용자 혼란을 방지합니다.
+        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
+        if (markdownToggleBtn) {
+            markdownToggleBtn.disabled = true;
+            markdownToggleBtn.title = "미리보기 기능 로드 실패";
+            markdownToggleBtn.style.opacity = '0.5';
+            markdownToggleBtn.style.cursor = 'not-allowed';
+        }
+        // 실패 시, 미리보기 모드를 강제로 해제합니다.
+        if (state.isMarkdownView) {
+            setState({ isMarkdownView: false });
+        }
+        return null; // 실패했음을 알리기 위해 null 반환
+    }
+}
 
 
 const highlightText = (container, text, term) => {
@@ -387,7 +421,8 @@ export const updateSaveStatus = (status) => {
     }
 };
 
-export const renderEditor = () => {
+// [수정] 함수를 async로 변경하여 동적 임포트를 처리합니다.
+export const renderEditor = async () => {
     const { item: activeNote, isInTrash } = findNote(state.activeNoteId);
 
     const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
@@ -426,8 +461,16 @@ export const renderEditor = () => {
     if (document.activeElement !== noteTitleInput) noteTitleInput.value = activeNote.title ?? '';
     if (document.activeElement !== noteContentTextarea) noteContentTextarea.value = activeNote.content ?? '';
     
+    // [수정] marked 모듈을 안전하게 불러와서 사용합니다.
     if (state.isMarkdownView) {
-        noteContentView.innerHTML = marked.parse(activeNote.content ?? '');
+        const marked = await getMarkedParser();
+        // marked 로드에 성공한 경우에만 파싱을 실행합니다.
+        if (marked) {
+            noteContentView.innerHTML = marked.parse(activeNote.content ?? '');
+        } else {
+            // 실패 시 사용자에게 알림 (getMarkedParser 내부에서 처리)
+            noteContentView.innerHTML = '<p style="color: var(--danger-color);">미리보기 기능을 로드하는 데 실패했습니다.</p>';
+        }
     }
     
     const { DOM_IDS } = CONSTANTS.EDITOR;
@@ -452,4 +495,9 @@ export const renderEditor = () => {
     }
 };
 
-export const renderAll = () => { renderFolders(); renderNotes(); renderEditor(); };
+// [수정] renderEditor가 비동기가 되었으므로 renderAll도 비동기로 변경합니다.
+export const renderAll = async () => { 
+    renderFolders(); 
+    renderNotes(); 
+    await renderEditor(); 
+};
