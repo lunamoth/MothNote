@@ -153,7 +153,16 @@ export const performTransactionalUpdate = async (updateFn) => {
 
     } catch (e) {
         console.error("Transactional update failed:", e);
-        showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        // [BUG FIX] 저장 공간 초과 오류를 감지하고 사용자에게 명확한 안내를 제공합니다.
+        if (e && e.message && e.message.toLowerCase().includes('quota')) {
+            showAlert({
+                title: '💾 저장 공간 부족',
+                message: '저장 공간(5MB)이 가득 찼습니다. 더 이상 데이터를 저장할 수 없습니다.\n\n불필요한 노트를 휴지통으로 이동한 뒤, 휴지통을 비워 영구적으로 삭제하면 공간을 확보할 수 있습니다.',
+                confirmText: '✅ 확인'
+            });
+        } else {
+            showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        }
         success = false;
     } finally {
         setState({ isPerformingOperation: false });
