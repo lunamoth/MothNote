@@ -644,7 +644,12 @@
     async function fetchWeatherData() {
         const dailyP = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,rain_sum,showers_sum,snowfall_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max";
         const hourlyP = "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,is_day";
-        const url = `${CONFIG.API_BASE_URL}?latitude=${LAT}&longitude=${LON}&current_weather=true&daily=${dailyP}&hourly=${hourlyP}&timezone=Asia/Seoul&forecast_days=7`;
+        
+        // [수정] 사용자의 실제 타임존을 동적으로 가져옵니다. 만약 브라우저에서 지원하지 않을 경우 'Asia/Seoul'을 기본값으로 사용합니다.
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul';
+        
+        // [수정] 하드코딩된 'Asia/Seoul'을 위에서 얻은 동적 값(userTimezone)으로 교체합니다.
+        const url = `${CONFIG.API_BASE_URL}?latitude=${LAT}&longitude=${LON}&current_weather=true&daily=${dailyP}&hourly=${hourlyP}&timezone=${encodeURIComponent(userTimezone)}&forecast_days=7`;
 
         try {
             const response = await fetch(url);
