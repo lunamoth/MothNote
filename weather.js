@@ -750,6 +750,12 @@
         });
         
         window.addEventListener('message', (event) => {
+            // [보안 수정] 메시지의 출처(origin)와 소스(source)를 검증하여 신뢰할 수 있는 부모 창의 메시지만 처리합니다.
+            if (event.origin !== window.location.origin || event.source !== window.parent) {
+                console.warn('Blocked a message from an untrusted source:', event.origin);
+                return;
+            }
+
             if (event.data && event.data.type === 'setTheme') {
                 applyTheme(event.data.theme);
             }

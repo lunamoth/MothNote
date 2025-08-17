@@ -563,7 +563,8 @@ const setupFeatureToggles = () => {
                 // iframe으로 테마 변경 메시지 전송
                 const weatherIframe = document.getElementById('weather-iframe');
                 if (weatherIframe && weatherIframe.contentWindow) {
-                    weatherIframe.contentWindow.postMessage({ type: 'setTheme', theme: theme }, '*');
+                    // [보안 수정] targetOrigin을 '*' 대신 window.location.origin으로 명시하여 안전한 통신을 보장합니다.
+                    weatherIframe.contentWindow.postMessage({ type: 'setTheme', theme: theme }, window.location.origin);
                 }
             }
         });
