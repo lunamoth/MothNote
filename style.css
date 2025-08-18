@@ -310,8 +310,8 @@ body.theme-applied {
     #weather-container::after {
         content: '🔍';
         position: absolute;
-        top: 40px;
-        right: 20px;
+	    bottom: 4px;
+        right: 4px;
         font-size: 32px;
         color: var(--font-color-dim);
         background-color: var(--input-bg-color);
