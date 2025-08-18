@@ -255,26 +255,43 @@ body.theme-applied {
         font-weight: 700;
         text-align: center;
         color: var(--font-color);
+        order: 1; /* [수정] 순서 1번으로 지정 */
     }
     #widget-row {
         display: flex;
-        justify-content: space-between;
+        flex-direction: column;
         align-items: center;
         gap: var(--spacing-lg);
+        order: 2; /* [수정] 아날로그 시계와 날씨 묶음을 순서 2번으로 지정 */
     }
+    #analog-clock-container {
+        order: 1; /* widget-row 내부에서 1번 */
+    }
+    #weather-container {
+        order: 2; /* widget-row 내부에서 2번 */
+    }
+
     #analog-clock-container, #weather-container {
         flex: 1;
         display: flex;
         justify-content: center;
         align-items: center;
+        width: 100%;
     }
     
+    #analog-clock-container {
+        background: transparent;
+        border-radius: 50%;
+        padding: 0;
+        box-shadow: none;
+    }
+
     /* --- [수정 시작] 날씨 위젯 어포던스 강화 (CSS 가상 요소 방식) --- */
     #weather-container {
         gap: 4px;
         font-size: 16px;
         font-weight: 500;
-        position: relative; /* 자식 가상요소(::after)를 위치시키기 위해 필수 */
+        position: relative;
         padding: var(--spacing-sm) var(--spacing-lg);
         border-radius: var(--radius-sm);
         transition: transform 0.2s ease-out, background-color 0.2s ease-out, box-shadow 0.2s ease-out;
@@ -308,10 +325,21 @@ body.theme-applied {
     }
     /* --- [수정 끝] --- */
 
-    #analog-clock { width: 105px; height: 105px; }
-    #weather-icon { font-size: 48px; line-height: 1; }
-	#weather-temp { font-size: 28px; font-weight: 700; }
-    #calendar-container { width: 100%; position: relative; }
+    #analog-clock { 
+        width: 150px; 
+        height: 150px;
+        /* [개선] 픽셀 선명도를 위한 렌더링 힌트 */
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+    }
+    #weather-icon { font-size: 72px; line-height: 1; }
+	#weather-temp { font-size: 42px; font-weight: 700; }
+    #calendar-container {
+        width: 100%;
+        position: relative;
+        order: 3; /* [버그 수정] 대시보드 내 위젯 순서를 3번으로 지정하여 마지막에 표시되도록 합니다. */
+		margin-top: var(--spacing-md); 
+    }
 
     #calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm); }
     #calendar-header h3 { font-size: 14px; font-weight: 600; cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); transition: background-color 0.2s ease; }

@@ -392,8 +392,121 @@ class Dashboard {
 
     _updateDigitalClock() { if (!this.dom.digitalClock) return; this.dom.digitalClock.textContent = new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true }); }
     _initAnalogClock(forceRedraw = false) { if (!this.dom.analogClockCanvas) return; if (this.internalState.analogClockAnimationId) { cancelAnimationFrame(this.internalState.analogClockAnimationId); this.internalState.analogClockAnimationId = null; } if (forceRedraw || !this.internalState.clockFaceCache) this._drawStaticClockFace(); const ctx = this.dom.analogClockCanvas.getContext('2d'); const radius = this.dom.analogClockCanvas.height / 2; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.translate(radius, radius); this._animateAnalogClock(); }
-    _drawStaticClockFace() { if (!this.dom.analogClockCanvas) return; const cacheCanvas = document.createElement('canvas'); cacheCanvas.width = this.dom.analogClockCanvas.width; cacheCanvas.height = this.dom.analogClockCanvas.height; const ctx = cacheCanvas.getContext('2d'); const radius = cacheCanvas.height / 2; ctx.translate(radius, radius); const drawNumbers = (context, r) => { context.beginPath(); const style = getComputedStyle(document.documentElement); context.font = `${r * 0.2}px sans-serif`; context.fillStyle = style.getPropertyValue('--font-color-dim').trim(); context.textAlign = 'center'; context.textBaseline = 'middle'; for (let num = 1; num <= 12; num++) { const angle = num * Math.PI / 6; context.fillText(num.toString(), r * 0.85 * Math.cos(angle - Math.PI / 2), r * 0.85 * Math.sin(angle - Math.PI / 2)); } }; const style = getComputedStyle(document.documentElement); ctx.beginPath(); ctx.arc(0, 0, radius * 0.95, 0, 2 * Math.PI); ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim(); ctx.lineWidth = 2; ctx.stroke(); drawNumbers(ctx, radius); ctx.beginPath(); ctx.arc(0, 0, radius * 0.05, 0, 2 * Math.PI); ctx.fillStyle = style.getPropertyValue('--accent-color').trim(); ctx.fill(); this.internalState.clockFaceCache = cacheCanvas; }
-    _drawHandsOnTop() { if (!this.dom.analogClockCanvas) return; const ctx = this.dom.analogClockCanvas.getContext('2d'); const radius = this.dom.analogClockCanvas.height / 2; const drawHand = (pos, length, width, color) => { ctx.beginPath(); ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.strokeStyle = color || getComputedStyle(document.documentElement).getPropertyValue('--font-color').trim(); ctx.moveTo(0, 0); ctx.rotate(pos); ctx.lineTo(length, 0); ctx.stroke(); ctx.rotate(-pos); }; ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height); if (this.internalState.clockFaceCache) ctx.drawImage(this.internalState.clockFaceCache, -radius, -radius); const style = getComputedStyle(document.documentElement); const accentColor = style.getPropertyValue('--accent-color').trim(); const now = new Date(), h = now.getHours(), m = now.getMinutes(); drawHand((h % 12 + m / 60) * (Math.PI / 6) - Math.PI / 2, radius * 0.5, radius * 0.07, accentColor); drawHand(m * (Math.PI / 30) - Math.PI / 2, radius * 0.75, radius * 0.05, accentColor); }
+    
+    // [개선] 시계 디자인을 더 미려하게 수정합니다. (시계판, 눈금, 숫자)
+    _drawStaticClockFace() {
+        if (!this.dom.analogClockCanvas) return;
+        const cacheCanvas = document.createElement('canvas');
+        cacheCanvas.width = this.dom.analogClockCanvas.width;
+        cacheCanvas.height = this.dom.analogClockCanvas.height;
+        const ctx = cacheCanvas.getContext('2d');
+        const radius = cacheCanvas.height / 2;
+        ctx.translate(radius, radius);
+        const style = getComputedStyle(document.documentElement);
+
+        // 시계판 배경 그라데이션
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.98, 0, 2 * Math.PI);
+        const gradient = ctx.createRadialGradient(0, 0, radius * 0.8, 0, 0, radius);
+        gradient.addColorStop(0, style.getPropertyValue('--material-opaque-bg').trim());
+        gradient.addColorStop(1, style.getPropertyValue('--hover-bg-color').trim());
+        ctx.fillStyle = gradient;
+        ctx.fill();
+        
+        // 시계 테두리
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.98, 0, 2 * Math.PI);
+        ctx.strokeStyle = style.getPropertyValue('--divider-color').trim();
+        ctx.lineWidth = radius * 0.04;
+        ctx.stroke();
+
+        // 시/분 눈금
+        ctx.strokeStyle = style.getPropertyValue('--font-color-dim').trim();
+        for(let i = 0; i < 60; i++){
+            const angle = (i / 60) * 2 * Math.PI;
+            ctx.rotate(angle);
+            ctx.beginPath();
+            if (i % 5 === 0) { // 시 눈금
+                ctx.lineWidth = radius * 0.03;
+                ctx.moveTo(radius * 0.85, 0);
+            } else { // 분 눈금
+                ctx.lineWidth = radius * 0.02;
+                ctx.moveTo(radius * 0.9, 0);
+            }
+            ctx.lineTo(radius * 0.95, 0);
+            ctx.stroke();
+            ctx.rotate(-angle);
+        }
+        
+        // 숫자
+        ctx.font = `bold ${radius * 0.18}px sans-serif`;
+        ctx.fillStyle = style.getPropertyValue('--font-color').trim();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let num = 1; num <= 12; num++) {
+            const angle = num * Math.PI / 6;
+            ctx.fillText(num.toString(), radius * 0.72 * Math.sin(angle), -radius * 0.72 * Math.cos(angle));
+        }
+        
+        this.internalState.clockFaceCache = cacheCanvas;
+    }
+    
+    // [개선] 시침/분침 디자인을 개선하고 그림자를 추가합니다. 초침은 제거합니다.
+    _drawHandsOnTop() {
+        if (!this.dom.analogClockCanvas) return;
+        const ctx = this.dom.analogClockCanvas.getContext('2d');
+        const radius = this.dom.analogClockCanvas.height / 2;
+        
+        ctx.clearRect(-radius, -radius, this.dom.analogClockCanvas.width, this.dom.analogClockCanvas.height);
+        if (this.internalState.clockFaceCache) {
+            ctx.drawImage(this.internalState.clockFaceCache, -radius, -radius);
+        }
+        
+        const style = getComputedStyle(document.documentElement);
+        const accentColor = style.getPropertyValue('--accent-color').trim();
+        const fontColor = style.getPropertyValue('--font-color').trim();
+        const shadowColor = 'rgba(0,0,0,0.2)';
+
+        const now = new Date();
+        const h = now.getHours();
+        const m = now.getMinutes();
+        
+        const drawHand = (angle, length, width, color) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rotate(angle);
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = color;
+            ctx.shadowColor = shadowColor;
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, -length);
+            ctx.stroke();
+            ctx.restore();
+        };
+
+        // 시침 그리기
+        const hourAngle = (h % 12 + m / 60) * (Math.PI / 6);
+        drawHand(hourAngle, radius * 0.5, radius * 0.07, fontColor);
+        
+        // 분침 그리기
+        const minuteAngle = m * (Math.PI / 30);
+        drawHand(minuteAngle, radius * 0.75, radius * 0.05, fontColor);
+        
+        // 시계 중심축
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.06, 0, 2 * Math.PI);
+        ctx.fillStyle = accentColor;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.02, 0, 2 * Math.PI);
+        ctx.fillStyle = style.getPropertyValue('--solar-base3').trim();
+        ctx.fill();
+    }
+    
     _animateAnalogClock() { let lastMinute = -1; const animate = () => { const now = new Date(); const currentMinute = now.getMinutes(); if (currentMinute !== lastMinute) { this._drawHandsOnTop(); lastMinute = currentMinute; } this.internalState.analogClockAnimationId = requestAnimationFrame(animate); }; this._drawHandsOnTop(); animate(); }
     async fetchWeather() { if (!this.dom.weatherContainer) return; const WEATHER_CACHE_KEY = CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY, CACHE_DURATION_MINUTES = 10; try { const cachedData = JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY)); const now = new Date().getTime(); if (cachedData && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) { const { weather, temp } = cachedData.data; this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="${weather.text}">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`; return; } } catch (e) { console.warn("Could not read weather cache.", e); } if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort(); this.internalState.weatherFetchController = new AbortController(); const signal = this.internalState.weatherFetchController.signal; this.dom.weatherContainer.innerHTML = `<span>⏳</span>`; try { const { lat, lon } = appSettings.weather; if (lat < -90 || lat > 90 || lon < -180 || lon > 180) { this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`; showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR); return; } const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`; const response = await fetch(url, { signal }); if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`); const data = await response.json(); if (!data?.current_weather) throw new Error("API 응답에서 current_weather 객체를 찾을 수 없습니다."); const { temperature, weathercode, is_day } = data.current_weather; const weather = this._getWeatherInfo(weathercode ?? data.current_weather.weather_code, is_day === 1); const temp = Math.round(temperature); this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="${weather.text}">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`; try { localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ timestamp: new Date().getTime(), data: { weather, temp } })); } catch (e) { console.warn("Could not save weather cache.", e); } } catch (error) { if (error.name !== 'AbortError') this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`; } }
     _updateCalendarHighlights() { if (!this.dom.calendarGrid) return; const dateCells = this.dom.calendarGrid.querySelectorAll('.date-cell'); const activeDateStr = state.dateFilter ? toYYYYMMDD(state.dateFilter) : null; dateCells.forEach(cell => { const dateStr = cell.dataset.date; if (!dateStr) return; cell.classList.toggle('has-notes', state.noteCreationDates.has(dateStr)); cell.classList.toggle('active-date', dateStr === activeDateStr); cell.title = ''; }); }
@@ -562,8 +675,11 @@ const setupFeatureToggles = () => {
             const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
             themeToggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
             localStorage.setItem('theme', theme);
+
+            // [BUG FIX] 테마 변경 버튼에서 직접 시계 다시 그리기를 호출하지 않습니다.
+            // Dashboard.init()에 설정된 MutationObserver가 body의 class 변경을 감지하고
+            // 자동으로 시계를 다시 그리므로, 레이스 컨디션이 발생하지 않습니다.
             if (dashboard) {
-                dashboard._initAnalogClock(true);
                 // iframe으로 테마 변경 메시지 전송
                 const weatherIframe = document.getElementById('weather-iframe');
                 if (weatherIframe && weatherIframe.contentWindow) {
