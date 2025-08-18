@@ -1,3 +1,4 @@
+--- START OF FILE style.css ---
 body {
     /* FOUC 방지를 위해 초기에는 콘텐츠를 숨깁니다. */
     visibility: hidden;
@@ -280,10 +281,14 @@ body.theme-applied {
     }
     
     #analog-clock-container {
-        background: transparent;
+        /* [BUG FIX] 배경을 CSS가 전담하도록 수정하고 입체감을 위해 그림자 추가 */
+        width: 150px; /* [BUG FIX] 타원형이 되지 않도록 너비 고정 */
+        height: 150px; /* [BUG FIX] 타원형이 되지 않도록 높이 고정 */
+        background: var(--material-opaque-bg);
         border-radius: 50%;
         padding: 0;
-        box-shadow: none;
+        box-shadow: var(--shadow-card);
+        transition: background-color 0.3s ease;
     }
 
     /* --- [수정 시작] 날씨 위젯 어포던스 강화 (CSS 가상 요소 방식) --- */
@@ -801,3 +806,4 @@ body.theme-applied {
         box-shadow: 0 0 10px var(--danger-color);
     }
 }
+--- END OF FILE style.css ---

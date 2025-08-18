@@ -303,7 +303,13 @@ class Dashboard {
     }
     init() {
         this._setupVisibilityObserver(); this._initAnalogClock();
-        if (document.body) new MutationObserver(() => this._initAnalogClock(true)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        if (document.body) {
+            new MutationObserver(() => {
+                // [BUG FIX] 테마 변경 후 스타일이 완전히 적용된 다음 프레임에 시계를 다시 그리도록 수정합니다.
+                // 이렇게 하면 getComputedStyle이 정확한 테마의 색상 값을 가져오는 것을 보장하여 레이스 컨디션을 해결합니다.
+                requestAnimationFrame(() => this._initAnalogClock(true));
+            }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        }
         this.fetchWeather(); this.renderCalendar(); this._setupCalendarEvents();
         this._setupWeatherViewEvents();
         window.addEventListener('unload', () => { if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort(); this._stopClocks(); });
@@ -404,14 +410,7 @@ class Dashboard {
         ctx.translate(radius, radius);
         const style = getComputedStyle(document.documentElement);
 
-        // 시계판 배경 그라데이션
-        ctx.beginPath();
-        ctx.arc(0, 0, radius * 0.98, 0, 2 * Math.PI);
-        const gradient = ctx.createRadialGradient(0, 0, radius * 0.8, 0, 0, radius);
-        gradient.addColorStop(0, style.getPropertyValue('--material-opaque-bg').trim());
-        gradient.addColorStop(1, style.getPropertyValue('--hover-bg-color').trim());
-        ctx.fillStyle = gradient;
-        ctx.fill();
+        // [BUG FIX] Canvas로 배경을 그리는 로직을 제거합니다. 이제 CSS가 배경을 담당합니다.
         
         // 시계 테두리
         ctx.beginPath();
@@ -440,7 +439,9 @@ class Dashboard {
         
         // 숫자
         ctx.font = `bold ${radius * 0.18}px sans-serif`;
-        ctx.fillStyle = style.getPropertyValue('--font-color').trim();
+        // [BUG FIX] 다크 모드일 때 숫자 색상을 명시적으로 지정하여 가독성 확보
+        const isDarkMode = document.body.classList.contains('dark-mode');
+        ctx.fillStyle = isDarkMode ? '#EEE8D5' : style.getPropertyValue('--font-color').trim();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         for (let num = 1; num <= 12; num++) {
@@ -464,7 +465,9 @@ class Dashboard {
         
         const style = getComputedStyle(document.documentElement);
         const accentColor = style.getPropertyValue('--accent-color').trim();
-        const fontColor = style.getPropertyValue('--font-color').trim();
+        // [BUG FIX] 다크 모드일 때 시침/분침 색상을 명시적으로 지정하여 가독성 확보
+        const isDarkMode = document.body.classList.contains('dark-mode');
+        const fontColor = isDarkMode ? '#EEE8D5' : style.getPropertyValue('--font-color').trim();
         const shadowColor = 'rgba(0,0,0,0.2)';
 
         const now = new Date();
