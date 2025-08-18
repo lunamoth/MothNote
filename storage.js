@@ -420,13 +420,25 @@ export const loadData = async () => {
 
         } else { // 데이터가 아예 없는 초기 실행
             const now = Date.now();
-            // [버그 수정] 이제 state.js에서 가져온 함수를 직접 호출
-            const fId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, new Set());
-            const nId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, new Set([fId]));
+            const allIds = new Set(); // 생성된 ID를 추적하여 중복 방지
+
+            // 요청된 8개의 기본 폴더 이름
+            const defaultFolderNames = [
+                'Projects',
+                'Areas',
+                'Resources',
+                'Archives',
+                'Future Log',
+                'Monthly Log',
+                'Daily Log',
+                'MothNote'
+            ];
             
-            // [수정됨] 가이드 노트에 5MB 저장 공간 안내 추가
+            // [수정됨] 가이드 노트 생성
+            const welcomeNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
+            allIds.add(welcomeNoteId);
             const newNote = { 
-                id: nId, 
+                id: welcomeNoteId, 
                 title: "MothNote 에 오신 것을 환영합니다! 🦋", 
                 content: `안녕하세요! 당신의 새로운 생각 정리 공간, MothNote에 오신 것을 진심으로 환영합니다.
 MothNote는 단순한 메모장을 넘어, 당신의 일상과 작업을 한곳에서 관리할 수 있는 강력한 대시보드입니다.
@@ -524,15 +536,35 @@ MothNote는 여러분의 모든 생각을 빠르고 안전하게 기록할 수 �
                 updatedAt: now, 
                 isPinned: false 
             };
-            const newFolder = { id: fId, name: "MothNote", notes: [newNote], createdAt: now, updatedAt: now };
+            
+            // 8개의 폴더를 순서대로 생성
+            const initialFolders = defaultFolderNames.map(name => {
+                const folderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
+                allIds.add(folderId);
+
+                return {
+                    id: folderId,
+                    name: name,
+                    // 'MothNote' 폴더에만 환영 노트를 추가
+                    notes: name === 'MothNote' ? [newNote] : [],
+                    createdAt: now,
+                    updatedAt: now
+                };
+            });
+            
+            // 마지막 폴더('MothNote')의 ID를 활성 폴더로 설정
+            const lastFolderId = initialFolders[initialFolders.length - 1].id;
 
             const initialAppState = {
-                folders: [newFolder], trash: [], favorites: [], lastSavedTimestamp: now
+                folders: initialFolders, 
+                trash: [], 
+                favorites: [], 
+                lastSavedTimestamp: now
             };
             
             setState({
                 ...state, ...initialAppState, favorites: new Set(),
-                activeFolderId: fId,
+                activeFolderId: lastFolderId,
                 activeNoteId: null,
                 totalNoteCount: 1,
             });
