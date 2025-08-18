@@ -419,7 +419,7 @@ export const loadData = async () => {
             }
 
         } else { // 데이터가 아예 없는 초기 실행
-            const now = Date.now();
+            const now = new Date().getTime();
             const allIds = new Set(); // 생성된 ID를 추적하여 중복 방지
 
             // 요청된 8개의 기본 폴더 이름
@@ -577,14 +577,29 @@ MothNote는 여러분의 모든 생각을 빠르고 안전하게 기록할 수 �
                 lastSavedTimestamp: now
             };
             
-            setState({
-                ...state, ...initialAppState, favorites: new Set(),
+            const newState = {
+                ...state,
+                ...initialAppState,
+                favorites: new Set(),
                 activeFolderId: lastFolderId,
-                activeNoteId: null,
+                activeNoteId: welcomeNoteId,
                 totalNoteCount: 1,
-            });
+                lastActiveNotePerFolder: {
+                    [lastFolderId]: welcomeNoteId
+                },
+            };
+
+            // [BUG FIX] setState로 UI 렌더링이 트리거되기 전에 noteMap을 먼저 생성합니다.
+            // 1. state의 핵심 데이터(folders)를 먼저 업데이트합니다.
+            state.folders = newState.folders;
             
+            // 2. 업데이트된 데이터를 기반으로 noteMap을 빌드합니다.
             buildNoteMap();
+
+            // 3. 전체 상태를 설정하고 UI 렌더링을 트리거합니다.
+            //    이 시점에는 noteMap이 준비되어 있어 에디터가 정상적으로 렌더링됩니다.
+            setState(newState);
+            
             await chrome.storage.local.set({ appState: initialAppState });
         }
 
