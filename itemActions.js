@@ -112,7 +112,8 @@ export const performTransactionalUpdate = async (updateFn) => {
             folders: state.folders,
             trash: state.trash,
             favorites: Array.from(state.favorites),
-            lastSavedTimestamp: state.lastSavedTimestamp
+            lastSavedTimestamp: state.lastSavedTimestamp,
+            lastActiveNotePerFolder: state.lastActiveNotePerFolder
         }));
 
         const result = await updateFn(dataCopy);
@@ -137,6 +138,7 @@ export const performTransactionalUpdate = async (updateFn) => {
             trash: newData.trash,
             favorites: new Set(newData.favorites || []),
             lastSavedTimestamp: newData.lastSavedTimestamp,
+            lastActiveNotePerFolder: newData.lastActiveNotePerFolder || {},
             totalNoteCount: newData.folders.reduce((sum, f) => sum + f.notes.length, 0)
         });
         buildNoteMap();
@@ -327,7 +329,8 @@ export const handleAddNote = async () => {
             activeFolder.notes.unshift(newNote);
             activeFolder.updatedAt = now;
 
-            const newLastActiveMap = { ...(state.lastActiveNotePerFolder || {}), [currentActiveFolderId]: newNoteId };
+            const newLastActiveMap = { ...(latestData.lastActiveNotePerFolder || {}), [currentActiveFolderId]: newNoteId };
+            latestData.lastActiveNotePerFolder = newLastActiveMap;
             
             return {
                 newData: latestData,
@@ -335,7 +338,6 @@ export const handleAddNote = async () => {
                 postUpdateState: {
                     isDirty: false,
                     dirtyNoteId: null,
-                    lastActiveNotePerFolder: newLastActiveMap,
                     searchTerm: '',
                 },
                 payload: { newNoteId: newNote.id } 
@@ -548,6 +550,7 @@ export const handleRestoreItem = async (id) => {
         const [itemToRestoreInTx] = trash.splice(itemIndexInTx, 1);
         const now = Date.now();
         let hadIdCollision = false;
+        const idUpdateMap = new Map();
 
         if (itemToRestoreInTx.type === 'folder') {
             if (folders.some(f => f.name === finalFolderName)) {
@@ -575,6 +578,7 @@ export const handleRestoreItem = async (id) => {
                 const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allExistingIds);
                 itemToRestoreInTx.id = newId;
                 allExistingIds.add(newId);
+                idUpdateMap.set(oldId, newId);
 
                 const favoritesSet = new Set(latestData.favorites || []);
                 if (favoritesSet.has(oldId)) {
@@ -593,6 +597,7 @@ export const handleRestoreItem = async (id) => {
                     const combinedExistingIds = new Set([...allExistingIds, ...restoredNoteIds]);
                     const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedExistingIds);
                     note.id = newId;
+                    idUpdateMap.set(oldId, newId);
                     
                     if (favoritesSet.has(oldId)) {
                         favoritesSet.delete(oldId);
@@ -611,12 +616,6 @@ export const handleRestoreItem = async (id) => {
             delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
             itemToRestoreInTx.updatedAt = now;
             folders.unshift(itemToRestoreInTx);
-            return {
-                newData: latestData,
-                successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name),
-                postUpdateState: {},
-                payload: { hadIdCollision }
-            };
 
         } else if (itemToRestoreInTx.type === 'note') {
             const targetFolderInTx = folders.find(f => f.id === targetFolderId);
@@ -643,6 +642,7 @@ export const handleRestoreItem = async (id) => {
                  const oldId = itemToRestoreInTx.id;
                  const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                  itemToRestoreInTx.id = newId;
+                 idUpdateMap.set(oldId, newId);
                  
                  const favoritesSet = new Set(latestData.favorites || []);
                  if (favoritesSet.has(oldId)) {
@@ -657,6 +657,27 @@ export const handleRestoreItem = async (id) => {
             itemToRestoreInTx.updatedAt = now;
             targetFolderInTx.notes.unshift(itemToRestoreInTx);
             targetFolderInTx.updatedAt = now;
+        }
+
+        if (idUpdateMap.size > 0 && latestData.lastActiveNotePerFolder) {
+            const newLastActiveMap = {};
+            for (const oldFolderId in latestData.lastActiveNotePerFolder) {
+                const newFolderId = idUpdateMap.get(oldFolderId) || oldFolderId;
+                const oldNoteId = latestData.lastActiveNotePerFolder[oldFolderId];
+                const newNoteId = idUpdateMap.get(oldNoteId) || oldNoteId;
+                newLastActiveMap[newFolderId] = newNoteId;
+            }
+            latestData.lastActiveNotePerFolder = newLastActiveMap;
+        }
+
+        if (itemToRestoreInTx.type === 'folder') {
+            return {
+                newData: latestData,
+                successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name),
+                postUpdateState: {},
+                payload: { hadIdCollision }
+            };
+        } else if (itemToRestoreInTx.type === 'note') {
             return {
                 newData: latestData,
                 successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title),
@@ -664,6 +685,7 @@ export const handleRestoreItem = async (id) => {
                 payload: { hadIdCollision }
             };
         }
+
         return null;
     };
 

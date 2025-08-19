@@ -10,7 +10,7 @@
         MAX_PARTICLES: 250,
         MODAL_ACTIVE_CLASS: 'active',
         // [수정] 갱신 주기(캐시 유효 시간) 설정
-        REFRESH_INTERVAL_MINUTES: 10,
+        REFRESH_INTERVAL_MINUTES: 60,
         // [추가] 상세 날씨 페이지 캐시 키
         WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v1',
         // [삭제] 테마 키는 부모 창에서 관리
