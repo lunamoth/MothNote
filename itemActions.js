@@ -2,7 +2,8 @@
 
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap, generateUniqueId } from './state.js';
-// import { generateUniqueId } from './storage.js'; // <- 이 줄을 삭제하고 위와 같이 state.js에서 가져옵니다.
+// [버그 수정] storage.js에 추가된 Promise 래퍼 함수를 가져옵니다.
+import { storageSet } from './storage.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
@@ -130,7 +131,8 @@ export const performTransactionalUpdate = async (updateFn) => {
         newData.lastSavedTimestamp = Date.now();
         
         // 수정된 데이터를 스토리지에 저장
-        await chrome.storage.local.set({ appState: newData });
+        // [버그 수정] chrome.storage.local.set을 안전한 래퍼 함수로 교체합니다.
+        await storageSet({ appState: newData });
         
         // 메모리 상태를 최신 데이터로 업데이트
         setState({

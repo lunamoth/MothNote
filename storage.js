@@ -1,5 +1,16 @@
 // storage.js
 
+// [버그 수정] Chrome Storage API를 Promise 기반으로 사용하기 위한 래퍼 함수
+// 브라우저/환경 간 호환성을 보장하여 데이터 레이스 컨디션을 방지합니다.
+export const storageGet = (keys) =>
+  new Promise(resolve => chrome.storage.local.get(keys, resolve));
+
+export const storageSet = (obj) =>
+  new Promise(resolve => chrome.storage.local.set(obj, resolve));
+
+export const storageRemove = (keys) =>
+  new Promise(resolve => chrome.storage.local.remove(keys, resolve));
+
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, buildNoteMap, CONSTANTS, generateUniqueId } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes, showAlert, showPrompt } from './components.js';
@@ -141,12 +152,12 @@ export const loadData = async () => {
     try {
         // [BUG-C-01 수정] 가져오기(Import) 작업의 원자성(Atomicity) 보장 로직
         const importStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-        const backupResult = await chrome.storage.local.get('appState_backup');
+        const backupResult = await storageGet('appState_backup');
 
         if (importStatus === 'done' && backupResult.appState_backup) {
             // 시나리오: 성공적인 가져오기 후 리로드됨. 백업을 정리하고 계속 진행합니다.
             console.log("Import successfully completed. Cleaning up backup data.");
-            await chrome.storage.local.remove('appState_backup');
+            await storageRemove('appState_backup');
             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             recoveryMessage = CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS;
         } else if (importStatus === 'true' && backupResult.appState_backup) {
@@ -164,7 +175,7 @@ export const loadData = async () => {
             }
             
             // 정제된 (안전한) 데이터로 롤백을 수행합니다.
-            await chrome.storage.local.set({ appState: sanitizedData });
+            await storageSet({ appState: sanitizedData });
         
             // 설정 데이터도 안전하게 처리합니다.
             if (backupPayload.settings) {
@@ -183,13 +194,13 @@ export const loadData = async () => {
             }
             // --- END OF FIX ---
             
-            await chrome.storage.local.remove('appState_backup');
+            await storageRemove('appState_backup');
             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
         }
         
         // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
-        const mainStorageResult = await chrome.storage.local.get('appState');
+        const mainStorageResult = await storageGet('appState');
         authoritativeData = mainStorageResult.appState;
         
         // [BUG-C-CRITICAL 수정 및 통합] 로드된 데이터의 무결성을 검증하고 자동 복구합니다.
@@ -202,7 +213,7 @@ export const loadData = async () => {
             
             if (wasSanitized) {
                 // 자동 복구가 발생했음을 사용자에게 알리고, 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
-                await chrome.storage.local.set({ appState: authoritativeData });
+                await storageSet({ appState: authoritativeData });
                 const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다. 앱이 정상적으로 동작합니다.";
                 // recoveryMessage가 이미 있을 경우, 새 메시지를 추가합니다.
                 recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
@@ -359,7 +370,7 @@ export const loadData = async () => {
                     showToast("저장되지 않았던 변경사항을 버렸습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                 }
                 
-                const updatedStorageResult = await chrome.storage.local.get('appState');
+                const updatedStorageResult = await storageGet('appState');
                 authoritativeData = updatedStorageResult.appState;
 
             } catch (e) {
@@ -497,7 +508,7 @@ export const loadData = async () => {
             //    이 시점에는 noteMap이 준비되어 있어 에디터가 정상적으로 렌더링됩니다.
             setState(newState);
             
-            await chrome.storage.local.set({ appState: initialAppState });
+            await storageSet({ appState: initialAppState });
         }
 
         updateNoteCreationDates();
@@ -515,7 +526,32 @@ export const loadData = async () => {
 };
 
 
-// --- 데이터 가져오기/내보내기 및 정제 로직 --- (기능 유지, 변경 없음)
+// --- 데이터 가져오기/내보내기 및 정제 로직 ---
+
+// [BUG FIX] chrome.downloads API 실패 시 일반 웹 다운로드 방식으로 대체하는 헬퍼 함수
+const fallbackAnchorDownload = (url, filename) => {
+    try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // DOM 정리 및 URL 해제는 다운로드가 시작될 시간을 확보한 후 비동기적으로 수행
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+        
+        showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
+    } catch (e) {
+        console.error("Fallback download failed:", e);
+        showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
+        // 실패 시에도 메모리 누수 방지를 위해 URL을 즉시 해제
+        URL.revokeObjectURL(url);
+    }
+};
+
 const escapeHtml = str => {
     if (typeof str !== 'string') return '';
     const tempDiv = document.createElement('div');
@@ -652,6 +688,7 @@ export const sanitizeSettings = (settingsData) => {
     return sanitized;
 };
 
+// [BUG FIX] chrome.downloads API 실패를 처리하도록 handleExport 함수를 전면 수정합니다.
 export const handleExport = async (settings) => {
     const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
     await finishPendingRename();
@@ -676,17 +713,35 @@ export const handleExport = async (settings) => {
         const day = String(now.getDate()).padStart(2, '0');
         const filename = `${year}${month}${day}_MothNote_Backup.json`;
 
-        chrome.downloads.download({
-            url: url, filename: filename
-        }, () => {
-            URL.revokeObjectURL(url);
-            showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
-        });
+        // chrome.downloads API가 사용 가능한지 확인하고 우선적으로 사용합니다.
+        if (chrome && chrome.downloads && typeof chrome.downloads.download === 'function') {
+            chrome.downloads.download({
+                url: url,
+                filename: filename,
+                saveAs: true // 사용자에게 저장 위치를 묻는 것이 더 나은 UX입니다.
+            }, (downloadId) => {
+                // [핵심 수정] API 호출 후 lastError를 확인하여 실패 여부를 판단합니다.
+                if (chrome.runtime.lastError) {
+                    console.warn(`chrome.downloads.download API 실패: ${chrome.runtime.lastError.message}. 일반 다운로드로 전환합니다.`);
+                    // API 실패 시, 권한이 없어도 동작하는 폴백(fallback) 함수를 호출합니다.
+                    fallbackAnchorDownload(url, filename);
+                } else {
+                    // API 성공 시, 약간의 지연 후 URL을 해제하여 메모리 누수를 방지합니다.
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
+                }
+            });
+        } else {
+            // chrome.downloads API를 사용할 수 없는 환경(예: 일반 웹페이지)일 경우 즉시 폴백을 사용합니다.
+            fallbackAnchorDownload(url, filename);
+        }
+
     } catch (e) {
-        console.error("Export failed:", e);
+        console.error("내보내기 준비 중 오류 발생:", e);
         showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
     }
 };
+
 
 export const handleImport = async () => {
     // 실제 동작은 app.js에서 처리하므로, 여기서는 클릭 이벤트만 트리거
@@ -756,7 +811,7 @@ export const setupImportHandler = () => {
                 };
 
                 // 트랜잭션 보장: 1. 백업 생성 (노트/폴더 데이터와 설정을 함께 백업)
-                const currentDataResult = await chrome.storage.local.get('appState');
+                const currentDataResult = await storageGet('appState');
                 const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
 
                 if (currentDataResult.appState) {
@@ -764,11 +819,11 @@ export const setupImportHandler = () => {
                         appState: currentDataResult.appState,
                         settings: currentSettings // settings가 null일 수도 있음 (정상)
                     };
-                    await chrome.storage.local.set({ 'appState_backup': backupPayload });
+                    await storageSet({ 'appState_backup': backupPayload });
                 }
 
                 // 트랜잭션 보장: 2. 데이터 덮어쓰기
-                await chrome.storage.local.set({ appState: importPayload });
+                await storageSet({ appState: importPayload });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
                 localStorage.removeItem(CONSTANTS.LS_KEY);
 
