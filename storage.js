@@ -1,5 +1,28 @@
 // storage.js
 
+// [보안 수정] 프로토타입 오염(Prototype Pollution)을 방지하기 위한 재귀적 객체 정제 함수입니다.
+// 외부 JSON 데이터를 파싱한 직후 이 함수를 호출하여 '__proto__', 'constructor', 'prototype' 같은
+// 위험한 키가 전역 Object 프로토타입을 오염시키는 것을 원천적으로 차단합니다.
+const sanitizeObjectForPrototypePollution = (obj) => {
+    if (obj === null || typeof obj !== 'object') {
+        return; // 객체가 아니면 재귀를 중단합니다.
+    }
+
+    const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
+    for (const key of dangerousKeys) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            delete obj[key];
+        }
+    }
+
+    // 객체의 모든 속성에 대해 재귀적으로 정제 함수를 호출합니다.
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            sanitizeObjectForPrototypePollution(obj[key]);
+        }
+    }
+};
+
 // [버그 수정] Chrome Storage API를 Promise 기반으로 사용하기 위한 래퍼 함수
 // 브라우저/환경 간 호환성을 보장하여 데이터 레이스 컨디션을 방지합니다.
 export const storageGet = (keys) =>
@@ -227,6 +250,8 @@ export const loadData = async () => {
         if (emergencyBackupJSON) {
             try {
                 const backupChanges = JSON.parse(emergencyBackupJSON);
+                // [보안 수정] Prototype Pollution 방지를 위해 localStorage에서 가져온 데이터를 정제합니다.
+                sanitizeObjectForPrototypePollution(backupChanges);
                 
                 let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
                 
@@ -766,6 +791,9 @@ export const setupImportHandler = () => {
 
             try {
                 const importedData = JSON.parse(event.target.result);
+                // [보안 수정] Prototype Pollution 방지를 위해 파일에서 읽어온 데이터를 정제합니다.
+                sanitizeObjectForPrototypePollution(importedData);
+                
                 const sanitizedContent = sanitizeContentData(importedData);
                 
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';

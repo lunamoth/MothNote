@@ -120,7 +120,8 @@ export const performTransactionalUpdate = async (updateFn) => {
         const result = await updateFn(dataCopy);
         
         if (result === null) { 
-            releaseLocalLock();
+            // [안정성 강화] releaseLocalLock이 항상 함수일 것으로 보장되지만, 만약의 경우를 대비한 방어 코드를 추가하여 데드락 가능성을 원천적으로 차단합니다.
+            if (typeof releaseLocalLock === 'function') releaseLocalLock();
             setState({ isPerformingOperation: false });
             return { success: false, payload: null };
         }
@@ -170,7 +171,17 @@ export const performTransactionalUpdate = async (updateFn) => {
         success = false;
     } finally {
         setState({ isPerformingOperation: false });
-        releaseLocalLock();
+        // [BUG FIX & 안정성 강화] releaseLocalLock() 호출이 실패하는 극단적인 경우를 대비하여 try-catch로 감싸고,
+        // 실패 시 전역 락을 강제로 리셋하여 데드락을 방지합니다.
+        try {
+            if (typeof releaseLocalLock === 'function') {
+                releaseLocalLock();
+            }
+        } catch (e) {
+            console.error("CRITICAL: Failed to release the transaction lock. Resetting to prevent deadlock.", e);
+            // 데드락 방지를 위한 최후의 안전장치
+            globalSaveLock = Promise.resolve();
+        }
     }
     return { success, payload: resultPayload };
 };
