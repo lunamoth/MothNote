@@ -793,7 +793,110 @@ export const setupImportHandler = () => {
                 const importedData = JSON.parse(event.target.result);
                 // [보안 수정] Prototype Pollution 방지를 위해 파일에서 읽어온 데이터를 정제합니다.
                 sanitizeObjectForPrototypePollution(importedData);
+
+                // [기능 추가] SimpleNote 백업 파일인지 확인
+                if (importedData && Array.isArray(importedData.activeNotes)) {
+                    const confirmSimpleImport = await showConfirm({
+                        title: '📥 SimpleNote 백업 가져오기',
+                        message: "SimpleNote 백업 파일이 감지되었습니다. 'SimpleNote' 폴더를 생성하고 노트를 가져올까요? (기존 데이터는 유지됩니다)",
+                        isHtml: true, confirmText: '📥 예, 가져옵니다', confirmButtonType: 'confirm'
+                    });
+
+                    if (!confirmSimpleImport) { e.target.value = ''; return; }
+
+                    window.isImporting = true;
+                    overlay = document.createElement('div');
+                    overlay.className = 'import-overlay';
+                    overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">SimpleNote 데이터를 변환하는 중...</p></div>`;
+                    document.body.appendChild(overlay);
+
+                    const { performTransactionalUpdate } = await import('./itemActions.js');
+                    const { success } = await performTransactionalUpdate((latestData) => {
+                        const now = Date.now();
+                        const allExistingIds = new Set();
+                        latestData.folders.forEach(f => {
+                            allExistingIds.add(f.id);
+                            f.notes.forEach(n => allExistingIds.add(n.id));
+                        });
+                        latestData.trash.forEach(item => {
+                           allExistingIds.add(item.id);
+                           if (item.type === 'folder' && Array.isArray(item.notes)) {
+                               item.notes.forEach(note => allExistingIds.add(note.id));
+                           }
+                        });
+
+                        // 1. 고유한 폴더 이름 찾기
+                        let folderName = "SimpleNote";
+                        let counter = 1;
+                        while (latestData.folders.some(f => f.name === folderName)) {
+                            folderName = `SimpleNote (${counter++})`;
+                        }
+
+                        // 2. 새 폴더 생성
+                        const newFolderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allExistingIds);
+                        allExistingIds.add(newFolderId);
+                        const newFolder = {
+                            id: newFolderId,
+                            name: folderName,
+                            notes: [],
+                            createdAt: now,
+                            updatedAt: now
+                        };
+
+                        // 3. activeNotes를 새 폴더로 변환
+                        importedData.activeNotes.forEach(note => {
+                            const content = note.content || '';
+                            const title = content.split('\n')[0].trim().slice(0, 100) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                            const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
+                            allExistingIds.add(newNoteId);
+                            
+                            newFolder.notes.push({
+                                id: newNoteId,
+                                title: title,
+                                content: content,
+                                createdAt: new Date(note.creationDate).getTime(),
+                                updatedAt: new Date(note.lastModified).getTime(),
+                                isPinned: false
+                            });
+                        });
+                        latestData.folders.push(newFolder);
+
+                        // 4. trashedNotes를 휴지통으로 변환
+                        if (Array.isArray(importedData.trashedNotes)) {
+                            importedData.trashedNotes.forEach(note => {
+                                const content = note.content || '';
+                                const title = content.split('\n')[0].trim().slice(0, 100) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                                const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
+                                allExistingIds.add(newNoteId);
+
+                                latestData.trash.unshift({
+                                    id: newNoteId,
+                                    title: title,
+                                    content: content,
+                                    createdAt: new Date(note.creationDate).getTime(),
+                                    updatedAt: new Date(note.lastModified).getTime(),
+                                    isPinned: false,
+                                    type: 'note',
+                                    deletedAt: now,
+                                    originalFolderId: null
+                                });
+                            });
+                        }
+                        
+                        return { newData: latestData, successMessage: null };
+                    });
+
+                    if (success) {
+                        showToast("✅ SimpleNote 데이터를 성공적으로 가져왔습니다! 앱을 다시 시작합니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
+                        setTimeout(() => window.location.reload(), 500);
+                    } else {
+                        showAlert({ title: '오류', message: 'SimpleNote 데이터를 가져오는 중 오류가 발생했습니다.' });
+                    }
+                    
+                    return; // SimpleNote 가져오기 로직 종료
+                }
                 
+                // [기존 로직] MothNote 백업 파일 처리
                 const sanitizedContent = sanitizeContentData(importedData);
                 
                 const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
