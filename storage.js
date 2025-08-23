@@ -794,11 +794,11 @@ export const setupImportHandler = () => {
                 // [보안 수정] Prototype Pollution 방지를 위해 파일에서 읽어온 데이터를 정제합니다.
                 sanitizeObjectForPrototypePollution(importedData);
 
-                // [기능 추가] SimpleNote 백업 파일인지 확인
+                // [기능 추가] Simplenote 백업 파일인지 확인
                 if (importedData && Array.isArray(importedData.activeNotes)) {
                     const confirmSimpleImport = await showConfirm({
-                        title: '📥 SimpleNote 백업 가져오기',
-                        message: "SimpleNote 백업 파일이 감지되었습니다. 'SimpleNote' 폴더를 생성하고 노트를 가져올까요? (기존 데이터는 유지됩니다)",
+                        title: '📥 Simplenote 백업 가져오기',
+                        message: "Simplenote 백업 파일이 감지되었습니다. 'Simplenote' 폴더를 생성하고 노트를 가져올까요? (기존 데이터는 유지됩니다)",
                         isHtml: true, confirmText: '📥 예, 가져옵니다', confirmButtonType: 'confirm'
                     });
 
@@ -807,7 +807,7 @@ export const setupImportHandler = () => {
                     window.isImporting = true;
                     overlay = document.createElement('div');
                     overlay.className = 'import-overlay';
-                    overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">SimpleNote 데이터를 변환하는 중...</p></div>`;
+                    overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">Simplenote 데이터를 변환하는 중...</p></div>`;
                     document.body.appendChild(overlay);
 
                     const { performTransactionalUpdate } = await import('./itemActions.js');
@@ -826,10 +826,10 @@ export const setupImportHandler = () => {
                         });
 
                         // 1. 고유한 폴더 이름 찾기
-                        let folderName = "SimpleNote";
+                        let folderName = "Simplenote";
                         let counter = 1;
                         while (latestData.folders.some(f => f.name === folderName)) {
-                            folderName = `SimpleNote (${counter++})`;
+                            folderName = `Simplenote (${counter++})`;
                         }
 
                         // 2. 새 폴더 생성
@@ -887,13 +887,13 @@ export const setupImportHandler = () => {
                     });
 
                     if (success) {
-                        showToast("✅ SimpleNote 데이터를 성공적으로 가져왔습니다! 앱을 다시 시작합니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
+                        showToast("✅ Simplenote 데이터를 성공적으로 가져왔습니다! 앱을 다시 시작합니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                         setTimeout(() => window.location.reload(), 500);
                     } else {
-                        showAlert({ title: '오류', message: 'SimpleNote 데이터를 가져오는 중 오류가 발생했습니다.' });
+                        showAlert({ title: '오류', message: 'Simplenote 데이터를 가져오는 중 오류가 발생했습니다.' });
                     }
                     
-                    return; // SimpleNote 가져오기 로직 종료
+                    return; // Simplenote 가져오기 로직 종료
                 }
                 
                 // [기존 로직] MothNote 백업 파일 처리
