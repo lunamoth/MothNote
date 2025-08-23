@@ -845,8 +845,19 @@ export const setupImportHandler = () => {
 
                         // 3. activeNotes를 새 폴더로 변환
                         importedData.activeNotes.forEach(note => {
-                            const content = note.content || '';
+                            let content = note.content || '';
                             const title = content.split('\n')[0].trim().slice(0, 100) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                            
+                            // [수정] Simplenote 태그(Tag) 정보 보존
+                            if (note.tags && Array.isArray(note.tags) && note.tags.length > 0) {
+                                const tagString = note.tags.map(tag => `#${tag}`).join(' ');
+                                if (content.trim().length > 0) {
+                                    content += `\n\n${tagString}`;
+                                } else {
+                                    content = tagString;
+                                }
+                            }
+
                             const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                             allExistingIds.add(newNoteId);
                             
@@ -856,7 +867,8 @@ export const setupImportHandler = () => {
                                 content: content,
                                 createdAt: new Date(note.creationDate).getTime(),
                                 updatedAt: new Date(note.lastModified).getTime(),
-                                isPinned: false
+                                // [수정] 고정된 노트(Pinned Note) 상태 유지
+                                isPinned: note.pinned === true
                             });
                         });
                         latestData.folders.push(newFolder);
