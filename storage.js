@@ -253,6 +253,28 @@ export const loadData = async () => {
                 // [보안 수정] Prototype Pollution 방지를 위해 localStorage에서 가져온 데이터를 정제합니다.
                 sanitizeObjectForPrototypePollution(backupChanges);
                 
+                // --- [버그 수정 시작] ---
+                // 비상 복구를 실행하기 전에, 데이터 정제 과정에서 변경된 ID가 있다면 비상 백업 데이터의 ID를 먼저 업데이트합니다.
+                // 이렇게 하지 않으면, ID가 변경된 노트를 찾지 못해 복구가 실패할 수 있습니다.
+                if (idUpdateMap.size > 0) {
+                    console.log("Applying ID updates from sanitization to emergency backup data before restoration.");
+                    if (backupChanges.noteUpdate?.noteId) {
+                        const oldNoteId = backupChanges.noteUpdate.noteId;
+                        backupChanges.noteUpdate.noteId = idUpdateMap.get(oldNoteId) || oldNoteId;
+                        if (oldNoteId !== backupChanges.noteUpdate.noteId) {
+                            console.warn(`Emergency backup noteId was updated due to sanitization: ${oldNoteId} -> ${backupChanges.noteUpdate.noteId}`);
+                        }
+                    }
+                    if (backupChanges.itemRename?.id) {
+                        const oldItemId = backupChanges.itemRename.id;
+                        backupChanges.itemRename.id = idUpdateMap.get(oldItemId) || oldItemId;
+                         if (oldItemId !== backupChanges.itemRename.id) {
+                            console.warn(`Emergency backup rename itemId was updated due to sanitization: ${oldItemId} -> ${backupChanges.itemRename.id}`);
+                        }
+                    }
+                }
+                // --- [버그 수정 끝] ---
+
                 let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
                 
                 if(backupChanges.noteUpdate) {
