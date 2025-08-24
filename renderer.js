@@ -22,6 +22,11 @@ async function getMarkedParser() {
     try {
         // 동적 import()를 사용하여 모듈 로드를 시도합니다.
         const marked = await import('./marked.esm.js');
+        // [버그 수정] XSS 방지를 위해 marked의 내장 sanitizer를 활성화합니다.
+        // 이 옵션은 잠재적으로 위험한 HTML(예: <script>) 태그를 렌더링 전에 제거합니다.
+        marked.marked.setOptions({
+            sanitize: true
+        });
         markedModule = marked.marked; // 실제 marked 객체를 할당
         return markedModule;
     } catch (error) {

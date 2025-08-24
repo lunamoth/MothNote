@@ -630,8 +630,10 @@ const sanitizeContentData = data => {
         const noteId = getUniqueId('note', n.id);
         const note = {
             id: noteId,
+            // [버그 수정] 제목은 잠재적 HTML을 제거하기 위해 escapeHtml을 유지합니다.
             title: escapeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
-            content: escapeHtml(String(n.content ?? '')),
+            // [버그 수정] content는 마크다운 원본을 보존하기 위해 escapeHtml을 제거합니다.
+            content: String(n.content ?? ''),
             createdAt: Number(n.createdAt) || Date.now(),
             updatedAt: Number(n.updatedAt) || Date.now(),
             isPinned: !!n.isPinned,
@@ -990,7 +992,7 @@ export const setupImportHandler = () => {
                 // 트랜잭션 보장: 2. 데이터 덮어쓰기
                 await storageSet({ appState: importPayload });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                localStorage.removeItem(CONSTANTS.LS_KEY);
+                // [버그 수정] 불필요하게 세션 정보를 삭제하는 라인을 제거합니다.
 
                 // [BUG-C-01 수정] 성공 플래그를 설정하고 리로드합니다.
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
