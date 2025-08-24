@@ -713,12 +713,19 @@ export const sanitizeSettings = (settingsData) => {
         return sanitized;
     }
 
+    // [BUG FIX] 숫자 0이 falsy로 취급되어 기본값으로 덮어씌워지는 문제를 해결하는 헬퍼 함수
+    const getNumericValue = (value, defaultValue, isFloat = false) => {
+        const parsed = isFloat ? parseFloat(value) : parseInt(value, 10);
+        // Number.isFinite는 null, undefined, NaN, Infinity 등을 모두 걸러내고 유효한 숫자(0 포함)만 통과시킵니다.
+        return Number.isFinite(parsed) ? parsed : defaultValue;
+    };
+
     if (settingsData.layout) {
-        sanitized.layout.col1 = parseInt(settingsData.layout.col1, 10) || defaults.layout.col1;
-        sanitized.layout.col2 = parseInt(settingsData.layout.col2, 10) || defaults.layout.col2;
+        sanitized.layout.col1 = getNumericValue(settingsData.layout.col1, defaults.layout.col1);
+        sanitized.layout.col2 = getNumericValue(settingsData.layout.col2, defaults.layout.col2);
     }
     if (settingsData.zenMode) {
-        sanitized.zenMode.maxWidth = parseInt(settingsData.zenMode.maxWidth, 10) || defaults.zenMode.maxWidth;
+        sanitized.zenMode.maxWidth = getNumericValue(settingsData.zenMode.maxWidth, defaults.zenMode.maxWidth);
     }
     if (settingsData.editor) {
         const importedFontFamily = settingsData.editor.fontFamily;
@@ -727,11 +734,11 @@ export const sanitizeSettings = (settingsData) => {
         } else {
              sanitized.editor.fontFamily = defaults.editor.fontFamily;
         }
-        sanitized.editor.fontSize = parseInt(settingsData.editor.fontSize, 10) || defaults.editor.fontSize;
+        sanitized.editor.fontSize = getNumericValue(settingsData.editor.fontSize, defaults.editor.fontSize);
     }
     if (settingsData.weather) {
-        sanitized.weather.lat = parseFloat(settingsData.weather.lat) || defaults.weather.lat;
-        sanitized.weather.lon = parseFloat(settingsData.weather.lon) || defaults.weather.lon;
+        sanitized.weather.lat = getNumericValue(settingsData.weather.lat, defaults.weather.lat, true);
+        sanitized.weather.lon = getNumericValue(settingsData.weather.lon, defaults.weather.lon, true);
     }
 
     return sanitized;

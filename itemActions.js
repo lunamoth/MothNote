@@ -819,8 +819,12 @@ export async function saveCurrentNoteIfChanged() {
         return true;
     }
     
-    const noteId = state.activeNoteId;
-    if (!noteId) {
+    // [버그 수정] 레이스 컨디션 방지를 위해 함수 호출 시점의 상태와 DOM 값을 '캡처'합니다.
+    const noteIdToSave = state.activeNoteId;
+    const titleToSave = noteTitleInput.value;
+    const contentToSave = noteContentTextarea.value;
+    
+    if (!noteIdToSave) {
         setState({ isDirty: false, dirtyNoteId: null });
         return true;
     }
@@ -829,23 +833,24 @@ export async function saveCurrentNoteIfChanged() {
 
     const { success } = await performTransactionalUpdate(latestData => {
         let noteToSave, parentFolder;
+        // [버그 수정] 캡처된 noteIdToSave를 사용하여 노트를 찾습니다.
         for (const folder of latestData.folders) {
-            const note = folder.notes.find(n => n.id === noteId);
+            const note = folder.notes.find(n => n.id === noteIdToSave);
             if (note) { noteToSave = note; parentFolder = folder; break; }
         }
 
         if (!noteToSave) {
-            console.error(`Save failed: Note with ID ${noteId} not found in storage.`);
+            console.error(`Save failed: Note with ID ${noteIdToSave} not found in storage.`);
             showToast("저장 실패: 노트가 다른 곳에서 삭제된 것 같습니다.", CONSTANTS.TOAST_TYPE.ERROR);
             return null;
         }
 
         const now = Date.now();
-        let finalTitle = noteTitleInput.value.trim();
-        const content = noteContentTextarea.value;
+        // [버그 수정] 캡처된 titleToSave와 contentToSave를 사용하여 저장할 값을 결정합니다.
+        let finalTitle = titleToSave.trim();
         
-        if (!finalTitle && content) {
-            let firstLine = content.split('\n')[0].trim();
+        if (!finalTitle && contentToSave) {
+            let firstLine = contentToSave.split('\n')[0].trim();
             if (firstLine) {
                 const hasKorean = /[\uAC00-\uD7AF]/.test(firstLine);
                 const limit = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;
@@ -858,7 +863,7 @@ export async function saveCurrentNoteIfChanged() {
         }
 
         noteToSave.title = finalTitle;
-        noteToSave.content = content;
+        noteToSave.content = contentToSave; // 캡처된 내용 사용
         noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         
@@ -866,17 +871,19 @@ export async function saveCurrentNoteIfChanged() {
     });
     
     if (success) {
-        const { item: justSavedNote } = findNote(noteId);
+        const { item: justSavedNote } = findNote(noteIdToSave);
         const liveTitle = noteTitleInput.value;
         const liveContent = noteContentTextarea.value;
 
-        const isStillDirty = justSavedNote && (justSavedNote.title !== liveTitle || justSavedNote.content !== liveContent);
+        // [버그 수정] 저장 후에도 현재 활성 노트가 저장된 노트와 동일하고, 내용이 여전히 다른지 확인합니다.
+        const isStillDirty = state.activeNoteId === noteIdToSave && justSavedNote && (justSavedNote.title !== liveTitle || justSavedNote.content !== liveContent);
 
         if (isStillDirty) {
-            setState({ isDirty: true, dirtyNoteId: noteId });
+            setState({ isDirty: true, dirtyNoteId: noteIdToSave });
             updateSaveStatus('dirty'); 
             handleUserInput();
         } else {
+            // [버그 수정] 저장된 노트가 더 이상 활성 노트가 아니거나, 내용이 일치하면 dirty 상태를 해제합니다.
             setState({ isDirty: false, dirtyNoteId: null });
             updateSaveStatus('saved');
         }

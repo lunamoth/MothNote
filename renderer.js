@@ -168,8 +168,13 @@ const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
         snippetText = (start > 0 ? '...' : '') + content.substring(start, end) + (end < content.length ? '...' : '');
         showSnippet = true;
     } else if (content) {
-        snippetText = content.split('\n')[0];
-        showSnippet = true;
+        // [버그 수정] 내용이 있는 첫 줄을 찾습니다. (앞뒤 공백 무시)
+        const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
+
+        if (firstNonEmptyLine) {
+            snippetText = firstNonEmptyLine;
+            showSnippet = true;
+        }
     }
     
     if (showSnippet) {

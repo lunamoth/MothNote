@@ -118,21 +118,26 @@ const handleSettingsSave = () => {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR); isSavingSettings = false; return;
     }
 
-    // [BUG FIX] parseInt 결과가 NaN일 경우, 기본값으로 대체하여 레이아웃 깨짐을 방지합니다.
+    // [BUG FIX] 숫자 0이 falsy로 취급되어 기본값으로 덮어씌워지는 문제를 해결하는 헬퍼 함수
+    const getNumericValue = (value, defaultValue, isFloat = false) => {
+        const parsed = isFloat ? parseFloat(value) : parseInt(value, 10);
+        return Number.isFinite(parsed) ? parsed : defaultValue;
+    };
+
     const defaults = CONSTANTS.DEFAULT_SETTINGS;
     const newSettings = {
         layout: {
-            col1: parseInt(settingsCol1Input.value, 10) || defaults.layout.col1,
-            col2: parseInt(settingsCol2Input.value, 10) || defaults.layout.col2
+            col1: getNumericValue(settingsCol1Input.value, defaults.layout.col1),
+            col2: getNumericValue(settingsCol2Input.value, defaults.layout.col2)
         },
         zenMode: {
-            maxWidth: parseInt(settingsZenMaxInput.value, 10) || defaults.zenMode.maxWidth
+            maxWidth: getNumericValue(settingsZenMaxInput.value, defaults.zenMode.maxWidth)
         },
         editor: {
             fontFamily: finalFontFamily,
-            fontSize: parseInt(settingsEditorFontSize.value, 10) || defaults.editor.fontSize
+            fontSize: getNumericValue(settingsEditorFontSize.value, defaults.editor.fontSize)
         },
-        weather: { lat, lon }
+        weather: { lat, lon } // 위에서 이미 유효성 검사를 통과했으므로 그대로 사용
     };
 
     appSettings = newSettings;
