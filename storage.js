@@ -634,14 +634,17 @@ const sanitizeContentData = data => {
 
     const sanitizeNote = (n, isTrash = false) => {
         const noteId = getUniqueId('note', n.id);
+        // [버그 수정] Number(value) || defaultValue 패턴을 Number.isFinite()로 수정
+        const noteCreatedAt = Number(n.createdAt);
+        const noteUpdatedAt = Number(n.updatedAt);
         const note = {
             id: noteId,
             // [버그 수정] 제목은 잠재적 HTML을 제거하기 위해 escapeHtml을 유지합니다.
             title: escapeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
             // [버그 수정] content는 마크다운 원본을 보존하기 위해 escapeHtml을 제거합니다.
             content: String(n.content ?? ''),
-            createdAt: Number(n.createdAt) || Date.now(),
-            updatedAt: Number(n.updatedAt) || Date.now(),
+            createdAt: Number.isFinite(noteCreatedAt) ? noteCreatedAt : Date.now(),
+            updatedAt: Number.isFinite(noteUpdatedAt) ? noteUpdatedAt : Date.now(),
             isPinned: !!n.isPinned,
         };
         if (isTrash) {
@@ -655,12 +658,15 @@ const sanitizeContentData = data => {
     const sanitizedFolders = data.folders.map(f => {
         const folderId = getUniqueId('folder', f.id);
         const notes = Array.isArray(f.notes) ? f.notes.map(n => sanitizeNote(n)) : [];
+        // [버그 수정] Number(value) || defaultValue 패턴을 Number.isFinite()로 수정
+        const folderCreatedAt = Number(f.createdAt);
+        const folderUpdatedAt = Number(f.updatedAt);
         return {
             id: folderId,
             name: escapeHtml(String(f.name ?? '제목 없는 폴더')).slice(0, 100),
             notes: notes,
-            createdAt: Number(f.createdAt) || Date.now(),
-            updatedAt: Number(f.updatedAt) || Date.now(),
+            createdAt: Number.isFinite(folderCreatedAt) ? folderCreatedAt : Date.now(),
+            updatedAt: Number.isFinite(folderUpdatedAt) ? folderUpdatedAt : Date.now(),
         };
     });
 
@@ -668,12 +674,15 @@ const sanitizeContentData = data => {
         if (!item || !item.type) return acc;
         if (item.type === 'folder') {
             const folderId = getUniqueId('folder', item.id);
+            // [버그 수정] Number(value) || defaultValue 패턴을 Number.isFinite()로 수정
+            const itemCreatedAt = Number(item.createdAt);
+            const itemUpdatedAt = Number(item.updatedAt);
             const folder = {
                 id: folderId,
                 name: escapeHtml(String(item.name ?? '제목 없는 폴더')).slice(0, 100),
                 notes: [], type: 'folder', deletedAt: item.deletedAt || Date.now(),
-                createdAt: Number(item.createdAt) || item.deletedAt || Date.now(),
-                updatedAt: Number(item.updatedAt) || item.deletedAt || Date.now(),
+                createdAt: Number.isFinite(itemCreatedAt) ? itemCreatedAt : (item.deletedAt || Date.now()),
+                updatedAt: Number.isFinite(itemUpdatedAt) ? itemUpdatedAt : (item.deletedAt || Date.now()),
             };
             if (Array.isArray(item.notes)) {
                 folder.notes = item.notes.map(n => sanitizeNote(n, true));
@@ -993,8 +1002,12 @@ export const setupImportHandler = () => {
                         await storageSet({ 'appState_backup': backupPayload });
                     } catch (err) {
                         console.error("Import failed: Could not create backup.", err);
-                        showToast("데이터 백업 생성에 실패하여 가져오기를 중단했습니다. 저장 공간이 부족할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
-                        return; // finally 블록에서 UI를 정리하고 함수를 종료합니다.
+                        showAlert({
+                            title: '📥 가져오기 실패',
+                            message: '데이터 백업 생성에 실패했습니다. 저장 공간이 부족할 수 있습니다. 기존 데이터는 변경되지 않았습니다.',
+                            confirmText: '✅ 확인'
+                        });
+                        return;
                     }
                 }
 
@@ -1019,15 +1032,51 @@ export const setupImportHandler = () => {
                 setTimeout(() => window.location.reload(), 500);
 
             } catch (err) {
+                // [BUG FIX] 실패 시 즉각적인 롤백 및 사용자 피드백 로직 강화
                 console.error("Import failed critically:", err);
-                showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FAILURE(err), CONSTANTS.TOAST_TYPE.ERROR, 0);
-                // 롤백 로직이 다음 앱 실행 시 자동으로 처리하므로, 여기서는 에러 메시지만 표시합니다.
+
+                const backupResult = await storageGet('appState_backup');
+                if (backupResult.appState_backup) {
+                    // 백업이 존재하면, 즉시 복구를 시도
+                    try {
+                        await storageSet({ appState: backupResult.appState_backup.appState });
+                        if (backupResult.appState_backup.settings) {
+                            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupResult.appState_backup.settings);
+                        } else {
+                            localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+                        }
+                        
+                        await storageRemove('appState_backup');
+                        localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+
+                        let message = '가져오기 중 오류가 발생하여 작업을 중단하고 이전 데이터로 안전하게 복원했습니다.';
+                        if (err && err.message && err.message.toLowerCase().includes('quota')) {
+                            message = '저장 공간이 부족하여 가져오기에 실패했습니다. 이전 데이터로 안전하게 복원되었습니다.';
+                        }
+                        showAlert({ title: '📥 가져오기 실패', message: message, confirmText: '✅ 확인' });
+
+                    } catch (restoreErr) {
+                        console.error("CRITICAL: Failed to restore from backup during import failure.", restoreErr);
+                        showAlert({
+                            title: '‼️ 심각한 오류',
+                            message: '가져오기 실패 후 데이터 복원 중에도 오류가 발생했습니다. 앱을 다시 시작하면 데이터가 자동 복구될 수 있습니다.',
+                            confirmText: '✅ 확인'
+                        });
+                        // 복구마저 실패하면, 플래그를 남겨두어 다음 실행 시 loadData가 복구를 시도하도록 함
+                    }
+                } else {
+                    // 백업이 없다면, 원본 데이터는 변경되지 않았으므로 플래그만 정리
+                    localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                    showAlert({
+                        title: '📥 가져오기 실패',
+                        message: `알 수 없는 오류로 가져오기에 실패했습니다. 기존 데이터는 변경되지 않았습니다. (오류: ${err.message})`,
+                        confirmText: '✅ 확인'
+                    });
+                }
             } finally {
                 window.isImporting = false;
                 if (overlay?.parentElement) overlay.remove();
                 e.target.value = '';
-                // [버그 수정] 오류 발생 시 롤백이 가능하도록, '진행 중' 상태 플래그를 제거하는 코드를 삭제합니다.
-                // 플래그는 오직 성공적으로 롤백/완료된 후에만 loadData 함수에서 제거됩니다.
             }
         };
         reader.readAsText(file);
