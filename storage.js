@@ -220,6 +220,12 @@ export const loadData = async () => {
             await storageRemove('appState_backup');
             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
+        } else if (importStatus === 'true' && !backupResult.appState_backup) {
+            // [안전망 추가] 시나리오: 플래그는 있으나 백업이 없는 불일치 상태.
+            // 이는 백업 생성 단계에서 실패했음을 의미합니다.
+            console.warn("Inconsistent import state detected: Flag is 'true' but no backup found. Clearing flag to prevent deadlock.");
+            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            recoveryMessage = "이전 데이터 가져오기 작업이 비정상적으로 중단되었습니다. 작업을 다시 시도해주세요.";
         }
         
         // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
@@ -964,27 +970,17 @@ export const setupImportHandler = () => {
                     if (!finalConfirm) { showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR); e.target.value = ''; return; }
                 }
                 
-                // [BUG-C-01 수정] 실제 작업을 시작하기 직전에 플래그를 설정합니다.
-                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
-                importStarted = true;
-
                 const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
                 await finishPendingRename();
                 await saveCurrentNoteIfChanged();
-
-                window.isImporting = true;
-                
-                overlay = document.createElement('div');
-                overlay.className = 'import-overlay';
-                overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
-                document.body.appendChild(overlay);
 
                 const importPayload = {
                     folders: sanitizedContent.folders, trash: sanitizedContent.trash,
                     favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
                 };
 
-                // 트랜잭션 보장: 1. 백업 생성 (노트/폴더 데이터와 설정을 함께 백업)
+                // [BUG-C-01 수정 및 안정성 강화]
+                // 1. 백업 생성을 먼저 시도하여 안전을 확보합니다.
                 const currentDataResult = await storageGet('appState');
                 const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
 
@@ -993,15 +989,30 @@ export const setupImportHandler = () => {
                         appState: currentDataResult.appState,
                         settings: currentSettings // settings가 null일 수도 있음 (정상)
                     };
-                    await storageSet({ 'appState_backup': backupPayload });
+                    try {
+                        await storageSet({ 'appState_backup': backupPayload });
+                    } catch (err) {
+                        console.error("Import failed: Could not create backup.", err);
+                        showToast("데이터 백업 생성에 실패하여 가져오기를 중단했습니다. 저장 공간이 부족할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
+                        return; // finally 블록에서 UI를 정리하고 함수를 종료합니다.
+                    }
                 }
 
-                // 트랜잭션 보장: 2. 데이터 덮어쓰기
+                // 2. 백업이 성공적으로 생성된 후에만 진행 플래그 및 UI 변경을 적용합니다.
+                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
+                importStarted = true;
+                window.isImporting = true;
+                
+                overlay = document.createElement('div');
+                overlay.className = 'import-overlay';
+                overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
+                document.body.appendChild(overlay);
+
+                // 3. 실제 데이터 덮어쓰기
                 await storageSet({ appState: importPayload });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                // [버그 수정] 불필요하게 세션 정보를 삭제하는 라인을 제거합니다.
 
-                // [BUG-C-01 수정] 성공 플래그를 설정하고 리로드합니다.
+                // 4. 성공 플래그를 설정하고 리로드합니다.
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
