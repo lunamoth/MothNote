@@ -1,4 +1,3 @@
---- START OF FILE style.css ---
 body {
     /* FOUC 방지를 위해 초기에는 콘텐츠를 숨깁니다. */
     visibility: hidden;
@@ -806,4 +805,3 @@ body.theme-applied {
         box-shadow: 0 0 10px var(--danger-color);
     }
 }
---- END OF FILE style.css ---
