@@ -279,7 +279,9 @@ const createListItemElement = (item, type) => {
     li.dataset.type = effectiveType;
     li.tabIndex = -1;
     
-    const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
+    // [버그 수정] isTrashView는 폴더 목록 렌더링 시에는 항상 false여야 합니다.
+    // 휴지통 전용 버튼(복원, 영구삭제)은 노트 목록 패널에만 표시되어야 하기 때문입니다.
+    const isTrashView = type !== CONSTANTS.ITEM_TYPE.FOLDER && state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
     const actionButtons = getActionButtonsConfig(item, type, isTrashView);
     
     actionButtons.forEach(config => actionsDiv.appendChild(createActionButton(config)));
