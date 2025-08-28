@@ -454,14 +454,28 @@ export const loadData = async () => {
             }
 
             if (lastSession) {
-                // [MAJOR BUG FIX] ID 변경 맵을 사용하여 세션 데이터의 참조 무결성을 보장합니다.
+                // [CRITICAL BUG FIX] ID 변경 맵을 사용하여 세션 데이터의 참조 무결성을 보장합니다.
                 const correctedFolderId = idUpdateMap.get(lastSession.f) || lastSession.f;
                 const correctedNoteId = idUpdateMap.get(lastSession.n) || lastSession.n;
 
                 finalState.activeFolderId = correctedFolderId;
                 finalState.activeNoteId = correctedNoteId;
                 finalState.noteSortOrder = lastSession.s ?? 'updatedAt_desc';
-                finalState.lastActiveNotePerFolder = lastSession.l ?? {};
+                
+                // lastActiveNotePerFolder 맵의 키와 값 모두 ID 변경 맵으로 보정합니다.
+                const correctedLastActiveMap = {};
+                if (lastSession.l) {
+                    for (const oldFolderId in lastSession.l) {
+                        const newFolderId = idUpdateMap.get(oldFolderId) || oldFolderId;
+                        const oldNoteId = lastSession.l[oldFolderId];
+                        const newNoteId = idUpdateMap.get(oldNoteId) || oldNoteId;
+                        correctedLastActiveMap[newFolderId] = newNoteId;
+                    }
+                }
+                finalState.lastActiveNotePerFolder = correctedLastActiveMap;
+            } else {
+                // lastSession이 없을 경우 lastActiveNotePerFolder를 초기화합니다.
+                finalState.lastActiveNotePerFolder = {};
             }
 
             finalState.totalNoteCount = finalState.folders.reduce((sum, f) => sum + f.notes.length, 0);

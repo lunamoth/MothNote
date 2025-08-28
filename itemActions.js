@@ -681,9 +681,10 @@ export const handleRestoreItem = async (id, type) => {
             delete itemToRestoreInTx.originalFolderId;
             itemToRestoreInTx.updatedAt = now;
 
-            // --- [기능 개선] 즐겨찾기 상태 복원 로직 ---
+            // --- [BUG FIX] ID 변경이 완료된 후, 최종 ID를 사용하여 즐겨찾기 상태를 복원합니다. ---
             if (itemToRestoreInTx.wasFavorite) {
                 const favoritesSet = new Set(latestData.favorites || []);
+                // 여기서 사용되는 .id는 충돌 시 이미 새 ID로 교체된 값입니다.
                 favoritesSet.add(itemToRestoreInTx.id);
                 latestData.favorites = Array.from(favoritesSet);
                 delete itemToRestoreInTx.wasFavorite; // 임시 속성 제거
