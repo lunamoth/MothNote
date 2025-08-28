@@ -15,10 +15,12 @@ import {
     editorContainer
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
-// [버그 수정] itemActions.js에서 handleTextareaKeyDown 함수를 가져옵니다.
+// [버그 수정] itemActions.js에서 handleRestoreItem, handleTextareaKeyDown 함수를 가져옵니다.
 import { 
     handleAddFolder, handleAddNote, handleEmptyTrash, handlePinNote,
-    handleDelete, handleRestoreItem, handlePermanentlyDeleteItem,
+    handleDelete,
+    handleRestoreItem, 
+    handlePermanentlyDeleteItem,
     startRename, handleUserInput, saveCurrentNoteIfChanged, handleToggleFavorite, setCalendarRenderer,
     finishPendingRename,
     toYYYYMMDD,
@@ -26,7 +28,7 @@ import {
     forceResolvePendingRename,
     performTransactionalUpdate,
     performDeleteItem,
-    handleTextareaKeyDown, // <-- 수정된 부분
+    handleTextareaKeyDown,
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
@@ -530,8 +532,14 @@ window.isImporting = false;
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
 const setupRippleEffect = () => { document.body.addEventListener('click', (e) => { const button = e.target.closest('.ripple-effect'); if (!button) return; const ripple = document.createElement('span'); const diameter = Math.max(button.clientWidth, button.clientHeight); ripple.style.width = ripple.style.height = `${diameter}px`; ripple.style.left = `${e.clientX - button.getBoundingClientRect().left - diameter / 2}px`; ripple.style.top = `${e.clientY - button.getBoundingClientRect().top - diameter / 2}px`; ripple.classList.add('ripple'); const existingRipple = button.querySelector('.ripple'); if (existingRipple) existingRipple.remove(); button.appendChild(ripple); setTimeout(() => { if (ripple.parentElement) ripple.remove(); }, 600); }); };
-// [버그 수정] handleTextareaKeyDown 함수를 제거합니다. itemActions.js로 이동되었습니다.
-const handleItemActionClick = (button, id, type) => { if (button.classList.contains('pin-btn')) handlePinNote(id); else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id); else if (button.classList.contains('delete-item-btn')) handleDelete(id, type); else if (button.classList.contains('restore-item-btn')) handleRestoreItem(id); else if (button.classList.contains('perm-delete-item-btn')) handlePermanentlyDeleteItem(id); };
+// [버그 수정] handleRestoreItem, handlePermanentlyDeleteItem 호출 시 type 인자 추가
+const handleItemActionClick = (button, id, type) => { 
+    if (button.classList.contains('pin-btn')) handlePinNote(id); 
+    else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id); 
+    else if (button.classList.contains('delete-item-btn')) handleDelete(id, type); 
+    else if (button.classList.contains('restore-item-btn')) handleRestoreItem(id, type); 
+    else if (button.classList.contains('perm-delete-item-btn')) handlePermanentlyDeleteItem(id, type); 
+};
 
 // [버그 수정] 클릭 시 즉시 키보드 탐색이 가능하도록 포커스를 설정합니다.
 const handleListClick = (e, type) => {
@@ -560,7 +568,7 @@ const setupNoteToFolderDrop = () => { if (!folderList) return; let currentDropTa
 const _focusAndScrollToListItem = (listElement, itemId) => { const itemEl = listElement.querySelector(`[data-id="${itemId}"]`); if (itemEl) { itemEl.focus(); itemEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } };
 const _navigateList = async (type, direction) => { if (isListNavigating) return; isListNavigating = true; try { await finishPendingRename(); const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList; if (!list) return; const items = Array.from(list.querySelectorAll('.item-list-entry')); if (items.length === 0) return; const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId; const currentIndex = items.findIndex(item => item.dataset.id === activeId); const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : items.length - 1) : (currentIndex + direction + items.length) % items.length; const nextId = items[nextIndex]?.dataset.id; if (!nextId) return; if (type === CONSTANTS.ITEM_TYPE.FOLDER) await changeActiveFolder(nextId); else await changeActiveNote(nextId); setTimeout(() => _focusAndScrollToListItem(list, nextId), 50); } finally { clearTimeout(keyboardNavDebounceTimer); keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV); setTimeout(() => { isListNavigating = false; }, 50); } };
 const handleListKeyDown = async (e, type) => { if (state.renamingItemId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); return; } if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1); } else if (e.key === 'Enter') { e.preventDefault(); if (type === CONSTANTS.ITEM_TYPE.FOLDER) { noteList.querySelector('.item-list-entry')?.focus() || searchInput?.focus(); } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) { noteTitleInput?.focus(); } } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) { if (state.activeNoteId && noteContentTextarea) { e.preventDefault(); noteContentTextarea.focus(); } } };
-const handleGlobalKeyDown = (e) => {
+const handleGlobalKeyDown = async (e) => {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
 
@@ -581,7 +589,7 @@ const handleGlobalKeyDown = (e) => {
     if (isCtrlOrCmd && e.key.toLowerCase() === 's') {
         e.preventDefault(); // 브라우저의 '페이지 저장' 동작을 막습니다.
         if (state.activeNoteId && state.isDirty) {
-            saveCurrentNoteIfChanged();
+            await saveCurrentNoteIfChanged();
         }
         return;
     }
@@ -614,7 +622,8 @@ const setupEventListeners = () => {
     if (emptyTrashBtn) emptyTrashBtn.addEventListener('click', handleEmptyTrash);
     if (noteTitleInput) {
         noteTitleInput.addEventListener('input', handleUserInput);
-        noteTitleInput.addEventListener('blur', () => saveCurrentNoteIfChanged());
+        // [BUG FIX] blur 이벤트 핸들러를 async로 만들고 saveCurrentNoteIfChanged를 await 합니다.
+        noteTitleInput.addEventListener('blur', async () => await saveCurrentNoteIfChanged());
         noteTitleInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter' || e.key === 'Tab') {
                 e.preventDefault();
@@ -625,7 +634,8 @@ const setupEventListeners = () => {
     }
     if (noteContentTextarea) {
         noteContentTextarea.addEventListener('input', handleUserInput);
-        noteContentTextarea.addEventListener('blur', () => saveCurrentNoteIfChanged());
+        // [BUG FIX] blur 이벤트 핸들러를 async로 만들고 saveCurrentNoteIfChanged를 await 합니다.
+        noteContentTextarea.addEventListener('blur', async () => await saveCurrentNoteIfChanged());
         noteContentTextarea.addEventListener('keydown', handleTextareaKeyDown);
     }
     if (searchInput) searchInput.addEventListener('input', handleSearchInput);
@@ -706,10 +716,11 @@ const setupGlobalEventListeners = () => {
         saveSession();
     });
     
-    document.addEventListener('visibilitychange', () => {
+    // [BUG FIX] visibilitychange 이벤트 핸들러를 async로 만들고 내부 함수들을 await 합니다.
+    document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
-            saveCurrentNoteIfChanged();
-            finishPendingRename();
+            await saveCurrentNoteIfChanged();
+            await finishPendingRename();
         }
     });
     

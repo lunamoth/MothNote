@@ -508,7 +508,8 @@ export const performDeleteItem = (id, type) => {
     });
 };
 
-export const handleRestoreItem = async (id) => {
+// [버그 수정] 함수 시그니처에 'type' 매개변수를 추가하여 명확성을 높이고 잠재적 오류를 방지합니다.
+export const handleRestoreItem = async (id, type) => {
     if (!(await finishPendingRename())) {
         showToast("이름 변경 저장에 실패하여 복원을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return;
@@ -516,6 +517,11 @@ export const handleRestoreItem = async (id) => {
 
     const itemToRestore = state.trash.find(item => item.id === id);
     if (!itemToRestore) return;
+
+    // 전달받은 type과 실제 아이템의 type이 일치하는지 확인 (방어 코드)
+    if (type !== itemToRestore.type) {
+        console.warn(`Type mismatch in handleRestoreItem: expected ${type}, but found ${itemToRestore.type}. Proceeding with item's own type.`);
+    }
 
     let finalFolderName = itemToRestore.name;
     let targetFolderId = null;
@@ -709,7 +715,8 @@ export const handleRestoreItem = async (id) => {
     }
 };
 
-export const handlePermanentlyDeleteItem = async (id) => {
+// [버그 수정] 함수 시그니처에 'type' 매개변수를 추가하여 올바르게 동작하도록 수정합니다.
+export const handlePermanentlyDeleteItem = async (id, type) => {
     if (!(await finishPendingRename())) {
         showToast("이름 변경 저장에 실패하여 영구 삭제를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return;
@@ -717,6 +724,11 @@ export const handlePermanentlyDeleteItem = async (id) => {
 
     const item = state.trash.find(i => i.id === id);
     if (!item) return;
+
+    // 전달받은 type과 실제 아이템의 type이 일치하는지 확인 (방어 코드)
+    if (type !== item.type) {
+        console.warn(`Type mismatch in handlePermanentlyDeleteItem: expected ${type}, but found ${item.type}. Proceeding with item's own type.`);
+    }
     
     const itemName = item.title ?? item.name;
     const message = CONSTANTS.MESSAGES.CONFIRM.PERM_DELETE(itemName);
