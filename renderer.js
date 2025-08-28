@@ -13,6 +13,7 @@ import { toYYYYMMDD } from './itemActions.js';
 
 // [수정] marked 모듈을 저장할 변수를 선언합니다. 한 번 로드하면 재사용합니다.
 let markedModule = null;
+const HIGHLIGHT_TERM_MAX_LENGTH = 50; // [버그 수정] 하이라이트를 적용할 최대 검색어 길이 상수 추가
 
 // [수정] marked 모듈을 안전하게 로드하는 비동기 함수를 추가합니다.
 async function getMarkedParser() {
@@ -53,7 +54,8 @@ async function getMarkedParser() {
 const highlightText = (container, text, term) => {
     const safeText = text ?? '';
     container.innerHTML = '';
-    if (!term || !safeText) {
+    // [버그 수정] 검색어가 없거나, 텍스트가 없거나, 검색어가 너무 길면 하이라이트 없이 텍스트만 표시
+    if (!term || !safeText || term.length > HIGHLIGHT_TERM_MAX_LENGTH) {
         container.textContent = safeText;
         return;
     }
@@ -427,9 +429,14 @@ export const renderNotes = () => {
     if ( sortedNotesCache.sourceNotes === sourceNotes && sortedNotesCache.searchTerm === state.searchTerm && sortedNotesCache.sortOrder === state.noteSortOrder ) {
         sortedNotes = sortedNotesCache.result;
     } else {
-        const filteredNotes = sourceNotes.filter(n =>
-            (n.title ?? n.name ?? '').toLowerCase().includes(state.searchTerm.toLowerCase()) || (n.content ?? '').toLowerCase().includes(state.searchTerm.toLowerCase())
-        );
+        // [버그 수정] 필터링 로직 최적화
+        // 검색어가 있을 때만 필터링을 수행하고, 없으면 원본 노트를 그대로 사용합니다.
+        const filteredNotes = state.searchTerm
+            ? sourceNotes.filter(n =>
+                (n.title ?? n.name ?? '').toLowerCase().includes(state.searchTerm.toLowerCase()) || 
+                (n.content ?? '').toLowerCase().includes(state.searchTerm.toLowerCase())
+              )
+            : sourceNotes;
 
         if (viewData.isTrashView) sortedNotes = filteredNotes.sort((a,b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
         else if (viewData.isSortable) sortedNotes = sortNotes(filteredNotes, state.noteSortOrder);

@@ -14,6 +14,7 @@ const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebou
 
 // [수정] 폴더 전환 중 중복 호출을 막기 위한 잠금 변수
 let isChangingFolder = false;
+const SEARCH_TERM_MAX_LENGTH = 100; // [버그 수정] 검색어 최대 길이 상수 추가
 
 export const confirmNavigation = async () => {
     if (!state.isDirty) {
@@ -170,7 +171,15 @@ export const handleSearchInput = async (e) => {
         // 검색 입력을 되돌릴 필요는 없으므로, 여기서 return 합니다.
         return;
     }
-    const term = e.target.value;
+    let term = e.target.value;
+
+    // [버그 수정] 검색어 길이 제한
+    if (term.length > SEARCH_TERM_MAX_LENGTH) {
+        term = term.substring(0, SEARCH_TERM_MAX_LENGTH);
+        e.target.value = term; // 입력창의 값도 잘라낸 값으로 업데이트
+        showToast(`검색어는 최대 ${SEARCH_TERM_MAX_LENGTH}자까지 입력할 수 있습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+    }
+
     debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
 
