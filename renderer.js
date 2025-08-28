@@ -128,16 +128,38 @@ const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
     
     const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
 
-    if (isBeingRenamed) {
-        nameSpan.textContent = item.title || '제목 없음';
+    // --- [핵심 버그 수정] ---
+    // 휴지통에 있는 항목의 실제 타입을 유추하여 올바른 이름을 표시합니다.
+    let effectiveType = item.type;
+    let displayName = '';
+    let displayTitle = '';
+
+    if (isTrashView) {
+        if (!effectiveType) {
+            // 타입이 없는 경우, .notes 배열 유무로 폴더/노트 구분
+            effectiveType = Array.isArray(item.notes) ? 'folder' : 'note';
+        }
+        
+        if (effectiveType === 'folder') {
+            displayName = `📁 ${item.name || '제목 없는 폴더'}`;
+            displayTitle = item.name || '제목 없는 폴더';
+        } else { // note
+            displayName = item.title || '📝 제목 없음';
+            displayTitle = item.title || '📝 제목 없음';
+        }
     } else {
-        let itemName = isTrashView && item.type === 'folder' 
-            ? `📁 ${item.name || '제목 없는 폴더'}`
-            : (item.title || '📝 제목 없음');
-        highlightText(nameSpan, itemName, state.searchTerm);
+        // 휴지통이 아닌 경우 기존 로직 유지
+        displayName = item.title || '📝 제목 없음';
+        displayTitle = item.title || '📝 제목 없음';
     }
 
-    nameSpan.title = (isTrashView && item.type === 'folder') ? (item.name || '제목 없는 폴더') : (item.title || '📝 제목 없음');
+    if (isBeingRenamed) {
+        nameSpan.textContent = item.title || item.name || '제목 없음';
+    } else {
+        highlightText(nameSpan, displayName, state.searchTerm);
+    }
+    nameSpan.title = displayTitle;
+    // --- [수정 끝] ---
 
     const pinBtn = li.querySelector('.pin-btn');
     if (pinBtn) {
@@ -220,7 +242,14 @@ const getActionButtonsConfig = (item, type, isTrashView) => {
         if (item.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
             return [];
         }
-        const itemTypeStr = item.type === 'folder' ? '폴더' : '노트';
+        // [수정] 여기서도 타입을 유추하여 올바른 문자열을 표시
+        let itemTypeStr = '항목';
+        let effectiveType = item.type;
+        if (!effectiveType) {
+            effectiveType = Array.isArray(item.notes) ? 'folder' : 'note';
+        }
+        itemTypeStr = effectiveType === 'folder' ? '폴더' : '노트';
+        
         buttons.push({ className: 'restore-item-btn', textContent: '♻️', title: `♻️ ${itemTypeStr} 복원` });
         buttons.push({ className: 'perm-delete-item-btn', textContent: '❌', title: '💥 영구 삭제' });
     } else {
@@ -242,7 +271,12 @@ const createListItemElement = (item, type) => {
     const actionsDiv = fragment.querySelector('.item-actions');
 
     li.dataset.id = item.id;
-    li.dataset.type = item.type ?? type;
+    // [수정] 타입이 없는 레거시 데이터를 위해 타입을 유추해서 data-type에 설정
+    let effectiveType = item.type;
+    if (!effectiveType) {
+        effectiveType = Array.isArray(item.notes) ? 'folder' : 'note';
+    }
+    li.dataset.type = effectiveType;
     li.tabIndex = -1;
     
     const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;

@@ -461,6 +461,7 @@ export const performDeleteItem = (id, type) => {
             
             const [folderToMove] = folders.splice(folderIndex, 1);
             folderToMove.type = 'folder';
+            folderToMove.originalIndex = folderIndex;
             folderToMove.deletedAt = now;
             folderToMove.updatedAt = now;
             trash.unshift(folderToMove);
@@ -490,12 +491,18 @@ export const performDeleteItem = (id, type) => {
             noteToMove.type = 'note';
             noteToMove.originalFolderId = sourceFolder.id;
             noteToMove.deletedAt = now;
+            
+            // --- [기능 개선] 즐겨찾기 상태 복원을 위해 삭제 시 상태 기록 ---
+            const favoritesSet = new Set(latestData.favorites || []);
+            if (favoritesSet.has(id)) {
+                noteToMove.wasFavorite = true;
+                favoritesSet.delete(id);
+                latestData.favorites = Array.from(favoritesSet);
+            }
+            // --- [수정 끝] ---
+
             trash.unshift(noteToMove);
             sourceFolder.updatedAt = now;
-
-            const favoritesSet = new Set(latestData.favorites || []);
-            favoritesSet.delete(id);
-            latestData.favorites = Array.from(favoritesSet);
             
             successMessage = CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_TO_TRASH(noteToMove.title || '제목 없음');
             
@@ -508,7 +515,6 @@ export const performDeleteItem = (id, type) => {
     });
 };
 
-// [버그 수정] 함수 시그니처에 'type' 매개변수를 추가하여 명확성을 높이고 잠재적 오류를 방지합니다.
 export const handleRestoreItem = async (id, type) => {
     if (!(await finishPendingRename())) {
         showToast("이름 변경 저장에 실패하여 복원을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
@@ -518,15 +524,19 @@ export const handleRestoreItem = async (id, type) => {
     const itemToRestore = state.trash.find(item => item.id === id);
     if (!itemToRestore) return;
 
-    // 전달받은 type과 실제 아이템의 type이 일치하는지 확인 (방어 코드)
-    if (type !== itemToRestore.type) {
-        console.warn(`Type mismatch in handleRestoreItem: expected ${type}, but found ${itemToRestore.type}. Proceeding with item's own type.`);
+    let effectiveType = itemToRestore.type;
+    if (!effectiveType) {
+        effectiveType = Array.isArray(itemToRestore.notes) ? CONSTANTS.ITEM_TYPE.FOLDER : CONSTANTS.ITEM_TYPE.NOTE;
+    }
+
+    if (type !== effectiveType) {
+        console.warn(`Type mismatch in handleRestoreItem: expected ${type}, but found ${effectiveType}. Proceeding with item's own type.`);
     }
 
     let finalFolderName = itemToRestore.name;
     let targetFolderId = null;
 
-    if (itemToRestore.type === 'folder') {
+    if (effectiveType === 'folder') {
         if (state.folders.some(f => f.name === itemToRestore.name)) {
             const newName = await showPrompt({
                 title: '📁 폴더 이름 중복',
@@ -542,7 +552,7 @@ export const handleRestoreItem = async (id, type) => {
             if (!newName) return; 
             finalFolderName = newName.trim();
         }
-    } else if (itemToRestore.type === 'note') {
+    } else if (effectiveType === 'note') {
         const originalFolder = state.folders.find(f => f.id === itemToRestore.originalFolderId);
         if (!originalFolder) {
             const newFolderId = await showFolderSelectPrompt({
@@ -567,11 +577,17 @@ export const handleRestoreItem = async (id, type) => {
         if (itemIndexInTx === -1) return null;
 
         const [itemToRestoreInTx] = trash.splice(itemIndexInTx, 1);
+        
+        let txEffectiveType = itemToRestoreInTx.type;
+        if (!txEffectiveType) {
+            txEffectiveType = Array.isArray(itemToRestoreInTx.notes) ? CONSTANTS.ITEM_TYPE.FOLDER : CONSTANTS.ITEM_TYPE.NOTE;
+        }
+
         const now = Date.now();
         let hadIdCollision = false;
         const idUpdateMap = new Map();
 
-        if (itemToRestoreInTx.type === 'folder') {
+        if (txEffectiveType === 'folder') {
             if (folders.some(f => f.name === finalFolderName)) {
                 showAlert({ title: '오류', message: `'${finalFolderName}' 폴더가 방금 다른 곳에서 생성되었습니다. 다른 이름으로 다시 시도해주세요.`});
                 return null;
@@ -598,30 +614,19 @@ export const handleRestoreItem = async (id, type) => {
                 itemToRestoreInTx.id = newId;
                 allExistingIds.add(newId);
                 idUpdateMap.set(oldId, newId);
-
-                const favoritesSet = new Set(latestData.favorites || []);
-                if (favoritesSet.has(oldId)) {
-                    favoritesSet.delete(oldId);
-                    favoritesSet.add(newId);
-                }
                 hadIdCollision = true;
             }
 
             const favoritesSet = new Set(latestData.favorites || []);
             const restoredNoteIds = new Set();
             
-            itemToRestoreInTx.notes.forEach(note => {
+            (itemToRestoreInTx.notes || []).forEach(note => {
                 if (restoredNoteIds.has(note.id) || allExistingIds.has(note.id)) {
                     const oldId = note.id;
                     const combinedExistingIds = new Set([...allExistingIds, ...restoredNoteIds]);
                     const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedExistingIds);
                     note.id = newId;
                     idUpdateMap.set(oldId, newId);
-                    
-                    if (favoritesSet.has(oldId)) {
-                        favoritesSet.delete(oldId);
-                        favoritesSet.add(newId);
-                    }
                     hadIdCollision = true;
                 }
                 
@@ -630,13 +635,19 @@ export const handleRestoreItem = async (id, type) => {
                 
                 delete note.deletedAt; delete note.type; delete note.originalFolderId; 
             });
-            latestData.favorites = Array.from(favoritesSet);
-
-            delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type;
+            
+            delete itemToRestoreInTx.deletedAt;
+            itemToRestoreInTx.type = 'folder';
             itemToRestoreInTx.updatedAt = now;
-            folders.unshift(itemToRestoreInTx);
+            
+            if (typeof itemToRestoreInTx.originalIndex === 'number' && itemToRestoreInTx.originalIndex >= 0) {
+                folders.splice(itemToRestoreInTx.originalIndex, 0, itemToRestoreInTx);
+            } else {
+                folders.unshift(itemToRestoreInTx);
+            }
+            delete itemToRestoreInTx.originalIndex;
 
-        } else if (itemToRestoreInTx.type === 'note') {
+        } else if (txEffectiveType === 'note') {
             const targetFolderInTx = folders.find(f => f.id === targetFolderId);
             if (!targetFolderInTx) {
                  showAlert({ title: '오류', message: '노트를 복원하려던 폴더가 방금 삭제되었습니다.'});
@@ -662,18 +673,23 @@ export const handleRestoreItem = async (id, type) => {
                  const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                  itemToRestoreInTx.id = newId;
                  idUpdateMap.set(oldId, newId);
-                 
-                 const favoritesSet = new Set(latestData.favorites || []);
-                 if (favoritesSet.has(oldId)) {
-                     favoritesSet.delete(oldId);
-                     favoritesSet.add(newId);
-                     latestData.favorites = Array.from(favoritesSet);
-                 }
                  hadIdCollision = true;
             }
 
-            delete itemToRestoreInTx.deletedAt; delete itemToRestoreInTx.type; delete itemToRestoreInTx.originalFolderId;
+            delete itemToRestoreInTx.deletedAt;
+            itemToRestoreInTx.type = 'note';
+            delete itemToRestoreInTx.originalFolderId;
             itemToRestoreInTx.updatedAt = now;
+
+            // --- [기능 개선] 즐겨찾기 상태 복원 로직 ---
+            if (itemToRestoreInTx.wasFavorite) {
+                const favoritesSet = new Set(latestData.favorites || []);
+                favoritesSet.add(itemToRestoreInTx.id);
+                latestData.favorites = Array.from(favoritesSet);
+                delete itemToRestoreInTx.wasFavorite; // 임시 속성 제거
+            }
+            // --- [수정 끝] ---
+
             targetFolderInTx.notes.unshift(itemToRestoreInTx);
             targetFolderInTx.updatedAt = now;
         }
@@ -689,14 +705,14 @@ export const handleRestoreItem = async (id, type) => {
             latestData.lastActiveNotePerFolder = newLastActiveMap;
         }
 
-        if (itemToRestoreInTx.type === 'folder') {
+        if (txEffectiveType === 'folder') {
             return {
                 newData: latestData,
                 successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_FOLDER(itemToRestoreInTx.name),
                 postUpdateState: {},
                 payload: { hadIdCollision }
             };
-        } else if (itemToRestoreInTx.type === 'note') {
+        } else if (txEffectiveType === 'note') {
             return {
                 newData: latestData,
                 successMessage: CONSTANTS.MESSAGES.SUCCESS.ITEM_RESTORED_NOTE(itemToRestoreInTx.title),
@@ -715,7 +731,6 @@ export const handleRestoreItem = async (id, type) => {
     }
 };
 
-// [버그 수정] 함수 시그니처에 'type' 매개변수를 추가하여 올바르게 동작하도록 수정합니다.
 export const handlePermanentlyDeleteItem = async (id, type) => {
     if (!(await finishPendingRename())) {
         showToast("이름 변경 저장에 실패하여 영구 삭제를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
@@ -725,9 +740,13 @@ export const handlePermanentlyDeleteItem = async (id, type) => {
     const item = state.trash.find(i => i.id === id);
     if (!item) return;
 
-    // 전달받은 type과 실제 아이템의 type이 일치하는지 확인 (방어 코드)
-    if (type !== item.type) {
-        console.warn(`Type mismatch in handlePermanentlyDeleteItem: expected ${type}, but found ${item.type}. Proceeding with item's own type.`);
+    let effectiveType = item.type;
+    if (!effectiveType) {
+        effectiveType = Array.isArray(item.notes) ? CONSTANTS.ITEM_TYPE.FOLDER : CONSTANTS.ITEM_TYPE.NOTE;
+    }
+    
+    if (type !== effectiveType) {
+        console.warn(`Type mismatch in handlePermanentlyDeleteItem: expected ${type}, but found ${effectiveType}. Proceeding with item's own type.`);
     }
     
     const itemName = item.title ?? item.name;
@@ -751,10 +770,15 @@ export const handlePermanentlyDeleteItem = async (id, type) => {
             
             const favoritesSet = new Set(latestData.favorites || []);
             const initialSize = favoritesSet.size;
+            
+            let deletedItemType = deletedItem.type;
+            if (!deletedItemType) {
+                deletedItemType = Array.isArray(deletedItem.notes) ? 'folder' : 'note';
+            }
 
-            if (deletedItem.type === 'note' || !deletedItem.type) {
+            if (deletedItemType === 'note') {
                 favoritesSet.delete(id);
-            } else if (deletedItem.type === 'folder' && Array.isArray(deletedItem.notes)) {
+            } else if (deletedItemType === 'folder' && Array.isArray(deletedItem.notes)) {
                 deletedItem.notes.forEach(note => {
                     favoritesSet.delete(note.id);
                 });
@@ -789,9 +813,12 @@ export const handleEmptyTrash = async () => {
 
             const noteIdsInTrash = new Set();
             latestData.trash.forEach(item => {
-                if (item.type === 'note' || !item.type) {
+                let itemType = item.type;
+                if (!itemType) itemType = Array.isArray(item.notes) ? 'folder' : 'note';
+                
+                if (itemType === 'note') {
                     noteIdsInTrash.add(item.id);
-                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                } else if (itemType === 'folder' && Array.isArray(item.notes)) {
                     item.notes.forEach(note => noteIdsInTrash.add(note.id));
                 }
             });
@@ -810,9 +837,12 @@ export const handleEmptyTrash = async () => {
 
             const favoritesSet = new Set(latestData.favorites || []);
             latestData.trash.forEach(item => {
-                if (item.type === 'note' || !item.type) {
+                let itemType = item.type;
+                if (!itemType) itemType = Array.isArray(item.notes) ? 'folder' : 'note';
+
+                if (itemType === 'note') {
                     favoritesSet.delete(item.id);
-                } else if (item.type === 'folder' && Array.isArray(item.notes)) {
+                } else if (itemType === 'folder' && Array.isArray(item.notes)) {
                     item.notes.forEach(note => {
                         favoritesSet.delete(note.id);
                     });
@@ -831,7 +861,6 @@ export async function saveCurrentNoteIfChanged() {
         return true;
     }
     
-    // [버그 수정] 레이스 컨디션 방지를 위해 함수 호출 시점의 상태와 DOM 값을 '캡처'합니다.
     const noteIdToSave = state.activeNoteId;
     const titleToSave = noteTitleInput.value;
     const contentToSave = noteContentTextarea.value;
@@ -845,7 +874,6 @@ export async function saveCurrentNoteIfChanged() {
 
     const { success } = await performTransactionalUpdate(latestData => {
         let noteToSave, parentFolder;
-        // [버그 수정] 캡처된 noteIdToSave를 사용하여 노트를 찾습니다.
         for (const folder of latestData.folders) {
             const note = folder.notes.find(n => n.id === noteIdToSave);
             if (note) { noteToSave = note; parentFolder = folder; break; }
@@ -858,7 +886,6 @@ export async function saveCurrentNoteIfChanged() {
         }
 
         const now = Date.now();
-        // [버그 수정] 캡처된 titleToSave와 contentToSave를 사용하여 저장할 값을 결정합니다.
         let finalTitle = titleToSave.trim();
         
         if (!finalTitle && contentToSave) {
@@ -875,7 +902,7 @@ export async function saveCurrentNoteIfChanged() {
         }
 
         noteToSave.title = finalTitle;
-        noteToSave.content = contentToSave; // 캡처된 내용 사용
+        noteToSave.content = contentToSave;
         noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
         
@@ -887,7 +914,6 @@ export async function saveCurrentNoteIfChanged() {
         const liveTitle = noteTitleInput.value;
         const liveContent = noteContentTextarea.value;
 
-        // [버그 수정] 저장 후에도 현재 활성 노트가 저장된 노트와 동일하고, 내용이 여전히 다른지 확인합니다.
         const isStillDirty = state.activeNoteId === noteIdToSave && justSavedNote && (justSavedNote.title !== liveTitle || justSavedNote.content !== liveContent);
 
         if (isStillDirty) {
@@ -895,7 +921,6 @@ export async function saveCurrentNoteIfChanged() {
             updateSaveStatus('dirty'); 
             handleUserInput();
         } else {
-            // [버그 수정] 저장된 노트가 더 이상 활성 노트가 아니거나, 내용이 일치하면 dirty 상태를 해제합니다.
             setState({ isDirty: false, dirtyNoteId: null });
             updateSaveStatus('saved');
         }
@@ -940,24 +965,19 @@ export async function handleUserInput() {
 }
 
 
-// [BUG FIX] 안정성 강화를 위해 `_handleRenameEnd` 함수에 진입 가드(guard)를 추가하고, Promise 해결 로직을 최우선으로 배치합니다.
-// 이제 트랜잭션의 성공 여부(boolean)를 반환합니다.
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
-    // --- 가드(Guard) 추가: 중복 실행 방지 ---
     if (state.renamingItemId !== id || !pendingRenamePromise) {
-        return true; // 이미 처리되었거나 대상이 아니면 성공
+        return true;
     }
 
     nameSpan.contentEditable = false;
     
-    // ★★★ 핵심 버그 수정: Promise 해결 및 관련 상태 초기화를 최우선으로 실행합니다. ★★★
     if (resolvePendingRename) {
         resolvePendingRename();
         resolvePendingRename = null;
     }
     pendingRenamePromise = null;
 
-    // 이제 이전에 버그를 유발했던 DOM 연결 해제 케이스를 안전하게 처리할 수 있습니다.
     if (!nameSpan.isConnected) {
         setState({ renamingItemId: null });
         return true;
@@ -972,14 +992,12 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
     const newName = nameSpan.textContent.trim();
 
-    // 저장하지 않거나(예: Esc 키 누름), 이름이 변경되지 않았다면 상태만 초기화하고 종료합니다.
     if (!shouldSave || newName === originalName) {
         setState({ renamingItemId: null });
         if (nameSpan) nameSpan.textContent = originalName;
-        return true; // 저장할 필요 없으면 성공
+        return true;
     }
     
-    // 트랜잭션을 통해 실제 데이터 저장을 수행합니다.
     const { success } = await performTransactionalUpdate(latestData => {
         let itemToRename, parentFolder, isDuplicate = false;
         const now = Date.now();
@@ -1013,12 +1031,11 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     });
 
     if (!success) {
-        // 실패 시, UI를 원래 이름으로 되돌리고 상태를 초기화합니다.
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
     }
     
-    return success; // 트랜잭션의 성공 여부를 반환
+    return success;
 };
 
 export const startRename = async (liElement, type) => {
@@ -1062,7 +1079,6 @@ export const startRename = async (liElement, type) => {
     }, 0);
 };
 
-// [TAB KEY BUG FIX - FINAL ROBUST VERSION]
 const handleTextareaKeyDown = (e) => {
     if (e.key === 'Tab') {
         e.preventDefault();
@@ -1072,9 +1088,7 @@ const handleTextareaKeyDown = (e) => {
         const text = textarea.value;
 
         if (start === end) {
-            // Case 1: No selection (single cursor)
             if (e.shiftKey) {
-                // Outdent for single cursor
                 const lineStart = text.lastIndexOf('\n', start - 1) + 1;
                 const line = text.substring(lineStart, start);
                 if (line.startsWith('\t')) {
@@ -1087,12 +1101,10 @@ const handleTextareaKeyDown = (e) => {
                     textarea.selectionStart = textarea.selectionEnd = start - removeCount;
                 }
             } else {
-                // Indent for single cursor
                 textarea.value = text.substring(0, start) + '\t' + text.substring(end);
                 textarea.selectionStart = textarea.selectionEnd = start + 1;
             }
         } else {
-            // Case 2: Text is selected (single or multi-line)
             const firstLineStart = text.lastIndexOf('\n', start - 1) + 1;
             
             let lastLineEnd = text.indexOf('\n', end);
@@ -1103,7 +1115,7 @@ const handleTextareaKeyDown = (e) => {
             const lines = selectedBlock.split('\n');
             
             let modifiedBlock;
-            if (e.shiftKey) { // Outdent
+            if (e.shiftKey) {
                 modifiedBlock = lines.map(line => {
                     if (line.startsWith('\t')) return line.substring(1);
                     if (line.startsWith(' ')) {
@@ -1112,7 +1124,7 @@ const handleTextareaKeyDown = (e) => {
                     }
                     return line;
                 }).join('\n');
-            } else { // Indent
+            } else {
                 modifiedBlock = lines.map(line => line.length > 0 ? '\t' + line : line).join('\n');
             }
 
@@ -1126,5 +1138,4 @@ const handleTextareaKeyDown = (e) => {
     }
 };
 
-// 이 함수는 app.js에서 호출되어야 하므로 export 합니다.
 export { handleTextareaKeyDown };
