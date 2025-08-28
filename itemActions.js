@@ -63,8 +63,10 @@ export const finishPendingRename = async () => {
     // 현재 이름 변경 작업이 진행 중인지 확인합니다.
     if (state.renamingItemId && pendingRenamePromise) {
         const id = state.renamingItemId;
+        // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
+        const safeId = typeof id === 'string' ? CSS.escape(id) : id;
         // DOM에서 이름 변경 중인 li 요소를 찾습니다.
-        const renamingElementWrapper = document.querySelector(`.item-list-entry[data-id="${id}"]`);
+        const renamingElementWrapper = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
         
         if (!renamingElementWrapper) {
             // 만약 요소가 사라졌다면(예: 다른 탭에서의 변경), 강제로 상태를 정리합니다.
@@ -289,7 +291,9 @@ export const handleAddFolder = async () => {
     if (success) {
         await changeActiveFolder(newFolderId, { force: true });
         requestAnimationFrame(() => {
-            const newFolderEl = folderList.querySelector(`[data-id="${newFolderId}"]`);
+            // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
+            const safeNewFolderId = typeof newFolderId === 'string' ? CSS.escape(newFolderId) : newFolderId;
+            const newFolderEl = folderList.querySelector(`[data-id="${safeNewFolderId}"]`);
             if (newFolderEl) {
                 newFolderEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
                 newFolderEl.focus();
@@ -1054,7 +1058,9 @@ export const startRename = async (liElement, type) => {
     setState({ renamingItemId: id });
 
     setTimeout(() => {
-        const newLiElement = document.querySelector(`.item-list-entry[data-id="${id}"]`);
+        // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
+        const safeId = typeof id === 'string' ? CSS.escape(id) : id;
+        const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
         if (!newLiElement) return;
         const nameSpan = newLiElement.querySelector('.item-name');
         if (!nameSpan) return;

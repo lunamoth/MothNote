@@ -165,7 +165,15 @@ export const subscribe = (callback) => {
     subscribers.add(callback);
     return () => subscribers.delete(callback);
 };
-const notify = () => subscribers.forEach(callback => callback());
+const notify = () => {
+    subscribers.forEach(callback => {
+        try {
+            callback();
+        } catch (error) {
+            console.error("A subscriber failed during notification:", error);
+        }
+    });
+};
 
 export const buildNoteMap = () => {
     state._virtualFolderCache = { all: null, recent: null, favorites: null, trash: null };

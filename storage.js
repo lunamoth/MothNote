@@ -24,15 +24,36 @@ const sanitizeObjectForPrototypePollution = (obj) => {
 };
 
 // [버그 수정] Chrome Storage API를 Promise 기반으로 사용하기 위한 래퍼 함수
-// 브라우저/환경 간 호환성을 보장하여 데이터 레이스 컨디션을 방지합니다.
+// 브라우저/환경 간 호환성을 보장하고, chrome.runtime.lastError를 확인하여 모든 실패 사례를 처리합니다.
 export const storageGet = (keys) =>
-  new Promise(resolve => chrome.storage.local.get(keys, resolve));
+  new Promise((resolve, reject) => {
+    chrome.storage.local.get(keys, (result) => {
+      if (chrome.runtime.lastError) {
+        return reject(chrome.runtime.lastError);
+      }
+      resolve(result);
+    });
+  });
 
 export const storageSet = (obj) =>
-  new Promise(resolve => chrome.storage.local.set(obj, resolve));
+  new Promise((resolve, reject) => {
+    chrome.storage.local.set(obj, () => {
+      if (chrome.runtime.lastError) {
+        return reject(chrome.runtime.lastError);
+      }
+      resolve();
+    });
+  });
 
 export const storageRemove = (keys) =>
-  new Promise(resolve => chrome.storage.local.remove(keys, resolve));
+  new Promise((resolve, reject) => {
+    chrome.storage.local.remove(keys, () => {
+      if (chrome.runtime.lastError) {
+        return reject(chrome.runtime.lastError);
+      }
+      resolve();
+    });
+  });
 
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, buildNoteMap, CONSTANTS, generateUniqueId } from './state.js';
