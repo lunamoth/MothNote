@@ -550,16 +550,14 @@ export const loadData = async () => {
                 },
             };
 
-            // [BUG FIX] setState로 UI 렌더링이 트리거되기 전에 noteMap을 먼저 생성합니다.
-            // 1. state의 핵심 데이터(folders)를 먼저 업데이트합니다.
-            state.folders = newState.folders;
-            
-            // 2. 업데이트된 데이터를 기반으로 noteMap을 빌드합니다.
-            buildNoteMap();
-
-            // 3. 전체 상태를 설정하고 UI 렌더링을 트리거합니다.
-            //    이 시점에는 noteMap이 준비되어 있어 에디터가 정상적으로 렌더링됩니다.
+            // --- [BUG FIX] START ---
+            // 상태 관리 원칙을 준수하도록 수정합니다.
+            // 1. `setState`를 먼저 호출하여 상태를 원자적으로 업데이트합니다.
             setState(newState);
+            
+            // 2. 업데이트된 상태를 기반으로 noteMap을 빌드합니다.
+            buildNoteMap();
+            // --- [BUG FIX] END ---
             
             await storageSet({ appState: initialAppState });
         }

@@ -297,7 +297,8 @@
         let html = `<span>⚠️</span>${message}`;
         if (url) {
             const displayUrl = url.length > 200 ? `${url.substring(0, 200)}...` : url;
-            html += `<br><a href="${url}" target="_blank" style="color: var(--accent-color); word-break:break-all;">API 요청 URL (${displayUrl})</a>`;
+            // [보안 수정] target="_blank"를 사용하는 외부 링크에 rel="noopener noreferrer" 속성을 추가하여 Tabnabbing 취약점을 방지합니다.
+            html += `<br><a href="${url}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color); word-break:break-all;">API 요청 URL (${displayUrl})</a>`;
         }
         DOM.errorMessage.innerHTML = html;
     }

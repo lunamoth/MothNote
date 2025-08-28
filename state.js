@@ -256,13 +256,16 @@ export const findNote = (id) => findItem(id, CONSTANTS.ITEM_TYPE.NOTE);
  * 충돌하지 않는 고유한 ID를 생성하고 반환합니다.
  */
 export const generateUniqueId = (prefix, existingIds) => {
+    // [안정성 강화] existingIds가 유효한 Set이 아닌 경우(undefined, null 등) 예외를 방지하기 위한 방어 코드
+    const checkSet = (existingIds && typeof existingIds.has === 'function') ? existingIds : new Set();
+
     // crypto.randomUUID가 있으면 사용 (더 강력한 고유성)
     if (typeof crypto?.randomUUID === 'function') {
         let id;
         do {
             // [BUG FIX] 생성된 UUID 앞에 prefix를 일관되게 추가합니다.
             id = `${prefix}${crypto.randomUUID()}`;
-        } while (existingIds.has(id));
+        } while (checkSet.has(id));
         return id;
     }
     
@@ -270,7 +273,7 @@ export const generateUniqueId = (prefix, existingIds) => {
     let id;
     do {
         id = `${prefix}${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    } while (existingIds.has(id));
+    } while (checkSet.has(id));
     
     return id;
 };
