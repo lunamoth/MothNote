@@ -186,7 +186,17 @@ export const buildNoteMap = () => {
 };
 
 export const setState = (newState) => {
+    // [BUG FIX] folders 데이터가 업데이트되었는지 확인합니다.
+    const foldersJustUpdated = 'folders' in newState;
+
     Object.assign(state, newState);
+
+    // [BUG FIX] folders가 변경되었다면, UI에 알리기(notify) 전에 noteMap을 먼저 재구축합니다.
+    // 이렇게 하면 상태와 파생 데이터(noteMap)의 일관성이 항상 보장됩니다.
+    if (foldersJustUpdated) {
+        buildNoteMap();
+    }
+
     notify();
 };
 

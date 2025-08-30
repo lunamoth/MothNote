@@ -590,8 +590,8 @@ export const loadData = async () => {
             // 1. `setState`를 먼저 호출하여 상태를 원자적으로 업데이트합니다.
             setState(newState);
             
-            // 2. 업데이트된 상태를 기반으로 noteMap을 빌드합니다.
-            buildNoteMap();
+            // 2. [REMOVED] 이제 setState가 자동으로 buildNoteMap을 호출하므로, 이 줄은 제거합니다.
+            
             // --- [BUG FIX] END ---
             
             await storageSet({ appState: initialAppState });
