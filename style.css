@@ -651,7 +651,8 @@ body.theme-applied {
         gap: var(--spacing-md);
     }
     #settings-tab-editor .settings-group, #settings-tab-weather .settings-group { grid-template-columns: 120px 1fr; }
-    #settings-tab-weather .settings-group.weather-search-group { grid-template-columns: 120px 1fr; }
+    /* [기능 추가] 저장소 정보 그룹 스타일 추가 */
+    #settings-tab-weather .settings-group.weather-search-group, .storage-info-group { grid-template-columns: 120px 1fr; }
     .settings-group label { font-size: 14px; font-weight: 500; }
     .settings-group input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: var(--input-bg-color); outline: none; border-radius: 3px; }
     .settings-group input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--accent-color); cursor: pointer; border-radius: 50%; }
@@ -690,6 +691,17 @@ body.theme-applied {
     .city-results-list li { padding: 10px var(--spacing-md); font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--divider-color); }
     .city-results-list li:last-child { border-bottom: none; }
     .city-results-list li:hover { background-color: var(--hover-bg-color); }
+    
+    /* [기능 추가] 저장소 사용량 텍스트 스타일 */
+    .storage-usage-text {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--font-color-dim);
+        text-align: right;
+        padding-right: 10px;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    }
+
     .settings-group-row { display: flex; gap: var(--spacing-md); }
     .settings-description { font-size: 13px; color: var(--font-color-dim); line-height: 1.6; }
     .settings-description a { color: var(--accent-color); text-decoration: none; }

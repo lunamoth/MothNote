@@ -12,6 +12,8 @@ import {
     settingsWeatherLat, settingsWeatherLon,
     settingsExportBtn, settingsImportBtn, settingsResetBtn, settingsSaveBtn,
     settingsWeatherCitySearch, settingsWeatherCitySearchBtn, settingsWeatherCityResults,
+    // [기능 추가] 새로 추가된 요소를 가져옵니다.
+    settingsStorageUsage,
     editorContainer
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
@@ -70,9 +72,53 @@ const loadAndApplySettings = () => {
     applySettings(appSettings);
 };
 
+// [기능 추가] 저장소 사용량을 계산하고 표시하는 함수
+const updateStorageUsageDisplay = async () => {
+    // settingsStorageUsage 요소가 없으면 함수를 종료합니다.
+    if (!settingsStorageUsage) return;
+    settingsStorageUsage.textContent = '계산 중...';
+
+    try {
+        // chrome.storage.local API가 사용 가능한지 확인합니다.
+        if (chrome && chrome.storage && chrome.storage.local) {
+            // 전체 할당량 (기본 5MB)
+            const totalBytes = chrome.storage.local.QUOTA_BYTES || 5242880; 
+
+            // 현재 사용량을 비동기적으로 가져옵니다.
+            const usedBytes = await new Promise((resolve, reject) => {
+                // null을 전달하여 전체 사용량을 가져옵니다.
+                chrome.storage.local.getBytesInUse(null, (bytes) => {
+                    if (chrome.runtime.lastError) {
+                        return reject(chrome.runtime.lastError);
+                    }
+                    resolve(bytes);
+                });
+            });
+
+            // 숫자를 쉼표가 있는 문자열로 변환합니다.
+            const usedFormatted = usedBytes.toLocaleString('ko-KR');
+            const totalFormatted = totalBytes.toLocaleString('ko-KR');
+            const percentage = (usedBytes / totalBytes * 100).toFixed(2);
+
+            // 최종 문자열을 생성하여 UI에 업데이트합니다.
+            settingsStorageUsage.textContent = `${usedFormatted} / ${totalFormatted} bytes (${percentage}%)`;
+        } else {
+            // API를 사용할 수 없는 경우
+            settingsStorageUsage.textContent = '사용량 확인 불가';
+        }
+    } catch (error) {
+        console.error("저장소 사용량 확인 실패:", error);
+        settingsStorageUsage.textContent = '사용량 확인 실패';
+    }
+};
+
+
 const openSettingsModal = async () => {
     await finishPendingRename();
     await saveCurrentNoteIfChanged();
+
+    // [기능 추가] 모달이 열릴 때마다 저장소 사용량을 업데이트합니다.
+    updateStorageUsageDisplay();
 
     settingsCol1Width.value = appSettings.layout.col1;
     settingsCol1Input.value = appSettings.layout.col1;

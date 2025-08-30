@@ -48,6 +48,8 @@ export const settingsExportBtn = getEl('settings-export-btn');
 export const settingsImportBtn = getEl('settings-import-btn');
 export const settingsResetBtn = getEl('settings-reset-btn');
 export const settingsSaveBtn = getEl('settings-save-btn');
+// [기능 추가] 저장소 사용량 표시 요소를 내보냅니다.
+export const settingsStorageUsage = getEl('settings-storage-usage');
 
 
 // --- UI 유틸리티 ---
