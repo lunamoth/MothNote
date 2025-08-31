@@ -1,5 +1,5 @@
 // welcomeNote.js
-export const welcomeNoteContent = `(아래 가이드는 MothNote 의 소스 코드를 분석해서 제미나이 2.5 프로가 작성한 가이드입니다.)
+export const welcomeNoteContent = `(아래 가이드는 MothNote 의 소스 코드를 분석해서 제미나이 2.5 프로가 작성했습니다.)
 
 
 안녕하세요! 당신의 새로운 생각 정리 공간, MothNote에 오신 것을 진심으로 환영합니다. 
