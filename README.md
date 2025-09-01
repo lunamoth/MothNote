@@ -4,7 +4,7 @@
 
 ![날씨 상세 페이지 스크린샷](https://raw.githubusercontent.com/lunamoth/MothNote/refs/heads/main/250901_MothNote_Weather.png)
 
-[MothNote lunamoth 4th 블로그 소개 글] http://lunamoth.com/entry/MothNote)
+[MothNote lunamoth 4th 블로그 소개 글](http://lunamoth.com/entry/MothNote)
 
 [MothNote GitHub](https://github.com/lunamoth/MothNote)
 
