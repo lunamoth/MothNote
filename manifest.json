@@ -3,6 +3,7 @@
   "name": "MothNote",
   "version": "17.58",
   "description": "폴더 기반 노트 시스템에 시계, 날씨, 달력 위젯을 더한 올인원 새 탭 대시보드",
+  "homepage_url": "http://lunamoth.com/entry/MothNote",
   "permissions": [
     "storage",
     "unlimitedStorage",
