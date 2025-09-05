@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MothNote",
-  "version": "17.59",
+  "version": "17.61",
   "description": "폴더 기반 노트 시스템에 시계, 날씨, 달력 위젯을 더한 올인원 새 탭 대시보드",
   "homepage_url": "http://lunamoth.com/entry/MothNote",
   "permissions": [
@@ -13,6 +13,6 @@
     "newtab": "newtab.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://api.open-meteo.com https://geocoding-api.open-meteo.com; frame-src 'self';"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://api.open-meteo.com https://geocoding-api.open-meteo.com https://air-quality-api.open-meteo.com; frame-src 'self';"
   }
 }

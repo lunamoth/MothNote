@@ -118,6 +118,13 @@
         .skeleton-icon { width: 5em; height: 5em; border-radius: 50%; margin: 0 auto; }
 
         .top-info-grid { display: grid; grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */ }
+        
+        /* [수정] 반응형 그리드 레이아웃 적용 */
+        @media (min-width: 992px) {
+            .top-info-grid {
+                grid-template-columns: 2fr 1fr;
+            }
+        }
 
         .current-weather-section, .aqi-section {
             background-color: var(--card-bg-color);
@@ -156,6 +163,63 @@
         .current-weather-details div:nth-child(6)::before { content: "⏰"; } /* 시간 */
 
         .aqi-section { display: none; } /* AQI 섹션은 필요시 표시 */
+
+        /* [추가] AQI 섹션 스타일 */
+        .aqi-details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+            text-align: center;
+        }
+        .aqi-item {
+            background-color: var(--bg-color);
+            padding: var(--spacing-unit) calc(var(--spacing-unit) * 1.5); /* 8px 12px */
+            border-radius: var(--spacing-unit); /* 8px */
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: calc(var(--spacing-unit) * 0.5); /* 4px */
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .aqi-pollutant-label {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: var(--secondary-text-color);
+            transition: color 0.3s ease;
+        }
+        .aqi-item .aqi-value {
+            font-size: 1.6em;
+            font-weight: 700;
+            color: var(--primary-text-color);
+            transition: color 0.3s ease;
+        }
+        .aqi-item .aqi-level {
+            font-size: 1em;
+            font-weight: 500;
+            padding: calc(var(--spacing-unit) * 0.25) calc(var(--spacing-unit) * 1); /* 2px 8px */
+            border-radius: calc(var(--spacing-unit) * 0.5); /* 4px */
+            color: #fff;
+            min-width: 50px;
+        }
+        .aqi-standard-info {
+            font-size: 0.8em;
+            color: var(--secondary-text-color);
+            text-align: right;
+            margin-top: calc(var(--spacing-unit) * 1.5); /* 12px */
+            margin-bottom: 0;
+            transition: color 0.3s ease;
+        }
+
+        /* AQI 레벨별 색상 */
+        .level-good { background-color: #3498db; }
+        .level-moderate { background-color: #2ecc71; }
+        .level-unhealthy-sensitive { background-color: #f1c40f; color: #333; }
+        .level-unhealthy { background-color: #e67e22; }
+        .level-very-unhealthy { background-color: #e74c3c; }
+        .level-hazardous { background-color: #9b59b6; }
+        .level-default { background-color: var(--secondary-text-color); }
+
 
         .weekly-temp-chart-container {
              background-color: var(--card-bg-color); border: 1px solid var(--border-color);
@@ -274,6 +338,7 @@
         .detail-item.uv-index::before { content: "☀️"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
         .detail-item.sunrise-sunset::before { content: "🌅"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
         .detail-item.precipitation-hours::before { content: "⏳"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+        .detail-item.air-quality::before { content: "😷"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
 
         /* 모달 스타일 */
         .modal {
@@ -439,6 +504,14 @@
                     <div class="skeleton skeleton-text" style="height: 2.5em;"></div> <div class="skeleton skeleton-text" style="height: 2.5em;"></div>
                 </div>
             </section>
+            <!-- [수정] AQI 스켈레톤 추가 -->
+            <section class="skeleton-aqi-section">
+                <div class="skeleton skeleton-text" style="width: 40%; height: 1.4em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
+                <div class="aqi-details-grid">
+                    <div class="skeleton skeleton-text" style="height: 5em;"></div>
+                    <div class="skeleton skeleton-text" style="height: 5em;"></div>
+                </div>
+            </section>
         </div>
         <div class="weekly-temp-chart-container skeleton" style="height: 380px; margin-bottom: calc(var(--spacing-unit) * 4);">
              <div class="skeleton skeleton-text" style="width: 50%; height: 1.6em; margin: 0 auto calc(var(--spacing-unit) * 2.5);"></div>
@@ -473,16 +546,23 @@
                     <div>시간: <strong id="currentTime"></strong></div>
                 </div>
             </section>
-             <section class="aqi-section" id="aqiSection" style="display: none;">
-                 <h2>대기 질 지수 (AQI)</h2>
-                 <div class="aqi-details">
-                     <div class="aqi-value" id="aqiValue">N/A</div>
-                     <div class="aqi-level" id="aqiLevel">정보 없음</div>
-                     <div class="aqi-pollutants">
-                         <span>(정보 로딩 중...)</span>
-                     </div>
-                 </div>
-             </section>
+            <!-- [수정] AQI 섹션 구조 변경 -->
+            <section class="aqi-section" id="aqiSection">
+                <h2>대기질 정보</h2>
+                <div class="aqi-details-grid">
+                    <div class="aqi-item">
+                        <span class="aqi-pollutant-label">미세먼지 (PM10)</span>
+                        <span class="aqi-value" id="currentPm10Value">--</span>
+                        <span class="aqi-level level-default" id="currentPm10Level">정보 없음</span>
+                    </div>
+                    <div class="aqi-item">
+                        <span class="aqi-pollutant-label">초미세먼지 (PM2.5)</span>
+                        <span class="aqi-value" id="currentPm25Value">--</span>
+                        <span class="aqi-level level-default" id="currentPm25Level">정보 없음</span>
+                    </div>
+                </div>
+                <p class="aqi-standard-info">WHO 24시간 권고 기준</p>
+            </section>
         </div>
 
         <section class="weekly-temp-chart-container">
