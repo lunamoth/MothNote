@@ -925,7 +925,10 @@ export const setupImportHandler = () => {
                         // 3. activeNotes를 새 폴더로 변환
                         importedData.activeNotes.forEach(note => {
                             let content = note.content || '';
-                            const title = content.split('\n')[0].trim().slice(0, 100) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                            
+                            // [BUG FIX] 공백만 있는 줄을 건너뛰고 첫 번째 실제 텍스트 줄을 제목으로 사용합니다.
+                            const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
+                            const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
                             
                             // [수정] Simplenote 태그(Tag) 정보 보존
                             if (note.tags && Array.isArray(note.tags) && note.tags.length > 0) {
@@ -956,7 +959,11 @@ export const setupImportHandler = () => {
                         if (Array.isArray(importedData.trashedNotes)) {
                             importedData.trashedNotes.forEach(note => {
                                 const content = note.content || '';
-                                const title = content.split('\n')[0].trim().slice(0, 100) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                                
+                                // [BUG FIX] 여기에도 동일한 제목 생성 로직을 적용합니다.
+                                const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
+                                const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+
                                 const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                                 allExistingIds.add(newNoteId);
 
