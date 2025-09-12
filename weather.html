@@ -472,6 +472,29 @@
             .hourly-item .precip { display: none; } /* 모바일에서는 강수확률 텍스트 숨김 */
             .hourly-item .desc { width: 30%; font-size: 0.85em; } /* 모바일 설명 텍스트 크기 조정 */
         }
+
+        footer.page-footer {
+            width: 100%;
+            text-align: center;
+            margin-top: calc(var(--spacing-unit) * 5); /* 40px */
+            padding: calc(var(--spacing-unit) * 2.5) 0; /* 20px */
+            font-size: 0.9em;
+            color: var(--secondary-text-color);
+            transition: color 0.3s ease;
+            border-top: 1px solid var(--border-color);
+        }
+
+        footer.page-footer a {
+            color: var(--secondary-text-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        footer.page-footer a:hover {
+            color: var(--primary-text-color);
+            text-decoration: underline;
+        }
+
     </style>
 </head>
 <body>
@@ -594,5 +617,11 @@
     <p id="lastUpdated" class="last-updated-timestamp"></p>
 
     <script src="weather.js"></script>
+
+    <footer class="page-footer">
+        <p id="dataSourceCredit">
+            <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Weather data by Open-Meteo.com</a>
+        </p>
+    </footer>
 </body>
 </html>

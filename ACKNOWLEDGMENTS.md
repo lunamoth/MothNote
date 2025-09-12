@@ -2,6 +2,26 @@
 
 MothNote 는 아래에 명시된 오픈소스 덕분에 만들어질 수 있었습니다. 멋진 소프트웨어를 공개해주신 개발자분들의 노고에 깊은 감사를 드립니다.
 
+### Open-Meteo
+
+- **용도**: 날씨 기능에 필요한 날씨 데이터를 가져오기 위해 사용됩니다.
+- **출처**: https://open-meteo.com/
+- **라이선스**: Attribution 4.0 International (CC BY 4.0)
+
+API data are offered under Attribution 4.0 International (CC BY 4.0)
+You are free to share: copy and redistribute the material in any medium or format and adapt: remix, transform, and build upon the material.
+
+Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+
+You must include a link next to any location Open-Meteo data are displayed, for example:
+
+<a href="https://open-meteo.com/">
+	Weather data by Open-Meteo.com
+</a>
+
+Open-Meteo is open-source
+Source code is available on GitHub under the GNU Affero General Public License Version 3 AGPLv3 or any later version. You can find the license here.
+
 ## Chart.js
 
 The MIT License (MIT)

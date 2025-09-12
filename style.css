@@ -702,7 +702,7 @@ body.theme-applied {
         font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
     }
 
-    .settings-group-row { display: flex; gap: var(--spacing-md); }
+    .settings-group-row { display: flex; gap: var(--spacing-md); justify-content: center; }
     .settings-description { font-size: 13px; color: var(--font-color-dim); line-height: 1.6; }
     .settings-description a { color: var(--accent-color); text-decoration: none; }
     .settings-description a:hover { text-decoration: underline; }

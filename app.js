@@ -81,9 +81,6 @@ const updateStorageUsageDisplay = async () => {
     try {
         // chrome.storage.local API가 사용 가능한지 확인합니다.
         if (chrome && chrome.storage && chrome.storage.local) {
-            // 전체 할당량 (기본 5MB)
-            const totalBytes = chrome.storage.local.QUOTA_BYTES || 5242880; 
-
             // 현재 사용량을 비동기적으로 가져옵니다.
             const usedBytes = await new Promise((resolve, reject) => {
                 // null을 전달하여 전체 사용량을 가져옵니다.
@@ -97,11 +94,9 @@ const updateStorageUsageDisplay = async () => {
 
             // 숫자를 쉼표가 있는 문자열로 변환합니다.
             const usedFormatted = usedBytes.toLocaleString('ko-KR');
-            const totalFormatted = totalBytes.toLocaleString('ko-KR');
-            const percentage = (usedBytes / totalBytes * 100).toFixed(2);
 
             // 최종 문자열을 생성하여 UI에 업데이트합니다.
-            settingsStorageUsage.textContent = `${usedFormatted} / ${totalFormatted} bytes (${percentage}%)`;
+            settingsStorageUsage.textContent = `${usedFormatted} bytes`;
         } else {
             // API를 사용할 수 없는 경우
             settingsStorageUsage.textContent = '사용량 확인 불가';
