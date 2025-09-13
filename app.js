@@ -413,13 +413,14 @@ class Dashboard {
         if (zenModeBtn) zenModeBtn.style.removeProperty('display');
     }
     
+    // [버그 수정] 날씨 위젯의 title 속성을 동적으로 업데이트하도록 수정
     _setupWeatherViewEvents() {
-        if(this.dom.weatherContainer) {
+        if (this.dom.weatherContainer) {
             this.dom.weatherContainer.style.cursor = 'pointer';
-            this.dom.weatherContainer.title = '클릭하여 상세 날씨 보기';
+            this.dom.weatherContainer.title = '날씨 정보 불러오는 중...';
             this.dom.weatherContainer.addEventListener('click', () => this._openWeatherView());
         }
-        if(this.dom.closeWeatherViewBtn) {
+        if (this.dom.closeWeatherViewBtn) {
             this.dom.closeWeatherViewBtn.addEventListener('click', () => this._closeWeatherView());
         }
     }
@@ -559,7 +560,75 @@ class Dashboard {
     }
     
     _animateAnalogClock() { let lastMinute = -1; const animate = () => { const now = new Date(); const currentMinute = now.getMinutes(); if (currentMinute !== lastMinute) { this._drawHandsOnTop(); lastMinute = currentMinute; } this.internalState.analogClockAnimationId = requestAnimationFrame(animate); }; this._drawHandsOnTop(); animate(); }
-    async fetchWeather() { if (!this.dom.weatherContainer) return; const WEATHER_CACHE_KEY = CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY, CACHE_DURATION_MINUTES = 60; try { const cachedData = JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY)); const now = new Date().getTime(); if (cachedData && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) { const { weather, temp } = cachedData.data; this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="${weather.text}">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`; return; } } catch (e) { console.warn("Could not read weather cache.", e); } if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort(); this.internalState.weatherFetchController = new AbortController(); const signal = this.internalState.weatherFetchController.signal; this.dom.weatherContainer.innerHTML = `<span>⏳</span>`; try { const { lat, lon } = appSettings.weather; if (lat < -90 || lat > 90 || lon < -180 || lon > 180) { this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`; showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR); return; } const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`; const response = await fetch(url, { signal }); if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`); const data = await response.json(); if (!data?.current_weather) throw new Error("API 응답에서 current_weather 객체를 찾을 수 없습니다."); const { temperature, weathercode, is_day } = data.current_weather; const weather = this._getWeatherInfo(weathercode ?? data.current_weather.weather_code, is_day === 1); const temp = Math.round(temperature); this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="${weather.text}">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`; try { localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ timestamp: new Date().getTime(), data: { weather, temp } })); } catch (e) { console.warn("Could not save weather cache.", e); } } catch (error) { if (error.name !== 'AbortError') this.dom.weatherContainer.innerHTML = `<span id="weather-icon" title="날씨 정보를 불러오는 데 실패했습니다.">⚠️</span>`; } }
+    
+    // [버그 수정] 날씨 위젯의 title 속성을 동적으로 업데이트하도록 수정
+    async fetchWeather() {
+        if (!this.dom.weatherContainer) return;
+
+        const WEATHER_CACHE_KEY = CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY;
+        const CACHE_DURATION_MINUTES = 60;
+
+        try {
+            const cachedData = JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY));
+            const now = new Date().getTime();
+            if (cachedData && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) {
+                const { weather, temp } = cachedData.data;
+                this.dom.weatherContainer.innerHTML = `<span id="weather-icon">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
+                this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
+                return;
+            }
+        } catch (e) {
+            console.warn("Could not read weather cache.", e);
+        }
+
+        if (this.internalState.weatherFetchController) {
+            this.internalState.weatherFetchController.abort();
+        }
+        this.internalState.weatherFetchController = new AbortController();
+        const signal = this.internalState.weatherFetchController.signal;
+        this.dom.weatherContainer.innerHTML = `<span>⏳</span>`;
+
+        try {
+            const { lat, lon } = appSettings.weather;
+            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                this.dom.weatherContainer.innerHTML = `<span id="weather-icon">⚠️</span>`;
+                this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+                showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
+                return;
+            }
+
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
+            const response = await fetch(url, { signal });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+            
+            const data = await response.json();
+            if (!data?.current_weather) throw new Error("API 응답에서 current_weather 객체를 찾을 수 없습니다.");
+
+            const { temperature, weathercode, is_day } = data.current_weather;
+            const weather = this._getWeatherInfo(weathercode ?? data.current_weather.weather_code, is_day === 1);
+            const temp = Math.round(temperature);
+
+            this.dom.weatherContainer.innerHTML = `<span id="weather-icon">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
+            this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
+
+            try {
+                localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({
+                    timestamp: new Date().getTime(),
+                    data: { weather, temp }
+                }));
+            } catch (e) {
+                console.warn("Could not save weather cache.", e);
+            }
+
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                this.dom.weatherContainer.innerHTML = `<span id="weather-icon">⚠️</span>`;
+                this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+            }
+        }
+    }
+    
     _updateCalendarHighlights() { if (!this.dom.calendarGrid) return; const dateCells = this.dom.calendarGrid.querySelectorAll('.date-cell'); const activeDateStr = state.dateFilter ? toYYYYMMDD(state.dateFilter) : null; dateCells.forEach(cell => { const dateStr = cell.dataset.date; if (!dateStr) return; cell.classList.toggle('has-notes', state.noteCreationDates.has(dateStr)); cell.classList.toggle('active-date', dateStr === activeDateStr); cell.title = ''; }); }
     _drawCalendarGrid() { if (!this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.calendarGrid.innerHTML = ''; const year = this.internalState.currentDate.getFullYear(), month = this.internalState.currentDate.getMonth(); this.dom.calendarMonthYear.textContent = `🗓️ ${year}년 ${month + 1}월`; ['일', '월', '화', '수', '목', '금', '토'].forEach(day => { const el = document.createElement('div'); el.className = 'calendar-day day-name'; el.textContent = day; this.dom.calendarGrid.appendChild(el); }); const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate(); for (let i = 0; i < firstDay; i++) this.dom.calendarGrid.appendChild(document.createElement('div')); const today = new Date(), todayYear = today.getFullYear(), todayMonth = today.getMonth(), todayDate = today.getDate(); for (let i = 1; i <= daysInMonth; i++) { const el = document.createElement('div'); el.className = 'calendar-day date-cell current-month ripple-effect'; el.textContent = i; if (i === todayDate && year === todayYear && month === todayMonth) el.classList.add('today'); el.dataset.date = toYYYYMMDD(new Date(year, month, i)); this.dom.calendarGrid.appendChild(el); } }
     renderCalendar(forceRedraw = false) { const newMonthIdentifier = `${this.internalState.currentDate.getFullYear()}-${this.internalState.currentDate.getMonth()}`; if (forceRedraw || this.internalState.displayedMonth !== newMonthIdentifier) { this._drawCalendarGrid(); this.internalState.displayedMonth = newMonthIdentifier; } this._updateCalendarHighlights(); }
