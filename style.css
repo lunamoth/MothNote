@@ -369,6 +369,13 @@ body.theme-applied {
         z-index: 10; display: flex; flex-direction: column; gap: var(--spacing-sm);
     }
     .date-picker-header { display: flex; justify-content: space-between; align-items: center; padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-md); border-bottom: 1px solid var(--divider-color); }
+    
+    /* [버그 수정] 날짜 선택 팝오버의 닫기 버튼 위치를 오른쪽 상단 모서리에 더 가깝게 조정합니다. */
+    .date-picker-popover .modal-close-button {
+        top: 0px; /* 기존 12px에서 더 위로 이동 */
+        right: 0px; /* 기존 12px에서 더 오른쪽으로 이동 */
+    }
+
     .date-picker-header h4 { font-size: 14px; font-weight: 600; }
     .date-picker-inputs { display: flex; gap: var(--spacing-sm); align-items: center; padding: 0 var(--spacing-md); }
     .date-picker-inputs input[type="number"] { width: 100%; background: var(--input-bg-color); border: 1px solid transparent; color: var(--font-color); padding: var(--spacing-sm); border-radius: var(--radius-sm); font-size: 14px; outline: none; text-align: center; -moz-appearance: textfield; }
