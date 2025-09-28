@@ -61,6 +61,8 @@ import { showToast, showConfirm, importFileInput, sortNotes, showAlert, showProm
 import { updateNoteCreationDates } from './itemActions.js';
 // [수정] welcomeNote.js에서 환영 메시지 내용을 가져옵니다.
 import { welcomeNoteContent } from './welcomeNote.js';
+// [기능 추가] LunaFlowACT.js에서 노트 내용을 가져옵니다.
+import { lunaFlowACTContent } from './LunaFlowACT.js';
 
 
 // [순환 참조 해결] generateUniqueId 함수를 state.js 파일로 이동시켰습니다.
@@ -523,8 +525,13 @@ export const loadData = async () => {
             const now = new Date().getTime();
             const allIds = new Set(); // 생성된 ID를 추적하여 중복 방지
 
-            // 요청된 8개의 기본 폴더 이름
+            // [수정] 기본 생성 폴더 목록을 수정하고 5개의 새 폴더를 상단에 추가합니다.
             const defaultFolderNames = [
+                'Inbox',
+                'Today',
+                'A1 (Must Have)',
+                'B2 (Should Have)',
+                'C3 (Could Have)',
                 'Projects',
                 'Areas',
                 'Resources',
@@ -535,29 +542,42 @@ export const loadData = async () => {
                 'MothNote'
             ];
             
-            // [수정됨] 가이드 노트 생성
+            // [수정] 가이드 노트 생성
             const welcomeNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
             allIds.add(welcomeNoteId);
-            const newNote = { 
+            const welcomeNote = { 
                 id: welcomeNoteId, 
                 title: "MothNote 에 오신 것을 환영합니다! 🦋", 
-                // [수정] 외부 파일에서 가져온 환영 메시지 내용을 사용합니다.
                 content: welcomeNoteContent, 
                 createdAt: now, 
                 updatedAt: now, 
                 isPinned: false 
             };
+
+            // [기능 추가] LunaFlowACT 노트 생성
+            const lunaFlowNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allIds);
+            allIds.add(lunaFlowNoteId);
+            const lunaFlowNote = {
+                id: lunaFlowNoteId,
+                title: "LunaFlowACT",
+                content: lunaFlowACTContent,
+                createdAt: now,
+                updatedAt: now,
+                isPinned: true // 중요하므로 고정
+            };
             
-            // 8개의 폴더를 순서대로 생성
+            // 폴더를 순서대로 생성
             const initialFolders = defaultFolderNames.map(name => {
                 const folderId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allIds);
                 allIds.add(folderId);
 
+                // 'MothNote' 폴더에만 두 개의 기본 노트를 추가
+                const notesForFolder = (name === 'MothNote') ? [lunaFlowNote, welcomeNote] : [];
+
                 return {
                     id: folderId,
                     name: name,
-                    // 'MothNote' 폴더에만 환영 노트를 추가
-                    notes: name === 'MothNote' ? [newNote] : [],
+                    notes: notesForFolder,
                     createdAt: now,
                     updatedAt: now
                 };
@@ -579,9 +599,9 @@ export const loadData = async () => {
                 favorites: new Set(),
                 activeFolderId: lastFolderId,
                 activeNoteId: welcomeNoteId,
-                totalNoteCount: 1,
+                totalNoteCount: 2, // 노트 2개
                 lastActiveNotePerFolder: {
-                    [lastFolderId]: welcomeNoteId
+                    [lastFolderId]: lunaFlowNoteId
                 },
             };
 

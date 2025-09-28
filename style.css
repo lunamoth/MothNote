@@ -416,6 +416,8 @@ body.theme-applied {
     .item-list-entry.active .item-count { color: color-mix(in srgb, var(--accent-color) 70%, var(--font-color-dim)); }
     .item-list-entry.dragging { opacity: 0.4; background: var(--active-bg-color); }
     .item-list-entry.pinned { background-color: var(--pin-bg-color); }
+    /* [BUG FIX] 고정된 노트가 활성화되었을 때, 활성 스타일이 고정 스타일을 덮어쓰도록 합니다. */
+    .item-list-entry.pinned.active { background-color: var(--active-bg-color); }
     .item-list-entry[draggable="true"] { cursor: grab; }
     #folder-list .item-list-entry { max-height: 48px; }
 
