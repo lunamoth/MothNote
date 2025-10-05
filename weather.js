@@ -390,14 +390,9 @@
 
     function createForecastCardHTML(dayData, index, hourlyAqiData) {
         const dateObj = new Date(`${dayData.time[index]}T00:00:00`);
-        const today = new Date(); today.setHours(0,0,0,0);
-        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-
+        
         const dayNameOriginal = dateObj.toLocaleDateString('ko-KR', { weekday: 'long' });
-        let dayNameFormattedForCard = `(${dayNameOriginal})`;
-
-        if (dateObj.getTime() === today.getTime()) dayNameFormattedForCard = "(오늘)";
-        else if (dateObj.getTime() === tomorrow.getTime()) dayNameFormattedForCard = "(내일)";
+        const dayNameFormattedForCard = `(${dayNameOriginal})`;
 
         const monthDay = dateObj.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
         const weatherDetails = getWeatherDetails(dayData.weather_code[index], true);
