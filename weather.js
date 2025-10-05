@@ -13,22 +13,19 @@
         WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v1',
         AIR_QUALITY_CACHE_KEY: 'air_quality_cache_v1',
         WMO_MAP: {0:{description:"맑음",icon:"☀️",effect:null},1:{description:"대체로 맑음",icon:"🌤️",effect:null},2:{description:"부분적 흐림",icon:"🌥️",effect:null},3:{description:"흐림",icon:"☁️",effect:null},45:{description:"안개",icon:"🌫️",effect:null},48:{description:"서리 안개",icon:"🌫️❄️",effect:null},51:{description:"가벼운 가랑비",icon:"💧",effect:"rain"},53:{description:"보통 가랑비",icon:"💧",effect:"rain"},55:{description:"강한 가랑비",icon:"💧",effect:"rain"},56:{description:"가벼운 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},57:{description:"강한 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},61:{description:"가벼운 비",icon:"🌧️",effect:"rain"},63:{description:"보통 비",icon:"🌧️",effect:"rain"},65:{description:"강한 비",icon:"🌧️",effect:"rain"},66:{description:"가벼운 어는 비",icon:"🥶🌧️",effect:"rain_snow"},67:{description:"강한 어는 비",icon:"🥶🌧️",effect:"rain_snow"},71:{description:"가벼운 눈",icon:"❄️",effect:"snow"},73:{description:"보통 눈",icon:"❄️",effect:"snow"},75:{description:"강한 눈",icon:"❄️",effect:"snow"},77:{description:"싸락눈",icon:"❄️",effect:"snow"},80:{description:"가벼운 소나기",icon:"🌦️",effect:"rain"},81:{description:"보통 소나기",icon:"🌦️",effect:"rain"},82:{description:"강한 소나기",icon:"⛈️",effect:"rain"},85:{description:"가벼운 소낙눈",icon:"🌨️",effect:"snow"},86:{description:"강한 소낙눈",icon:"🌨️",effect:"snow"},95:{description:"뇌우",icon:"⛈️",effect:"rain"},96:{description:"가벼운 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"},99:{description:"강한 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"}},
+        // [수정] WHO 기준으로 미세먼지 등급 기준을 변경합니다.
         AQI_WHO_STANDARDS: {
             pm2_5: [
-                { limit: 15, level: '좋음', class: 'level-good' },
-                { limit: 35, level: '보통', class: 'level-moderate' },
-                { limit: 55, level: '민감군 주의', class: 'level-unhealthy-sensitive' },
-                { limit: 150, level: '나쁨', class: 'level-unhealthy' },
-                { limit: 250, level: '매우 나쁨', class: 'level-very-unhealthy' },
-                { limit: Infinity, level: '위험', class: 'level-hazardous' }
+                { limit: 9, level: '좋음', class: 'level-good' },
+                { limit: 15, level: '보통', class: 'level-moderate' },
+                { limit: 50, level: '나쁨', class: 'level-unhealthy' },
+                { limit: Infinity, level: '매우 나쁨', class: 'level-very-unhealthy' }
             ],
             pm10: [
-                { limit: 45, level: '좋음', class: 'level-good' },
-                { limit: 75, level: '보통', class: 'level-moderate' },
-                { limit: 125, level: '민감군 주의', class: 'level-unhealthy-sensitive' },
-                { limit: 250, level: '나쁨', class: 'level-unhealthy' },
-                { limit: 375, level: '매우 나쁨', class: 'level-very-unhealthy' },
-                { limit: Infinity, level: '위험', class: 'level-hazardous' }
+                { limit: 22, level: '좋음', class: 'level-good' },
+                { limit: 45, level: '보통', class: 'level-moderate' },
+                { limit: 100, level: '나쁨', class: 'level-unhealthy' },
+                { limit: Infinity, level: '매우 나쁨', class: 'level-very-unhealthy' }
             ]
         }
     };
