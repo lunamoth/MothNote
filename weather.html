@@ -211,13 +211,11 @@
             transition: color 0.3s ease;
         }
 
-        /* AQI 레벨별 색상 */
-        .level-good { background-color: #3498db; }
-        .level-moderate { background-color: #2ecc71; }
-        .level-unhealthy-sensitive { background-color: #f1c40f; color: #333; }
-        .level-unhealthy { background-color: #e67e22; }
-        .level-very-unhealthy { background-color: #e74c3c; }
-        .level-hazardous { background-color: #9b59b6; }
+        /* AQI 레벨별 색상 (WHO 4단계 기준) */
+        .level-good { background-color: #3498db; } /* 좋음 */
+        .level-moderate { background-color: #2ecc71; } /* 보통 */
+        .level-unhealthy { background-color: #e67e22; } /* 나쁨 */
+        .level-very-unhealthy { background-color: #e74c3c; } /* 매우 나쁨 */
         .level-default { background-color: var(--secondary-text-color); }
 
 
