@@ -49,6 +49,11 @@
                     </div>
                     <div id="calendar-grid"></div>
                 </div>
+                <!-- [기능 추가] 습관 트래커 진입 버튼 추가 -->
+                <div id="habit-tracker-btn" class="dashboard-widget ripple-effect">
+                    <span class="widget-icon">🌟</span>
+                    <span class="widget-label">습관 트래커</span>
+                </div>
             </div>
             <ul id="folder-list" class="item-list" tabindex="0"></ul>
             <footer class="panel-footer">
@@ -64,6 +69,12 @@
         <div id="weather-view-container" style="display: none;">
             <button id="close-weather-view-btn" class="ripple-effect" title="날씨 뷰 닫기">❌</button>
             <iframe id="weather-iframe" src="about:blank"></iframe>
+        </div>
+
+        <!-- [기능 추가] 습관 트래커를 표시할 컨테이너와 iframe 추가 -->
+        <div id="habit-tracker-container" style="display: none;">
+            <button id="close-habit-tracker-btn" class="ripple-effect" title="습관 트래커 닫기">❌</button>
+            <iframe id="habit-tracker-iframe" src="about:blank"></iframe>
         </div>
 
         <nav class="panel" id="notes-panel">
@@ -222,7 +233,7 @@
                     <button id="settings-import-btn" class="modal-button neutral ripple-effect">↩️ 데이터 복원</button>
                 </div>
                 <p class="settings-description">
-                    ℹ️ 현재 모든 <strong>폴더, 노트, 설정</strong>을 JSON 파일로 백업하거나, 백업 파일로부터 복원합니다.<br>
+                    ℹ️ 현재 모든 <strong>폴더, 노트, 설정, 습관 트래커 데이터</strong>를 JSON 파일로 백업하거나, 백업 파일로부터 복원합니다.<br> <!-- [수정] 설명 문구 업데이트 -->
 					⚠️ <strong>주의:</strong> 가져오기를 실행하면 현재 데이터와 설정이 <strong>모두 덮어씌워집니다.</strong><br><br>
 					ℹ️ Simplenote 백업 JSON 파일 복원을 지원합니다. (이 경우에만 기존 데이터를 유지합니다.)
                 </p>

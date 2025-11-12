@@ -51,6 +51,12 @@ export const settingsSaveBtn = getEl('settings-save-btn');
 // [기능 추가] 저장소 사용량 표시 요소를 내보냅니다.
 export const settingsStorageUsage = getEl('settings-storage-usage');
 
+// [기능 추가] 습관 트래커 관련 DOM 요소를 내보냅니다.
+export const habitTrackerBtn = getEl('habit-tracker-btn');
+export const habitTrackerContainer = getEl('habit-tracker-container');
+export const habitTrackerIframe = getEl('habit-tracker-iframe');
+export const closeHabitTrackerBtn = getEl('close-habit-tracker-btn');
+
 
 // --- UI 유틸리티 ---
 export const formatDate = d => {

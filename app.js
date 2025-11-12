@@ -14,7 +14,8 @@ import {
     settingsWeatherCitySearch, settingsWeatherCitySearchBtn, settingsWeatherCityResults,
     // [기능 추가] 새로 추가된 요소를 가져옵니다.
     settingsStorageUsage,
-    editorContainer
+    editorContainer,
+    habitTrackerBtn, habitTrackerContainer, habitTrackerIframe, closeHabitTrackerBtn
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
 // [버그 수정] itemActions.js에서 handleRestoreItem, handleTextareaKeyDown 함수를 가져옵니다.
@@ -326,6 +327,13 @@ const setupSettingsModal = () => {
     document.addEventListener('click', (e) => { if (settingsWeatherCityResults && !settingsWeatherCitySearch.contains(e.target) && !settingsWeatherCityResults.contains(e.target)) { settingsWeatherCityResults.style.display = 'none'; } });
 };
 
+// [기능 추가] 모든 iframe 뷰를 닫는 헬퍼 함수
+const _closeAllIFrames = () => {
+    dashboard._closeWeatherView();
+    dashboard._closeHabitTracker();
+};
+
+
 class Dashboard {
     constructor() {
         this.dom = {
@@ -345,6 +353,12 @@ class Dashboard {
             weatherViewContainer: document.getElementById('weather-view-container'),
             weatherIframe: document.getElementById('weather-iframe'),
             closeWeatherViewBtn: document.getElementById('close-weather-view-btn'),
+            
+            // [기능 추가] 습관 트래커 관련 DOM 요소 참조
+            habitTrackerBtn: document.getElementById('habit-tracker-btn'),
+            habitTrackerContainer: document.getElementById('habit-tracker-container'),
+            habitTrackerIframe: document.getElementById('habit-tracker-iframe'),
+            closeHabitTrackerBtn: document.getElementById('close-habit-tracker-btn'),
         };
         this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockAnimationId: null, digitalClockIntervalId: null, weatherFetchController: null, displayedMonth: null, clockFaceCache: null, };
         this.observer = null;
@@ -360,9 +374,37 @@ class Dashboard {
         }
         this.fetchWeather(); this.renderCalendar(); this._setupCalendarEvents();
         this._setupWeatherViewEvents();
+        // [기능 추가] 습관 트래커 이벤트 설정
+        this._setupHabitTrackerEvents();
         window.addEventListener('unload', () => { if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort(); this._stopClocks(); });
     }
     
+    // [기능 추가] 모든 패널을 숨기는 공통 헬퍼 함수
+    _hideMainPanels() {
+        this.dom.notesPanel.style.display = 'none';
+        this.dom.splitter2.style.display = 'none';
+        this.dom.mainContent.style.display = 'none';
+
+        // 관련 없는 플로팅 액션 버튼 숨기기
+        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
+        const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
+        if (markdownToggleBtn) markdownToggleBtn.style.display = 'none';
+        if (zenModeBtn) zenModeBtn.style.display = 'none';
+    }
+
+    // [기능 추가] 모든 패널을 복원하는 공통 헬퍼 함수
+    _restoreMainPanels() {
+        this.dom.notesPanel.style.removeProperty('display');
+        this.dom.splitter2.style.removeProperty('display');
+        this.dom.mainContent.style.removeProperty('display');
+
+        // 숨겼던 플로팅 액션 버튼 복원
+        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
+        const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
+        if (markdownToggleBtn) markdownToggleBtn.style.removeProperty('display');
+        if (zenModeBtn) zenModeBtn.style.removeProperty('display');
+    }
+
     _openWeatherView() {
         const { lat, lon } = appSettings.weather;
         
@@ -375,42 +417,39 @@ class Dashboard {
         
         const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
         
+        // 다른 iframe 뷰가 열려있으면 닫습니다.
+        this._closeHabitTracker();
+        
         this.dom.weatherIframe.src = `weather.html?lat=${lat}&lon=${lon}&theme=${theme}`;
         
-        // 노트와 에디터 패널 숨기기
-        this.dom.notesPanel.style.display = 'none';
-        this.dom.splitter2.style.display = 'none';
-        this.dom.mainContent.style.display = 'none';
-        
-        // 날씨 뷰 보이기 (display: grid로 변경)
+        this._hideMainPanels();
         this.dom.weatherViewContainer.style.display = 'grid';
-        
-        // [버그 수정] 관련 없는 플로팅 액션 버튼(마크다운, 젠 모드)만 숨깁니다.
-        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
-        const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
-        
-        if (markdownToggleBtn) markdownToggleBtn.style.display = 'none';
-        if (zenModeBtn) zenModeBtn.style.display = 'none';
     }
 
     _closeWeatherView() {
-        // 날씨 뷰 숨기기
         this.dom.weatherViewContainer.style.display = 'none';
         this.dom.weatherIframe.src = 'about:blank';
-    
-        // [BUG FIX] 인라인 스타일을 제거하여 CSS 클래스 기반의 레이아웃 제어가 정상적으로 동작하도록 복원합니다.
-        // 이렇게 하면 젠 모드 전환 시 CSS 규칙이 올바르게 적용됩니다.
-        this.dom.notesPanel.style.removeProperty('display');
-        this.dom.splitter2.style.removeProperty('display');
-        this.dom.mainContent.style.removeProperty('display');
-    
-        // [버그 수정] 숨겼던 플로팅 액션 버튼을 다시 표시합니다.
-        // 인라인 스타일을 제거하여 CSS 및 JS(렌더러)가 올바르게 제어하도록 합니다.
-        const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
-        const zenModeBtn = document.getElementById('zen-mode-toggle-btn');
+        this._restoreMainPanels();
+    }
+
+    // [기능 추가] 습관 트래커 열기 함수
+    _openHabitTracker() {
+        const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
         
-        if (markdownToggleBtn) markdownToggleBtn.style.removeProperty('display');
-        if (zenModeBtn) zenModeBtn.style.removeProperty('display');
+        // 다른 iframe 뷰가 열려있으면 닫습니다.
+        this._closeWeatherView();
+        
+        this.dom.habitTrackerIframe.src = `habitTracker.html?theme=${theme}`;
+        
+        this._hideMainPanels();
+        this.dom.habitTrackerContainer.style.display = 'grid';
+    }
+
+    // [기능 추가] 습관 트래커 닫기 함수
+    _closeHabitTracker() {
+        this.dom.habitTrackerContainer.style.display = 'none';
+        this.dom.habitTrackerIframe.src = 'about:blank';
+        this._restoreMainPanels();
     }
     
     // [버그 수정] 날씨 위젯의 title 속성을 동적으로 업데이트하도록 수정
@@ -422,6 +461,16 @@ class Dashboard {
         }
         if (this.dom.closeWeatherViewBtn) {
             this.dom.closeWeatherViewBtn.addEventListener('click', () => this._closeWeatherView());
+        }
+    }
+    
+    // [기능 추가] 습관 트래커 이벤트 리스너 설정
+    _setupHabitTrackerEvents() {
+        if (this.dom.habitTrackerBtn) {
+            this.dom.habitTrackerBtn.addEventListener('click', () => this._openHabitTracker());
+        }
+        if (this.dom.closeHabitTrackerBtn) {
+            this.dom.closeHabitTrackerBtn.addEventListener('click', () => this._closeHabitTracker());
         }
     }
     
@@ -816,11 +865,13 @@ const setupFeatureToggles = () => {
             // Dashboard.init()에 설정된 MutationObserver가 body의 class 변경을 감지하고
             // 자동으로 시계를 다시 그리므로, 레이스 컨디션이 발생하지 않습니다.
             if (dashboard) {
-                // iframe으로 테마 변경 메시지 전송
-                const weatherIframe = document.getElementById('weather-iframe');
-                if (weatherIframe && weatherIframe.contentWindow) {
-                    // [보안 수정] targetOrigin을 '*' 대신 window.location.origin으로 명시하여 안전한 통신을 보장합니다.
-                    weatherIframe.contentWindow.postMessage({ type: 'setTheme', theme: theme }, window.location.origin);
+                const message = { type: 'setTheme', theme: theme };
+                // [기능 추가] 모든 iframe에 테마 변경 메시지 전송
+                if (dashboard.dom.weatherIframe?.contentWindow) {
+                    dashboard.dom.weatherIframe.contentWindow.postMessage(message, window.location.origin);
+                }
+                if (dashboard.dom.habitTrackerIframe?.contentWindow) {
+                    dashboard.dom.habitTrackerIframe.contentWindow.postMessage(message, window.location.origin);
                 }
             }
         });

@@ -345,6 +345,38 @@ body.theme-applied {
 		margin-top: var(--spacing-md); 
     }
 
+    /* [기능 추가] 대시보드 위젯 공통 스타일 (습관 트래커 버튼 등) */
+    .dashboard-widget {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--spacing-md);
+        padding: var(--spacing-md);
+        border-radius: var(--radius-sm);
+        background-color: var(--input-bg-color);
+        cursor: pointer;
+        transition: transform 0.2s ease-out, background-color 0.2s ease-out, box-shadow 0.2s ease-out;
+        position: relative;
+        overflow: hidden;
+        order: 4;
+        border: 1px solid var(--divider-color);
+        text-align: center;
+    }
+    .dashboard-widget:hover {
+        transform: scale(1.03);
+        background-color: var(--hover-bg-color);
+        box-shadow: var(--shadow-card);
+    }
+    .widget-icon {
+        font-size: 24px;
+        line-height: 1;
+    }
+    .widget-label {
+        font-size: 16px;
+        font-weight: 500;
+        color: var(--font-color);
+    }
+
     #calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm); }
     #calendar-header h3 { font-size: 14px; font-weight: 600; cursor: pointer; padding: var(--spacing-xs); border-radius: var(--radius-sm); transition: background-color 0.2s ease; }
     #calendar-header h3:hover { background-color: var(--hover-bg-color); }
@@ -784,8 +816,9 @@ body.theme-applied {
         color: var(--font-color);
     }
 
-    /* [BUG FIX] 상세 날씨 뷰 스타일 수정 */
-    #weather-view-container {
+    /* [BUG FIX & 기능 추가] iframe 뷰 공통 스타일 */
+    #weather-view-container,
+    #habit-tracker-container {
         grid-column: 3 / 6;
         grid-row: 1 / 1;
         position: relative;
@@ -794,13 +827,19 @@ body.theme-applied {
         background-color: var(--body-bg-color);
         display: flex;
         flex-direction: column;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-panel);
     }
-    #weather-iframe {
+
+    #weather-iframe,
+    #habit-tracker-iframe {
         width: 100%;
         height: 100%;
         border: none;
     }
-    #close-weather-view-btn {
+
+    #close-weather-view-btn,
+    #close-habit-tracker-btn {
         position: absolute;
         top: 4px;
         left: 4px;
@@ -821,7 +860,9 @@ body.theme-applied {
         z-index: 1002;
         overflow: hidden;
     }
-    #close-weather-view-btn:hover {
+
+    #close-weather-view-btn:hover,
+    #close-habit-tracker-btn:hover {
         transform: scale(1.1);
         box-shadow: 0 0 10px var(--danger-color);
     }

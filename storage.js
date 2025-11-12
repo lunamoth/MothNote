@@ -64,6 +64,9 @@ import { welcomeNoteContent } from './welcomeNote.js';
 // [기능 추가] LunaFlowACT.js에서 노트 내용을 가져옵니다.
 import { lunaFlowACTContent } from './LunaFlowACT.js';
 
+// [기능 추가] 습관 트래커 데이터 키 상수
+const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
+
 
 // [순환 참조 해결] generateUniqueId 함수를 state.js 파일로 이동시켰습니다.
 // 이 파일에 있던 함수 정의를 완전히 삭제합니다.
@@ -237,6 +240,13 @@ export const loadData = async () => {
                 }
             } else {
                 localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+            }
+
+            // [기능 추가] 습관 트래커 데이터 롤백
+            if (backupPayload.habitTrackerData) {
+                localStorage.setItem(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
+            } else {
+                localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
             }
             // --- END OF FIX ---
             
@@ -812,19 +822,25 @@ export const sanitizeSettings = (settingsData) => {
     return sanitized;
 };
 
-// [BUG FIX] chrome.downloads API 실패를 처리하도록 handleExport 함수를 전면 수정합니다.
+// [BUG FIX & 기능 추가] 습관 트래커 데이터를 포함하도록 handleExport 함수 수정
 export const handleExport = async (settings) => {
     const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
     await finishPendingRename();
     await saveCurrentNoteIfChanged();
 
     try {
+        // [기능 추가] localStorage에서 습관 트래커 데이터를 가져옵니다.
+        const habitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
+
         const dataToExport = {
+            mothNoteVersion: "18.5", // [기능 추가] 백업 파일 버전 명시
             settings: settings,
             folders: state.folders,
             trash: state.trash,
             favorites: Array.from(state.favorites),
-            lastSavedTimestamp: state.lastSavedTimestamp
+            lastSavedTimestamp: state.lastSavedTimestamp,
+            // [기능 추가] 습관 트래커 데이터가 있으면 포함시킵니다.
+            habitTrackerData: habitTrackerData ? JSON.parse(habitTrackerData) : null
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -1052,11 +1068,14 @@ export const setupImportHandler = () => {
                 // 1. 백업 생성을 먼저 시도하여 안전을 확보합니다.
                 const currentDataResult = await storageGet('appState');
                 const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
+                // [기능 추가] 현재 습관 트래커 데이터 백업
+                const currentHabitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
 
                 if (currentDataResult.appState) {
                     const backupPayload = {
                         appState: currentDataResult.appState,
-                        settings: currentSettings // settings가 null일 수도 있음 (정상)
+                        settings: currentSettings, // settings가 null일 수도 있음 (정상)
+                        habitTrackerData: currentHabitTrackerData // 습관 데이터 추가
                     };
                     try {
                         await storageSet({ 'appState_backup': backupPayload });
@@ -1085,6 +1104,14 @@ export const setupImportHandler = () => {
                 await storageSet({ appState: importPayload });
                 localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
 
+                // [기능 추가] 습관 트래커 데이터 복원
+                if (importedData.habitTrackerData) {
+                    localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(importedData.habitTrackerData));
+                } else {
+                    // 백업 파일에 습관 데이터가 없으면 기존 데이터도 삭제하여 일관성 유지
+                    localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
+                }
+
                 // 4. 성공 플래그를 설정하고 리로드합니다.
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
 
@@ -1104,6 +1131,13 @@ export const setupImportHandler = () => {
                             localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupResult.appState_backup.settings);
                         } else {
                             localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+                        }
+
+                        // [기능 추가] 습관 트래커 데이터 롤백
+                        if (backupResult.appState_backup.habitTrackerData) {
+                            localStorage.setItem(HABIT_TRACKER_DATA_KEY, backupResult.appState_backup.habitTrackerData);
+                        } else {
+                            localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
                         }
                         
                         await storageRemove('appState_backup');
