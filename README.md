@@ -4,6 +4,8 @@
 
 ![MothNote 날씨 상세 페이지 스크린샷](https://raw.githubusercontent.com/lunamoth/MothNote/refs/heads/main/250912_MothNote_Weather.png)
 
+![MothNote 습관 트래커 상세 페이지 스크린샷](https://raw.githubusercontent.com/lunamoth/MothNote/refs/heads/main/251112_MothNote_Habit_Tracker.png)
+
 [MothNote lunamoth 4th 블로그 소개 글](http://lunamoth.com/entry/MothNote)
 
 [MothNote GitHub](https://github.com/lunamoth/MothNote)
