@@ -858,7 +858,7 @@ export const handleExport = async (settings) => {
             chrome.downloads.download({
                 url: url,
                 filename: filename,
-                saveAs: true // 사용자에게 저장 위치를 묻는 것이 더 나은 UX입니다.
+                saveAs: false
             }, (downloadId) => {
                 // [핵심 수정] API 호출 후 lastError를 확인하여 실패 여부를 판단합니다.
                 if (chrome.runtime.lastError) {
