@@ -191,21 +191,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const oldData = localStorage.getItem('habitTrackerDataV2'); // 이전 버전 키
             const veryOldData = localStorage.getItem('habitTrackerData'); // 아주 오래된 버전 키
 
-            if (data) {
+			if (data) {
                 const parsedData = JSON.parse(data);
-                // --- MODIFIED: Load date as local date object ---
-                if (parsedData.currentDate && !isNaN(new Date(parsedData.currentDate).getTime())) {
-                    const d = new Date(parsedData.currentDate);
-                    d.setHours(0,0,0,0);
-                    parsedData.currentDate = d;
-                } else {
-                    const today = new Date();
-                    today.setHours(0,0,0,0);
-                    parsedData.currentDate = today;
-                }
+                
+                // [수정] 저장된 날짜(과거)를 무시하고 항상 '오늘' 날짜로 초기화합니다.
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                parsedData.currentDate = today;
+
+                // 기존 state에 덮어씌우기
                 this.state = { ...this.state, ...parsedData, chartInstances: {} };
                 
-                // [수정] URL 파라미터에서 초기 테마를 가져옵니다.
+                // [수정] URL 파라미터에서 초기 테마를 가져옵니다.				
+				
                 const urlParams = new URLSearchParams(window.location.search);
                 const initialTheme = urlParams.get('theme') || 'light';
                 if (!this.state.settings) {
