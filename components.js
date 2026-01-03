@@ -57,6 +57,12 @@ export const habitTrackerContainer = getEl('habit-tracker-container');
 export const habitTrackerIframe = getEl('habit-tracker-iframe');
 export const closeHabitTrackerBtn = getEl('close-habit-tracker-btn');
 
+// [기능 추가] 다이어트 챌린지 관련 DOM 요소를 내보냅니다.
+export const dietChallengeBtn = getEl('diet-challenge-btn');
+export const dietChallengeContainer = getEl('diet-challenge-container');
+export const dietChallengeIframe = getEl('diet-challenge-iframe');
+export const closeDietChallengeBtn = getEl('close-diet-challenge-btn');
+
 
 // --- UI 유틸리티 ---
 export const formatDate = d => {

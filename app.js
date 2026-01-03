@@ -15,7 +15,9 @@ import {
     // [기능 추가] 새로 추가된 요소를 가져옵니다.
     settingsStorageUsage,
     editorContainer,
-    habitTrackerBtn, habitTrackerContainer, habitTrackerIframe, closeHabitTrackerBtn
+    habitTrackerBtn, habitTrackerContainer, habitTrackerIframe, closeHabitTrackerBtn,
+    // [기능 추가] 다이어트 챌린지 관련 요소
+    dietChallengeBtn, dietChallengeContainer, dietChallengeIframe, closeDietChallengeBtn
 } from './components.js';
 import { renderAll, clearSortedNotesCache } from './renderer.js';
 // [버그 수정] itemActions.js에서 handleRestoreItem, handleTextareaKeyDown 함수를 가져옵니다.
@@ -331,6 +333,7 @@ const setupSettingsModal = () => {
 const _closeAllIFrames = () => {
     dashboard._closeWeatherView();
     dashboard._closeHabitTracker();
+    dashboard._closeDietChallenge();
 };
 
 
@@ -359,6 +362,12 @@ class Dashboard {
             habitTrackerContainer: document.getElementById('habit-tracker-container'),
             habitTrackerIframe: document.getElementById('habit-tracker-iframe'),
             closeHabitTrackerBtn: document.getElementById('close-habit-tracker-btn'),
+
+            // [기능 추가] 다이어트 챌린지 관련 DOM 요소 참조
+            dietChallengeBtn: document.getElementById('diet-challenge-btn'),
+            dietChallengeContainer: document.getElementById('diet-challenge-container'),
+            dietChallengeIframe: document.getElementById('diet-challenge-iframe'),
+            closeDietChallengeBtn: document.getElementById('close-diet-challenge-btn'),
         };
         this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockAnimationId: null, digitalClockIntervalId: null, weatherFetchController: null, displayedMonth: null, clockFaceCache: null, };
         this.observer = null;
@@ -376,6 +385,8 @@ class Dashboard {
         this._setupWeatherViewEvents();
         // [기능 추가] 습관 트래커 이벤트 설정
         this._setupHabitTrackerEvents();
+        // [기능 추가] 다이어트 챌린지 이벤트 설정
+        this._setupDietChallengeEvents();
         window.addEventListener('unload', () => { if (this.internalState.weatherFetchController) this.internalState.weatherFetchController.abort(); this._stopClocks(); });
     }
     
@@ -419,6 +430,7 @@ class Dashboard {
         
         // 다른 iframe 뷰가 열려있으면 닫습니다.
         this._closeHabitTracker();
+        this._closeDietChallenge();
         
         this.dom.weatherIframe.src = `weather.html?lat=${lat}&lon=${lon}&theme=${theme}`;
         
@@ -438,6 +450,7 @@ class Dashboard {
         
         // 다른 iframe 뷰가 열려있으면 닫습니다.
         this._closeWeatherView();
+        this._closeDietChallenge();
         
         this.dom.habitTrackerIframe.src = `habitTracker.html?theme=${theme}`;
         
@@ -449,6 +462,27 @@ class Dashboard {
     _closeHabitTracker() {
         this.dom.habitTrackerContainer.style.display = 'none';
         this.dom.habitTrackerIframe.src = 'about:blank';
+        this._restoreMainPanels();
+    }
+
+    // [기능 추가] 다이어트 챌린지 열기 함수
+    _openDietChallenge() {
+        const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+        
+        // 다른 iframe 뷰가 열려있으면 닫습니다.
+        this._closeWeatherView();
+        this._closeHabitTracker();
+        
+        this.dom.dietChallengeIframe.src = `dietChallenge.html?theme=${theme}`;
+        
+        this._hideMainPanels();
+        this.dom.dietChallengeContainer.style.display = 'grid';
+    }
+
+    // [기능 추가] 다이어트 챌린지 닫기 함수
+    _closeDietChallenge() {
+        this.dom.dietChallengeContainer.style.display = 'none';
+        this.dom.dietChallengeIframe.src = 'about:blank';
         this._restoreMainPanels();
     }
     
@@ -471,6 +505,16 @@ class Dashboard {
         }
         if (this.dom.closeHabitTrackerBtn) {
             this.dom.closeHabitTrackerBtn.addEventListener('click', () => this._closeHabitTracker());
+        }
+    }
+
+    // [기능 추가] 다이어트 챌린지 이벤트 리스너 설정
+    _setupDietChallengeEvents() {
+        if (this.dom.dietChallengeBtn) {
+            this.dom.dietChallengeBtn.addEventListener('click', () => this._openDietChallenge());
+        }
+        if (this.dom.closeDietChallengeBtn) {
+            this.dom.closeDietChallengeBtn.addEventListener('click', () => this._closeDietChallenge());
         }
     }
     
@@ -872,6 +916,9 @@ const setupFeatureToggles = () => {
                 }
                 if (dashboard.dom.habitTrackerIframe?.contentWindow) {
                     dashboard.dom.habitTrackerIframe.contentWindow.postMessage(message, window.location.origin);
+                }
+                if (dashboard.dom.dietChallengeIframe?.contentWindow) {
+                    dashboard.dom.dietChallengeIframe.contentWindow.postMessage(message, window.location.origin);
                 }
             }
         });

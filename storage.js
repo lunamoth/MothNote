@@ -66,6 +66,9 @@ import { lunaFlowACTContent } from './LunaFlowACT.js';
 
 // [기능 추가] 습관 트래커 데이터 키 상수
 const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
+// [기능 추가] 다이어트 챌린지 데이터 키 상수
+const DIET_CHALLENGE_DATA_KEY = 'diet_pro_records'; // dietChallenge.js의 STORAGE_KEY와 일치해야 함
+const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 SETTINGS_KEY와 일치해야 함
 
 
 // [순환 참조 해결] generateUniqueId 함수를 state.js 파일로 이동시켰습니다.
@@ -247,6 +250,18 @@ export const loadData = async () => {
                 localStorage.setItem(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
             } else {
                 localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
+            }
+
+            // [기능 추가] 다이어트 챌린지 데이터 롤백
+            if (backupPayload.dietChallengeData) {
+                localStorage.setItem(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
+            } else {
+                localStorage.removeItem(DIET_CHALLENGE_DATA_KEY);
+            }
+            if (backupPayload.dietChallengeSettings) {
+                localStorage.setItem(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);
+            } else {
+                localStorage.removeItem(DIET_CHALLENGE_SETTINGS_KEY);
             }
             // --- END OF FIX ---
             
@@ -822,25 +837,31 @@ export const sanitizeSettings = (settingsData) => {
     return sanitized;
 };
 
-// [BUG FIX & 기능 추가] 습관 트래커 데이터를 포함하도록 handleExport 함수 수정
+// [BUG FIX & 기능 추가] 습관 트래커 및 다이어트 챌린지 데이터를 포함하도록 handleExport 함수 수정
 export const handleExport = async (settings) => {
     const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
     await finishPendingRename();
     await saveCurrentNoteIfChanged();
 
     try {
-        // [기능 추가] localStorage에서 습관 트래커 데이터를 가져옵니다.
+        // [기능 추가] localStorage에서 습관 트래커 데이터 가져오기
         const habitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
+        // [기능 추가] localStorage에서 다이어트 챌린지 데이터 가져오기
+        const dietChallengeData = localStorage.getItem(DIET_CHALLENGE_DATA_KEY);
+        const dietChallengeSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
 
         const dataToExport = {
-            mothNoteVersion: "18.5", // [기능 추가] 백업 파일 버전 명시
+            mothNoteVersion: "18.6", // [기능 추가] 백업 파일 버전 명시 (다이어트 챌린지 추가)
             settings: settings,
             folders: state.folders,
             trash: state.trash,
             favorites: Array.from(state.favorites),
             lastSavedTimestamp: state.lastSavedTimestamp,
             // [기능 추가] 습관 트래커 데이터가 있으면 포함시킵니다.
-            habitTrackerData: habitTrackerData ? JSON.parse(habitTrackerData) : null
+            habitTrackerData: habitTrackerData ? JSON.parse(habitTrackerData) : null,
+            // [기능 추가] 다이어트 챌린지 데이터가 있으면 포함시킵니다.
+            dietChallengeData: dietChallengeData, // 문자열 그대로 저장
+            dietChallengeSettings: dietChallengeSettings // 문자열 그대로 저장
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -1068,14 +1089,18 @@ export const setupImportHandler = () => {
                 // 1. 백업 생성을 먼저 시도하여 안전을 확보합니다.
                 const currentDataResult = await storageGet('appState');
                 const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-                // [기능 추가] 현재 습관 트래커 데이터 백업
+                // [기능 추가] 현재 습관 트래커 및 다이어트 챌린지 데이터 백업
                 const currentHabitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
+                const currentDietChallengeData = localStorage.getItem(DIET_CHALLENGE_DATA_KEY);
+                const currentDietChallengeSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
 
                 if (currentDataResult.appState) {
                     const backupPayload = {
                         appState: currentDataResult.appState,
                         settings: currentSettings, // settings가 null일 수도 있음 (정상)
-                        habitTrackerData: currentHabitTrackerData // 습관 데이터 추가
+                        habitTrackerData: currentHabitTrackerData, // 습관 데이터 추가
+                        dietChallengeData: currentDietChallengeData, // 다이어트 데이터 추가
+                        dietChallengeSettings: currentDietChallengeSettings // 다이어트 설정 추가
                     };
                     try {
                         await storageSet({ 'appState_backup': backupPayload });
@@ -1112,6 +1137,27 @@ export const setupImportHandler = () => {
                     localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
                 }
 
+                // [기능 추가] 다이어트 챌린지 데이터 복원
+                if (importedData.dietChallengeData) {
+                    // dietChallengeData는 이미 문자열 상태일 수 있음 (JSON.stringify 되었는지 확인 필요)
+                    // 여기서는 백업 시 그대로 저장했으므로 그대로 복원합니다. 
+                    // 단, importedData가 파싱된 객체이므로 dietChallengeData가 문자열이 아닐 수 있음에 유의.
+                    // 위 handleExport에서는 dietChallengeData를 localStorage.getItem()으로 가져와 객체에 할당했으므로
+                    // JSON.parse(event.target.result) 시에는 다시 문자열(혹은 null)이 됩니다.
+                    // 만약 JSON.parse된 상태라면 다시 stringify해야 할 수도 있습니다. 
+                    // 하지만 export 로직상 localStorage.getItem 결과(문자열)를 할당했으므로, 
+                    // importedData.dietChallengeData는 문자열입니다.
+                    localStorage.setItem(DIET_CHALLENGE_DATA_KEY, importedData.dietChallengeData);
+                } else {
+                    localStorage.removeItem(DIET_CHALLENGE_DATA_KEY);
+                }
+
+                if (importedData.dietChallengeSettings) {
+                    localStorage.setItem(DIET_CHALLENGE_SETTINGS_KEY, importedData.dietChallengeSettings);
+                } else {
+                    localStorage.removeItem(DIET_CHALLENGE_SETTINGS_KEY);
+                }
+
                 // 4. 성공 플래그를 설정하고 리로드합니다.
                 localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
 
@@ -1138,6 +1184,18 @@ export const setupImportHandler = () => {
                             localStorage.setItem(HABIT_TRACKER_DATA_KEY, backupResult.appState_backup.habitTrackerData);
                         } else {
                             localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
+                        }
+
+                        // [기능 추가] 다이어트 챌린지 데이터 롤백
+                        if (backupResult.appState_backup.dietChallengeData) {
+                            localStorage.setItem(DIET_CHALLENGE_DATA_KEY, backupResult.appState_backup.dietChallengeData);
+                        } else {
+                            localStorage.removeItem(DIET_CHALLENGE_DATA_KEY);
+                        }
+                        if (backupResult.appState_backup.dietChallengeSettings) {
+                            localStorage.setItem(DIET_CHALLENGE_SETTINGS_KEY, backupResult.appState_backup.dietChallengeSettings);
+                        } else {
+                            localStorage.removeItem(DIET_CHALLENGE_SETTINGS_KEY);
                         }
                         
                         await storageRemove('appState_backup');

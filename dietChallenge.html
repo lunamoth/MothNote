@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💪 다이어트 챌린지 (Ver 3.0.74)</title>
+    
+    <!-- 필수 라이브러리: Chart.js 및 Date Adapter (defer 추가로 로딩 최적화) -->
+    <script src="chart.js" defer></script>
+    <script src="date-fns.js" defer></script>
+    <script src="chartjs-adapter-date-fns.js" defer></script>
+
+    <style>
+        :root {
+            /* 라이트 모드 (기본) */
+            --primary: #4CAF50;
+            --primary-dark: #388E3C;
+            --secondary: #2196F3;
+            --secondary-dark: #1976D2;
+            --accent: #FF9800;
+            --danger: #F44336;
+            --bg: #f0f2f5;
+            --card-bg: #ffffff;
+            --text: #333333;
+            --text-light: #757575;
+            --input-border: #e0e0e0;
+            
+            /* 히트맵 색상 */
+            --heatmap-empty: #ebedf0;
+            --heatmap-1: #9be9a8; /* 약한 감량 */
+            --heatmap-2: #40c463;
+            --heatmap-3: #30a14e;
+            --heatmap-4: #216e39; /* 강한 감량 */
+            --heatmap-gain: #ffcdd2; /* 증량 */
+            
+            /* 차트용 변수 (JS에서 참조) */
+            --chart-grid: #eeeeee;
+            --chart-text: #666666;
+        }
+
+        /* 다크 모드 변수 정의 */
+        body.dark-mode {
+            --bg: #121212;
+            --card-bg: #1e1e1e;
+            --text: #e0e0e0;
+            --text-light: #a0a0a0;
+            --input-border: #333333;
+            --heatmap-empty: #2d333b;
+            --heatmap-1: #0e4429; 
+            --heatmap-2: #006d32;
+            --heatmap-3: #26a641;
+            --heatmap-4: #39d353;
+            --heatmap-gain: #5c1818; 
+            
+            --chart-grid: #444444;
+            --chart-text: #aaaaaa;
+        }
+
+        /* 공통 유틸리티 */
+        .flex-center { display: flex; justify-content: center; align-items: center; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        
+        /* 텍스트 색상 유틸리티 (JS 인라인 스타일 대체) */
+        .text-primary { color: var(--primary) !important; }
+        .text-primary-dark { color: var(--primary-dark) !important; }
+        .text-secondary { color: var(--secondary) !important; }
+        .text-secondary-dark { color: var(--secondary-dark) !important; }
+        .text-danger { color: var(--danger) !important; }
+        .text-accent { color: var(--accent) !important; }
+        .text-default { color: var(--text) !important; }
+        .text-light { color: var(--text-light) !important; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .container { max-width: 1500px; margin: 0 auto; }
+
+        /* 헤더 */
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            padding: 30px;
+            border-radius: 20px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            position: relative;
+            transition: background 0.3s;
+        }
+        /* [수정] 헤더 다크모드 배경색 - 훨씬 어두운 톤으로 변경하여 눈부심 방지 */
+        body.dark-mode header {
+            background: linear-gradient(135deg, #1b5e20, #0d47a1); /* Deep Green to Deep Blue */
+        }
+
+        h1 { margin: 0; font-size: 2.2rem; }
+        .subtitle { opacity: 0.9; margin-top: 5px; font-size: 1rem; }
+        
+        .theme-toggle {
+            position: absolute; top: 15px; right: 15px;
+            background: rgba(255,255,255,0.2); border: none; color: white;
+            padding: 5px 10px; border-radius: 15px; cursor: pointer; font-size: 0.8rem;
+        }
+
+        /* 카드 공통 */
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: transform 0.2s, background-color 0.3s;
+        }
+        .card h3 { 
+            margin-top: 0; border-bottom: 2px solid #f0f0f0; 
+            padding-bottom: 10px; margin-bottom: 15px; font-size: 1.2rem; 
+            display: flex; justify-content: space-between; align-items: center; 
+            color: var(--text); 
+        }
+        body.dark-mode .card h3 { border-bottom-color: #333; }
+
+        /* [추가] 정체기 돌파 도우미 전용 스타일 (다크모드 지원을 위해 인라인 스타일 제거 후 클래스화) */
+        .plateau-card {
+            background: linear-gradient(to right, #fdfbfb, #ebedee);
+            border-left: 5px solid var(--accent);
+        }
+        body.dark-mode .plateau-card {
+            background: linear-gradient(to right, #2a2a2a, #1a1a1a); /* 다크모드 그라데이션 */
+            border-left: 5px solid var(--accent);
+        }
+
+        /* 입력 폼 */
+        .input-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; transition: background-color 0.5s; }
+        .input-group.highlight { background-color: rgba(76, 175, 80, 0.1); border-radius: 10px; padding: 5px; margin: -5px; }
+
+        .input-wrapper { flex: 1; min-width: 100px; }
+        label { display: block; font-size: 0.85rem; color: var(--text-light); margin-bottom: 5px; font-weight: bold; }
+        input, select { 
+            width: 100%; padding: 10px; border: 2px solid var(--input-border); 
+            border-radius: 10px; font-size: 1rem; box-sizing: border-box; 
+            outline: none; background: var(--card-bg); color: var(--text); 
+        }
+        input:focus { border-color: var(--primary); }
+        
+        button.add-btn {
+            background-color: var(--primary); color: white; border: none; padding: 10px 24px; border-radius: 10px;
+            font-size: 1rem; cursor: pointer; font-weight: bold; min-width: 100px; box-shadow: 0 4px 6px rgba(76, 175, 80, 0.3);
+            transition: background-color 0.3s, transform 0.1s;
+        }
+        button.add-btn.editing-mode {
+            background-color: var(--accent);
+            box-shadow: 0 4px 6px rgba(255, 152, 0, 0.3);
+        }
+        button.add-btn:active { transform: scale(0.98); }
+
+        /* 설정 패널 */
+        .settings-toggle { text-align: right; margin-bottom: 10px; cursor: pointer; color: var(--text-light); font-size: 0.9rem; }
+        #settingsPanel { display: none; background: #fafafa; border: 1px dashed #ccc; }
+        body.dark-mode #settingsPanel { background: #151515; border-color: #444; }
+        .danger-zone { border: 1px solid var(--danger); background: #fff5f5; padding: 15px; border-radius: 10px; margin-top: 20px; }
+        body.dark-mode .danger-zone { background: #2a1c1c; }
+
+        /* 프로그레스 바 */
+        .progress-card { position: relative; padding: 25px 20px; }
+        .progress-track {
+            background: #e0e0e0; height: 10px; border-radius: 5px; position: relative;
+            margin: 40px 15px 50px 15px; 
+        }
+        body.dark-mode .progress-track { background: #333; }
+        .progress-fill {
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            height: 100%; border-radius: 5px; width: 0%; transition: width 0.5s ease-out;
+            position: absolute; top: 0; right: 0;
+        }
+        .progress-marker {
+            position: absolute; top: 50%; transform: translate(-50%, -50%);
+            width: 14px; height: 14px; background: white; border: 3px solid #ccc; border-radius: 50%; z-index: 2;
+        }
+        .progress-marker.start { left: 100%; border-color: var(--text-light); }
+        .progress-marker.goal { left: 0%; border-color: var(--secondary); }
+        
+        .progress-indicator-emoji {
+            position: absolute; top: -35px; transform: translateX(50%);
+            font-size: 1.8rem; transition: right 0.5s ease-out; z-index: 3;
+        }
+        .progress-info-text {
+            position: absolute; top: 20px; transform: translateX(50%);
+            font-size: 0.8rem; color: var(--text); background: rgba(255,255,255,0.95);
+            padding: 4px 8px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            white-space: nowrap; text-align: center; border: 1px solid #eee; transition: right 0.5s ease-out; z-index: 3;
+        }
+        body.dark-mode .progress-info-text { background: #333; color: #fff; border-color: #444; }
+        .progress-labels { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-light); font-weight: bold; margin-top: -35px; padding: 0 10px; }
+
+        /* 대시보드 그리드 */
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: var(--card-bg); padding: 15px; border-radius: 12px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .stat-icon { font-size: 1.8rem; margin-bottom: 5px; display: block; }
+        .stat-value { font-size: 1.4rem; font-weight: bold; color: var(--text); }
+        .stat-label { font-size: 0.8rem; color: var(--text-light); }
+        .stat-sub { font-size: 0.75rem; color: var(--secondary); margin-top: 2px; }
+
+        /* 텍스트 리포트 */
+        .text-report { background: #e3f2fd; color: #0d47a1; padding: 12px 18px; border-radius: 10px; font-size: 0.95rem; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        body.dark-mode .text-report { background: #1a2a3a; color: #64b5f6; }
+        
+        /* 상세 분석 그리드 */
+        .analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        
+        /* 테이블 & Sticky Header */
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; position: relative; }
+        .data-table th, .data-table td { padding: 10px; text-align: center; border-bottom: 1px solid #eee; color: var(--text); }
+        body.dark-mode .data-table th, body.dark-mode .data-table td { border-bottom-color: #333; }
+        .data-table th { 
+            background-color: #f9f9f9; color: var(--text-light); font-weight: 600; 
+            position: sticky; top: 0; z-index: 1; /* Sticky Header */
+        }
+        body.dark-mode .data-table th { background-color: #1f1f1f; }
+        .data-table td.pos { color: var(--danger); font-weight: bold; } /* 증량 */
+        .data-table td.neg { color: var(--primary); font-weight: bold; } /* 감량 */
+        
+        /* 히트맵 */
+        .heatmap-container { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; padding: 10px 0; max-width: 100%; }
+        .heatmap-cell { width: 12px; height: 12px; border-radius: 2px; background-color: var(--heatmap-empty); cursor: pointer; position: relative; }
+        
+        /* 스타일 분리: JS 연동을 위한 히트맵 클래스 */
+        .heatmap-cell.level-gain { background-color: var(--heatmap-gain); }
+        .heatmap-cell.level-0 { background-color: var(--heatmap-empty); }
+        .heatmap-cell.level-1 { background-color: var(--heatmap-1); }
+        .heatmap-cell.level-2 { background-color: var(--heatmap-2); }
+        .heatmap-cell.level-3 { background-color: var(--heatmap-3); }
+        .heatmap-cell.level-4 { background-color: var(--heatmap-4); }
+        
+        .heatmap-legend { display: flex; justify-content: flex-end; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--text-light); margin-top: 5px; }
+        .legend-box { width: 10px; height: 10px; border-radius: 2px; }
+
+        /* 차트 컨테이너 */
+        .mini-chart-container { height: 200px; width: 100%; position: relative; }
+        .chart-container { position: relative; height: 350px; width: 100%; }
+
+        /* 필터 */
+        .filter-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+        .filter-group { display: flex; gap: 5px; flex-wrap: wrap; }
+        .filter-btn { background: #f0f0f0; border: none; padding: 6px 12px; border-radius: 15px; font-size: 0.85rem; cursor: pointer; color: var(--text-light); margin-bottom: 5px; }
+        body.dark-mode .filter-btn { background: #333; color: #888; }
+        .filter-btn.active { background: var(--secondary); color: white; font-weight: bold; }
+        .date-range-picker { display: flex; gap: 5px; align-items: center; font-size: 0.85rem; color: var(--text); }
+
+        /* 뱃지 시스템 */
+        .badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; text-align: center; }
+        .badge-item { background: #fafafa; padding: 10px; border-radius: 10px; border: 1px solid #eee; opacity: 0.4; filter: grayscale(1); transition: all 0.3s; cursor: help; }
+        body.dark-mode .badge-item { background: #222; border-color: #333; }
+        .badge-item.unlocked { opacity: 1; filter: grayscale(0); border-color: var(--accent); background: #fff8e1; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        body.dark-mode .badge-item.unlocked { background: #3e2723; }
+        .badge-icon { font-size: 2rem; display: block; margin-bottom: 5px; }
+        .badge-name { font-size: 0.75rem; font-weight: bold; color: var(--text); }
+
+        /* 캘린더 뷰 */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; font-size: 0.75rem; margin-top: 10px; }
+        .calendar-header { display: flex; justify-content: center; align-items: center; gap: 15px; font-weight: bold; color: var(--text-light); padding-bottom: 10px; }
+        .calendar-header button { background: var(--secondary); color: white; border: none; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 0.8rem; }
+        .calendar-header select { padding: 4px; font-size: 0.8rem; width: auto; }
+        .calendar-cell { 
+            background: var(--card-bg); border: 1px solid var(--input-border); 
+            border-radius: 4px; padding: 6px 2px; text-align: center; min-height: 40px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .calendar-cell.gain { background-color: rgba(244, 67, 54, 0.1); border-color: var(--danger); }
+        .calendar-cell.loss { background-color: rgba(33, 150, 243, 0.1); border-color: var(--secondary); }
+        .calendar-date { font-weight: bold; margin-bottom: 2px; }
+        .calendar-val { font-size: 0.7rem; color: var(--text-light); }
+
+        /* 고급 분석 텍스트 */
+        .insight-list { list-style: none; padding: 0; margin: 0; }
+        .insight-item { padding: 8px 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+        body.dark-mode .insight-item { border-bottom-color: #333; }
+        .insight-item:last-child { border-bottom: none; }
+        .insight-label { font-weight: bold; margin-right: 5px; color: var(--secondary); }
+
+        /* 토스트 메시지 */
+        .toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 1000; pointer-events: none; }
+        .toast {
+            background: rgba(40, 40, 40, 0.9); color: white; padding: 12px 24px; 
+            border-radius: 25px; margin-top: 10px; text-align: center; font-size: 0.9rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: fadeIn 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards;
+            pointer-events: auto;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+        /* 모바일 대응 */
+        @media (max-width: 600px) {
+            h1 { font-size: 1.6rem; }
+            .dashboard-grid { grid-template-columns: 1fr 1fr; }
+            .filter-row { flex-direction: column; align-items: flex-start; }
+            .input-group { flex-direction: column; }
+            .input-wrapper, button.add-btn { width: 100%; }
+        }
+
+        /* 차트 확대 기능 */
+        .expand-btn {
+            cursor: pointer; font-size: 1.2rem; color: var(--text-light);
+            transition: color 0.2s, transform 0.2s; background: none; border: none; padding: 0 5px;
+        }
+        .expand-btn:hover { color: var(--primary); transform: scale(1.1); }
+
+        .chart-backdrop {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 9998; display: none; backdrop-filter: blur(2px);
+        }
+        .chart-backdrop.active { display: block; }
+
+        .card.expanded-card {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 90vw; height: 90vh; max-width: none; max-height: none;
+            z-index: 9999; box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            overflow: hidden; border: 1px solid var(--primary);
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            background: var(--card-bg); display: flex; flex-direction: column;
+        }
+        
+        .card.expanded-card .mini-chart-container,
+        .card.expanded-card .chart-container { flex: 1; height: auto; width: 100%; transition: none; }
+		
+        @keyframes popIn {
+            from { opacity: 0; transform: translate(-50%, -40%) scale(0.95); }
+            to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+        
+        @media (max-width: 600px) {
+            .card.expanded-card { width: 95vw; height: 80vh; }
+        }
+
+    .expanded-card .gauge-container { height: 70% !important; align-items: center !important; }
+    .expanded-card .gauge-wrapper { max-width: 45% !important; }
+
+    /* --- [NEW] 인라인 수정용 스타일 추가 --- */
+    .inline-input {
+        width: 70px; padding: 5px; border: 1px solid var(--primary);
+        border-radius: 5px; font-size: 0.9rem; text-align: center;
+        background: var(--card-bg); color: var(--text);
+    }
+    .inline-btn {
+        border: none; background: none; cursor: pointer; font-size: 1.1rem; margin: 0 3px;
+        transition: transform 0.1s;
+    }
+    .inline-btn:hover { transform: scale(1.2); }
+	
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <!-- [수정] onclick 제거, id 추가 -->
+        <button class="theme-toggle" id="btn-theme-toggle">🌓 다크모드</button>
+        <div style="font-size: 3rem; margin-bottom: 10px;">🏃‍♂️🥗💧</div>
+        <h1>다이어트 챌린지</h1>
+        <div class="subtitle">데이터 기반 체중 관리 시스템 - 데이터로 완성하는 나만의 감량 대시보드</div>
+    </header>
+
+    <!-- 설정 영역 -->
+    <!-- [수정] onclick 제거, id 추가 -->
+    <div class="settings-toggle" id="btn-settings-toggle">⚙️ 키, 시작 체중, 목표 체중 설정 / 백업 / 초기화</div>
+    <div class="card" id="settingsPanel">
+        <h4 style="margin-top:0;">기본 설정</h4>
+        <div class="input-group" style="margin-bottom: 20px;">
+            <div class="input-wrapper">
+                <label>📏 키 (cm)</label>
+                <input type="number" id="userHeight" value="179" inputmode="decimal">
+            </div>
+            <div class="input-wrapper">
+                <label>🏁 시작 체중 (kg)</label>
+                <input type="number" id="startWeight" value="78.5" step="0.1" inputmode="decimal">
+            </div>
+            <div class="input-wrapper">
+                <label>🎯 목표 체중 (kg)</label>
+                <input type="number" id="goal1Weight" value="70" step="0.1" inputmode="decimal">
+            </div>
+            <div class="input-wrapper">
+                <label>🍽️ 일평균 섭취 (kcal)</label>
+                <input type="number" id="dailyIntake" value="1862" step="50" inputmode="decimal" placeholder="기본: 1862">
+            </div>
+            <!-- [수정] onclick 제거, id 추가 -->
+            <button class="add-btn" style="background-color: var(--secondary);" id="btn-save-settings">저장</button>
+        </div>
+
+        <h4 style="margin-top:0;">📂 데이터 백업 및 복원 (JSON)</h4>
+        <div class="input-group" style="margin-bottom: 20px; border: 1px dashed #ccc; padding: 10px; border-radius: 10px;">
+             <div class="input-wrapper">
+                 <label>전용 백업 파일(JSON) 선택</label>
+                 <input type="file" id="jsonFileInput" accept=".json" style="border:none;">
+             </div>
+             <!-- [수정] onclick 제거, id 추가 -->
+             <button class="add-btn" style="background-color: var(--text-light); padding: 8px 15px; font-size: 0.9rem;" id="btn-import-json">복원하기</button>
+             <button class="add-btn" style="background-color: var(--secondary); padding: 8px 15px; font-size: 0.9rem;" id="btn-export-json">JSON 백업 (설정값 포함)</button>
+             <button class="add-btn" style="background-color: var(--primary); padding: 8px 15px; font-size: 0.9rem;" id="btn-export-csv">CSV 백업 (설정값 제외)</button>
+        </div>
+
+        <h4 style="margin-top:0;">📲 외부 데이터 복원하기 (CSV)</h4>
+        <div class="input-group" style="margin-bottom: 20px; border: 1px dashed #ccc; padding: 10px; border-radius: 10px;">
+             <div class="input-wrapper">
+                 <label>WeightDrop CSV 선택</label>
+                 <input type="file" id="csvImportInput" accept=".csv" style="border:none;">
+             </div>
+             <!-- [수정] onclick 제거, id 추가 -->
+             <button class="add-btn" style="background-color: var(--text-light); padding: 8px 15px; font-size: 0.9rem;" id="btn-import-csv">복원하기</button>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-light); margin-top: -10px; margin-bottom: 20px;">
+            iOS 의 <a href="https://apps.apple.com/be/app/weightdrop-weight-loss-tracker/id786267891" target="_blank" rel="noopener">‎WeightDrop Weight Loss Tracker App</a> 앱의 백업 데이터 불러오기를 지원합니다.
+        </p>
+
+        <div class="danger-zone">
+            <h4 class="text-danger" style="margin-top:0;">⚠️ 위험 구역</h4>
+            <p style="font-size: 0.9rem; margin-bottom: 10px;">모든 데이터를 삭제하려면 <strong>"초기화"</strong>라고 입력하세요.</p>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="resetConfirmInput" placeholder="초기화 입력" style="max-width: 150px;">
+                <!-- [수정] onclick 제거, id 추가 -->
+                <button id="btn-reset-data" style="background-color: var(--danger); color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">삭제</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 입력 영역 (Enter 키 이벤트 지원) -->
+    <div class="card">
+        <h3>📅 오늘의 기록</h3>
+        <div class="input-group" id="recordInputGroup">
+            <div class="input-wrapper">
+                <label>날짜</label>
+                <input type="date" id="dateInput">
+            </div>
+            <div class="input-wrapper">
+                <label>현재 체중 (kg)</label>
+                <input type="number" id="weightInput" step="0.1" placeholder="예: 78.0" inputmode="decimal">
+            </div>
+            <div class="input-wrapper">
+                <label>체지방률 (%) <small>(선택)</small></label>
+                <input type="number" id="fatInput" step="0.1" placeholder="예: 20.5" inputmode="decimal">
+            </div>
+            <!-- [수정] onclick 제거 (이벤트는 JS에서 처리) -->
+            <button class="add-btn" id="recordBtn">기록하기 📝</button>
+        </div>
+    </div>
+
+    <!-- 목표 달성 프로그레스 바 -->
+    <div class="card progress-card">
+        <h3 style="border:none; margin-bottom:10px;">🛤️ 목표 달성 현황</h3>
+        <div class="progress-track">
+            <div class="progress-fill" id="progressBarFill"></div>
+            <!-- 마커 -->
+            <div class="progress-marker start"></div>
+            <div class="progress-marker goal"></div>
+            
+            <!-- 현재 위치 표시 -->
+            <div class="progress-indicator-emoji" id="progressEmoji">👇</div>
+            <div class="progress-info-text" id="progressText">
+                정보 로딩중...
+            </div>
+        </div>
+        <div class="progress-labels">
+            <span id="labelGoal">목표: -kg</span>
+            <span id="labelStart">시작: -kg</span>
+        </div>
+
+        <!-- BMI 프로그레스 바 추가 -->
+        <div style="margin-top: 50px; padding-top: 20px; border-top: 1px dashed #e0e0e0;">
+            <h4 style="margin: 0 0 45px 0; font-size: 0.85rem; color: var(--text-light);">BMI 상태</h4>
+            <div class="progress-track" style="margin-top: 0;">
+                <!-- BMI 바: 왼쪽(낮음) -> 오른쪽(높음) 방향으로 채워짐. 그라데이션 적용 -->
+                <div class="progress-fill" id="bmiProgressBarFill" 
+                     style="left: 0; right: auto; background: linear-gradient(to right, #90caf9, #a5d6a7, #fff59d, #ffcc80, #ef9a9a, #ef5350);"></div>
+                
+                <!-- 현재 위치 표시 -->
+                <div class="progress-indicator-emoji" id="bmiProgressEmoji">📍</div>
+                <div class="progress-info-text" id="bmiProgressText">
+                    BMI 계산 중...
+                </div>
+            </div>
+            <div class="progress-labels" style="margin-top: -35px;">
+                <span id="bmiLabelLeft">BMI 10</span>
+                <span id="bmiLabelRight">BMI 45</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 주간/월간 리포트 텍스트 -->
+    <div class="text-report">
+        <span style="font-size: 1.2rem;">📢</span>
+        <span id="analysisText">데이터를 입력하면 분석 리포트가 여기에 표시됩니다.</span>
+    </div>
+
+    <!-- 정체기 돌파 도우미 (신규 추가) -->
+    <!-- [수정] 다크모드 지원을 위해 inline style 제거 후 class 추가 -->
+    <div class="card plateau-card">
+        <h3 class="text-accent">🤖 정체기 돌파 도우미</h3>
+        <div id="plateauHelperText" style="font-size: 0.95rem;">
+            데이터 분석 중...
+        </div>
+    </div>
+
+    <!-- 핵심 통계 대시보드 -->
+    <div class="dashboard-grid">
+        <div class="stat-card">
+            <span class="stat-icon">⚖️</span>
+            <div class="stat-value" id="currentWeightDisplay">-</div>
+            <div class="stat-label">현재 체중</div>
+            <div class="stat-sub" id="bmiDisplay">BMI: -</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📉</span>
+            <div class="stat-value" id="totalLostDisplay">-</div>
+            <div class="stat-label">총 감량</div>
+            <div class="stat-sub" id="percentLostDisplay">(-%)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🚀</span>
+            <div class="stat-value" id="progressPercent">-</div>
+            <div class="stat-label">목표 달성률</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🏔️</span>
+            <div class="stat-value" id="remainingWeightDisplay">-</div>
+            <div class="stat-label">남은 감량</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">⏳</span>
+            <div class="stat-value" id="remainingPercentDisplay">-</div>
+            <div class="stat-label">남은 비율</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🔮</span>
+            <div class="stat-value" id="predictedDate" style="font-size: 1.1rem; line-height: 1.8rem;">-</div>
+            <div class="stat-label">예상 완료일</div>
+            <div class="stat-sub" id="predictionRange" style="font-size:0.65rem;">(빠름~느림)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🏎️</span>
+            <div class="stat-value" id="dashboardRate7Days">-</div>
+            <div class="stat-label">최근 7일 일평균 감량</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🐢</span>
+            <div class="stat-value" id="dashboardRate30Days">-</div>
+            <div class="stat-label">최근 30일 일평균 감량</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🔥</span>
+            <div class="stat-value" id="streakDisplay">-</div>
+            <div class="stat-label">연속 감량 (Streak)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📊</span>
+            <div class="stat-value" id="successRateDisplay">-</div>
+            <div class="stat-label">감량 성공률 (일일)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📏</span>
+            <div class="stat-value" id="minMaxWeightDisplay" style="font-size: 1rem;">-</div>
+            <div class="stat-label">최고/최저 체중</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🎢</span>
+            <div class="stat-value" id="dailyVolatilityDisplay" style="font-size: 1rem;">-</div>
+            <div class="stat-label">일일 최대 변동</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🗓️</span>
+            <div class="stat-value" id="weeklyAvgDisplay">-</div>
+            <div class="stat-label">주간 평균 감량</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🌙</span>
+            <div class="stat-value" id="monthCompareDisplay">-</div>
+            <div class="stat-label">지난달 대비 평균</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">💪</span>
+            <div class="stat-value" id="lbmDisplay">-</div>
+            <div class="stat-label">제지방량 (LBM)</div>
+            <div class="stat-sub" id="lbmiDisplay">LBMI: -</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🗓️</span>
+            <div class="stat-value" id="dDayDisplay">-</div>
+            <div class="stat-label">챌린지 경과일</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🍔</span>
+            <div class="stat-value" id="estTdeeDisplay">-</div>
+            <div class="stat-label">예상 TDEE (역산)</div>
+            <div class="stat-sub" id="estTdeeSubDisplay" style="font-size:0.65rem;">(섭취 2000kcal 가정)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📉</span>
+            <div class="stat-value" id="weeklyEffDisplay">-</div>
+            <div class="stat-label">주간 효율 (Avg)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🌡️</span>
+            <div class="stat-value" id="shortTrendDisplay">-</div>
+            <div class="stat-label">최근 3일 변동</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">💧</span>
+            <div class="stat-value" id="waterIndexDisplay">-</div>
+            <div class="stat-label">수분/변동성 지수</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(오늘 vs 7일 평균)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🥩</span>
+            <div class="stat-value" id="netChangeDisplay">-</div>
+            <div class="stat-label">지방/체지방 변화</div>
+            <div class="stat-sub" id="netChangeSubDisplay" style="font-size:0.65rem;">-</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📅</span>
+            <div class="stat-value" id="consistencyDisplay">-</div>
+            <div class="stat-label">기록 성실도 (30일)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🍔</span>
+            <div class="stat-value" id="deficitDisplay">-</div>
+            <div class="stat-label">권장 칼로리 컷</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(목표 3개월 컷 기준)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📉</span>
+            <div class="stat-value" id="ffmiDisplay">-</div>
+            <div class="stat-label">FFMI (근육비만도)</div>
+        </div>
+        <!-- 새로운 지표 추가 -->
+        <div class="stat-card">
+            <span class="stat-icon">📉</span>
+            <div class="stat-value" id="maDisparityDisplay">-</div>
+            <div class="stat-label">이동평균 괴리율</div>
+            <div class="stat-sub">(7일 이동평균 대비)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🥊</span>
+            <div class="stat-value" id="weightClassDisplay">-</div>
+            <div class="stat-label">현재 체급 (Boxing)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">⏳</span>
+            <div class="stat-value" id="recoveryScoreDisplay">-</div>
+            <div class="stat-label">회복 탄력성</div>
+            <div class="stat-sub">(증량 후 복구 평균일)</div>
+        </div>
+        <!-- 신규 요청 지표 추가 -->
+        <div class="stat-card">
+            <span class="stat-icon">🚨</span>
+            <div class="stat-value" id="yoyoRiskDisplay">-</div>
+            <div class="stat-label">요요 발생 가능성</div>
+            <div class="stat-sub">Yoyo Risk</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📊</span>
+            <div class="stat-value" id="recent3DayAvgDisplay">-</div>
+            <div class="stat-label">최근 3일간 평균 변동량</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🐎</span>
+            <div class="stat-value" id="weeklySpeedDisplay">-</div>
+            <div class="stat-label">체중 변화 속도 (주단위)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">✨</span>
+            <div class="stat-value" id="idealWeeklyRateDisplay">-</div>
+            <div class="stat-label">이상적인 주간 감량률</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">⚖️</span>
+            <div class="stat-value" id="bodyCompBalanceDisplay">-</div>
+            <div class="stat-label">체성분 균형 지수</div>
+            <div class="stat-sub">제지방 vs 체지방</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📉</span>
+            <div class="stat-value" id="lossConsistencyDisplay">-</div>
+            <div class="stat-label">감량 일관성 지수</div>
+            <div class="stat-sub">(감량일 비율)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🔥</span>
+            <div class="stat-value" id="calEfficiencyDisplay">-</div>
+            <div class="stat-label">칼로리 컷 효율</div>
+            <div class="stat-sub">예상 TDEE 대비</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">〰️</span>
+            <div class="stat-value" id="volatilityIndexDisplay">-</div>
+            <div class="stat-label">체중 변동성 지수</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📉</span>
+            <div class="stat-value" id="bodyCompTrendDisplay">-</div>
+            <div class="stat-label">체성분 변화 추이</div>
+            <div class="stat-sub">월별/분기별</div>
+        </div>
+        
+        <!-- === [NEW] 새로운 지표 추가 === -->
+        <div class="stat-card">
+            <span class="stat-icon">🧬</span>
+            <div class="stat-value" id="metabolicAgeDisplay">-</div>
+            <div class="stat-label">신체 나이 (추정)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">💰</span>
+            <div class="stat-value" id="dietCostDisplay">-</div>
+            <div class="stat-label">다이어트 가성비</div>
+            <div class="stat-sub">(1kg 감량 소요 일수)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🍻</span>
+            <div class="stat-value" id="weekendImpactDisplay">-</div>
+            <div class="stat-label">주말 여파 지수</div>
+            <div class="stat-sub">(월 - 금 차이 평균)</div>
+        </div>
+        <!-- [NEW] 근손실 경고등 지표 추가 -->
+        <div class="stat-card" id="muscleLossCard" style="display:none;">
+            <span class="stat-icon">🍖</span>
+            <div class="stat-value" id="muscleLossDisplay">-</div>
+            <div class="stat-label">근손실 경고등</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(주의 필요)</div>
+        </div>
+        
+        <!-- === [NEW] v3.0.57 추가 지표 === -->
+        <div class="stat-card">
+            <span class="stat-icon">🧻</span>
+            <div class="stat-value" id="paperTowelDisplay">-</div>
+            <div class="stat-label">휴지 두루마리 효과</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(1% 감량 소요 시간)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">⚖️</span>
+            <div class="stat-value" id="bmiPrimeDisplay">-</div>
+            <div class="stat-label">BMI Prime</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(1.0 이하 정상)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🍔</span>
+            <div class="stat-value" id="surplusCalDisplay">-</div>
+            <div class="stat-label">잉여 칼로리 누적</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(증량분 역산)</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🔋</span>
+            <div class="stat-value" id="metabolicAdaptDisplay">-</div>
+            <div class="stat-label">대사 적응도</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(실제 vs 예상 감량)</div>
+        </div>
+        <!-- === [NEW] v3.0.67 추가 지표 === -->
+        <div class="stat-card">
+            <span class="stat-icon">📊</span>
+            <div class="stat-value" id="cvDisplay">-</div>
+            <div class="stat-label">변동 계수 (CV)</div>
+            <div class="stat-sub" style="font-size:0.65rem;">(낮을수록 안정적)</div>
+        </div>
+
+        <!-- === [NEW] v3.0.71 추가 지표 === -->
+        <div class="stat-card">
+            <span class="stat-icon">🔮</span>
+            <div class="stat-value" id="trendDeviationDisplay">-</div>
+            <div class="stat-label">추세 이탈도</div>
+            <div class="stat-sub">7일 이동평균 대비</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🍖</span>
+            <div class="stat-value" id="lbmRetentionDisplay">-</div>
+            <div class="stat-label">제지방 보호율</div>
+            <div class="stat-sub">지방 중심 감량</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🧂</span>
+            <div class="stat-value" id="sodiumWarningDisplay">-</div>
+            <div class="stat-label">나트륨/수분 경고</div>
+            <div class="stat-sub">체중급등/체지방유지</div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📊</span>
+            <div class="stat-value" id="cvStatusDisplay">-</div>
+            <div class="stat-label">변동성 상태</div>
+            <div class="stat-sub">안정성 평가</div>
+        </div>
+    </div>
+    
+    <!-- 메인 차트 영역 -->
+    <div class="card">
+        <!-- [수정] class 추가 -->
+        <h3>📈 체중 변화 그래프 (시계열) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+        <div class="filter-row">
+            <div class="filter-group">
+                <!-- [수정] onclick 제거, id 추가 -->
+                <button class="filter-btn" id="btn-1m">1개월</button>
+                <button class="filter-btn" id="btn-3m">3개월</button>
+                <button class="filter-btn" id="btn-6m">6개월</button>
+                <button class="filter-btn" id="btn-1y">1년</button>
+                <button class="filter-btn" id="btn-all">전체</button>
+            </div>
+            <div class="date-range-picker">
+                <!-- [수정] onchange 제거 -->
+                <input type="date" id="chartStartDate">
+                <span>~</span>
+                <input type="date" id="chartEndDate">
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="mainChart"></canvas>
+        </div>
+        <div style="text-align: center; margin-top: 10px; font-size: 0.85rem; color: var(--text-light);">
+            <!-- [수정] onchange 제거 -->
+            <label><input type="checkbox" id="showTrend" checked> 7일 이동평균선(추세) 및 볼린저 밴드 표시</label>
+            <span style="margin-left:15px;">※ 배경색 띠는 BMI 구간(정상/비만 전 단계/비만)을 나타냅니다.</span>
+        </div>
+    </div>
+
+    <!-- 캘린더 뷰 -->
+    <div class="card">
+        <h3>📅 월별 기록 흐름 (Calendar View)</h3>
+        <div id="calendarContainer"></div>
+    </div>
+
+    <!-- 추가 분석 차트 -->
+    <div class="analysis-grid">
+        <!-- 새로운 그래프 1: 고스트 러너 -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>👻 고스트 러너 (전월 대비 비교) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="ghostRunnerChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light); margin-top:5px;">현재 달과 지난달의 기록을 일자별로 겹쳐서 비교합니다.</p>
+        </div>
+        <!-- 새로운 그래프 2: 신호등 게이지 -->
+		<div class="card">
+            <!-- [수정] class 추가 -->
+			<h3>🚦 신호등 게이지 (BMI & 체지방) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+			<div class="gauge-container" style="display: flex; gap: 10px; height: 130px; justify-content: center; align-items: flex-end; overflow: hidden; transition: height 0.3s;">
+				<div class="gauge-wrapper" style="flex: 1; max-width: 150px; position: relative; height: 100%;"><canvas id="gaugeBmiChart"></canvas></div>
+				<div class="gauge-wrapper" style="flex: 1; max-width: 150px; position: relative; height: 100%;"><canvas id="gaugeFatChart"></canvas></div>
+			</div>
+			<div style="display: flex; justify-content: space-around; font-size: 0.85rem; font-weight: bold; margin-top: 5px; max-width: 320px; margin-left: auto; margin-right: auto; color: var(--text-light);">
+				<span>BMI</span> <span>체지방률</span>
+			</div>
+		</div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📉 누적 감량 추이 (Area) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="cumulativeChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📊 월별 순수 변화량 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="monthlyChangeChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🥩 체지방률 추이 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="bodyFatChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🌑 체중 vs 체지방 (상관관계) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="scatterChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">이상적 흐름: 좌측 하단(↙)으로 이동</p>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📊 주중 vs 주말 변화 비교 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="weekendChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📊 체성분 누적 영역 차트 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="bodyCompStackedChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🕯️ 월별 박스 플롯 (변동폭) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="monthlyBoxPlotChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🎢 변화 속도 그래프 (Rate of Change) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="rocChart"></canvas>
+            </div>
+        </div>
+        <!-- 신규 차트: 주간별 체성분 변화 누적 -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📉 주간별 체성분 변화 누적 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="weeklyBodyCompChart"></canvas>
+            </div>
+        </div>
+
+        <!-- === [NEW] 새로운 그래프 추가 === -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📉 체중 vs 감량 속도 (Scatter) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="weightSpeedScatterChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">체중대별 감량 속도 분포 (무거울수록 잘 빠질까요?)</p>
+        </div>
+
+        <!-- [NEW] 체중 흐름 (Waterfall/Flow) -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🌊 체중 구성 흐름 (Waterfall) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="waterfallChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">시작 체중에서 현재 체중까지의 변화 요소 분해</p>
+        </div>
+
+        <!-- [NEW] 시즌별 겹쳐보기 (YoY) -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📉 시즌별 겹쳐보기 (Year over Year) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="seasonalityChart"></canvas>
+            </div>
+        </div>
+
+        <!-- [NEW] 정규 분포 곡선 -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🔔 체중 변화 분포 (Daily Change Distribution) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="bellCurveChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">일일 체중 변동량(g) 분포도</p>
+        </div>
+
+        <!-- === [NEW] v3.0.57 추가 차트 === -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🕸️ 요일별 패턴 분석 (Radar) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="radarChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🕯️ 주간 변동 캔들스틱 (Weekly) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="candleStickChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📉 MACD 추세 지표 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="macdChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+             <!-- [수정] class 추가 -->
+             <h3>🌀 연간 나선형 비교 (Polar/Radar) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+             <div class="mini-chart-container">
+                 <canvas id="seasonalSpiralChart"></canvas>
+             </div>
+        </div>
+
+        <!-- === [NEW] v3.0.67 추가 차트 === -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🛂 관리도 (Control Chart) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="controlChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">통계적 관리 상한/하한선 이탈 여부 확인</p>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🎻 월별 체중 분포 (Violin/Strip) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="violinChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">월별 체중 밀집도 시각화</p>
+        </div>
+
+        <!-- === [NEW] v3.0.71 추가 차트 === -->
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🛤️ 목표 터널 차트 (Goal Tunnel) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="goalTunnelChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">터널 안에서 잘 가고 있는지 확인하세요.</p>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📉 드로우다운 (Drawdown) 차트 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="drawdownChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">역대 최고 체중 대비 하락률(%)</p>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🥩 근육 vs 지방 전쟁 (LBM vs Fat Area) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="lbmFatAreaChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">체중 100% 기준 비율 변화 (100% Stacked Area)</p>
+        </div>
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>🐌 감량 속도계 (Speedometer) <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container" style="display:flex; justify-content:center; align-items:flex-end;">
+                <canvas id="speedometerChart" style="max-height:100%; max-width:100%;"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light);">주간 감량 속도 상태</p>
+        </div>
+    </div>
+
+    <!-- 상세 분석 영역 -->
+    <div class="analysis-grid">
+        <div class="card">
+            <h3>⚡ 감량 페이스 & 주간 비교</h3>
+            <table class="data-table">
+                <tr><th>구분</th><th>속도 (일평균)</th></tr>
+                <tr><td>최근 7일</td><td id="rate7Days">-</td></tr>
+                <tr><td>최근 30일</td><td id="rate30Days">-</td></tr>
+            </table>
+            <div style="margin-top: 20px; text-align: center;">
+                <h4 style="font-size: 0.9rem; color:var(--text-light); margin-bottom: 5px;">지난주 vs 이번주 (평균 체중)</h4>
+                <div id="weeklyCompareDisplay" style="font-size: 1.3rem; font-weight: bold;">-</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📅 요일별 평균 변화량 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="dayOfWeekChart"></canvas>
+            </div>
+            <p style="font-size: 0.75rem; text-align: center; color: var(--text-light); margin-top:5px;">막대가 아래(녹색)일수록 살이 잘 빠지는 요일입니다.</p>
+        </div>
+        
+        <div class="card">
+            <!-- [수정] class 추가 -->
+            <h3>📊 체중 구간별 빈도 <button class="expand-btn expand-chart-btn" title="확대/축소">⛶</button></h3>
+            <div class="mini-chart-container">
+                <canvas id="histogramChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <!-- === [NEW] 깃허브 스타일 캘린더 히트맵 === -->
+    <div class="card">
+        <h3>🗓️ 연간 캘린더 히트맵 (Github Style)</h3>
+        <div id="githubCalendarChart" style="padding: 10px 0;"></div>
+    </div>
+
+    <!-- 히트맵 -->
+    <div class="card">
+        <h3>🌿 감량 히트맵 (최근 1년)</h3>
+        <div class="heatmap-container" id="heatmapGrid"></div>
+        <div class="heatmap-legend">
+            <span>증량</span> <div class="legend-box" style="background: var(--heatmap-gain)"></div>
+            <div class="legend-box" style="background: var(--heatmap-empty)"></div>
+            <div class="legend-box" style="background: var(--heatmap-1)"></div>
+            <div class="legend-box" style="background: var(--heatmap-2)"></div>
+            <div class="legend-box" style="background: var(--heatmap-3)"></div>
+            <div class="legend-box" style="background: var(--heatmap-4)"></div> <span>감량 성공</span>
+        </div>
+    </div>
+
+    <!-- 고급 통계 분석 리포트 -->
+    <div class="card">
+        <h3>🧠 심층 분석</h3>
+        <ul class="insight-list" id="advancedAnalysisList">
+            <li class="insight-item">데이터를 수집중입니다...</li>
+        </ul>
+    </div>
+
+    <!-- 기간별 기록 비교 (신규 추가) -->
+    <div class="card">
+        <h3>📅 기간별 요약 및 비교</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>구분</th>
+                    <th>평균 체중 (kg)</th>
+                    <th>총 감량 (kg)</th>
+                    <th>평균 감량 속도</th>
+                </tr>
+            </thead>
+            <tbody id="periodCompareTable">
+                <tr><td colspan="4">데이터 로딩 중...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 상세 통계 분석 (신규 추가) -->
+    <div class="card">
+        <h3>📊 상세 통계 지표</h3>
+        <table class="data-table">
+            <tbody id="detailedStatsTable">
+                <tr><td colspan="2">데이터 분석 중...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- === [NEW] 확장 통계 테이블 추가 === -->
+    <div class="card">
+        <h3>📊 확장 통계 (Extended Statistics)</h3>
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">🗓️ 요일별 승률 (Daily Win Rate)</h4>
+                <table class="data-table">
+                    <thead><tr><th>요일</th><th>승률 (감량 성공)</th></tr></thead>
+                    <tbody id="dailyWinRateTable"><tr><td colspan="2">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">⏳ 구간별 체류 시간 (Zone Duration)</h4>
+                <table class="data-table">
+                    <thead><tr><th>구간</th><th>체류 기간</th></tr></thead>
+                    <tbody id="zoneDurationTable"><tr><td colspan="2">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">🔥 연속 기록 (Streak) 상세</h4>
+                <table class="data-table">
+                    <tbody id="streakDetailTable"><tr><td colspan="2">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">🏆 최고의 달 / 최악의 달 (Top 3)</h4>
+                <table class="data-table">
+                    <thead><tr><th>순위</th><th>최고의 달 (감량)</th><th>최악의 달 (증량)</th></tr></thead>
+                    <tbody id="bestWorstMonthTable"><tr><td colspan="3">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <!-- [NEW] v3.0.67 추가 테이블 -->
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">🧱 저항선/지지선 분석</h4>
+                <table class="data-table">
+                    <thead><tr><th>유형</th><th>구간</th><th>빈도</th></tr></thead>
+                    <tbody id="resistanceTableBody"><tr><td colspan="3">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">📆 요일별 증량 확률</h4>
+                <table class="data-table">
+                    <thead><tr><th>요일</th><th>증량 확률 (%)</th><th>위험도</th></tr></thead>
+                    <tbody id="weekdayProbTableBody"><tr><td colspan="3">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <!-- [NEW] v3.0.71 추가 테이블 -->
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">🧱 '벽' 분석 (The Wall)</h4>
+                <table class="data-table">
+                    <thead><tr><th>순위</th><th>체중 구간</th><th>체류 일수</th></tr></thead>
+                    <tbody id="wallTableBody"><tr><td colspan="3">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+            <div>
+                <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-light);">🗓️ 월별 '순수 지방' 감량 추정표</h4>
+                <table class="data-table">
+                    <thead><tr><th>월</th><th>순수 지방 감량</th><th>근육 변화</th></tr></thead>
+                    <tbody id="monthlyFatLossTableBody"><tr><td colspan="3">분석 중...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🏆 업적 및 뱃지 -->
+    <div class="card">
+        <!-- [수정] onclick 제거, id 추가 -->
+        <h3 id="badge-toggle-header" style="cursor:pointer;">🏆 나의 업적 & 뱃지 <span style="font-size:0.8rem; color:var(--text-light);">(클릭하여 접기/펼치기)</span></h3>
+        <div id="badgeGrid" class="badge-grid" style="display:grid;">
+            <!-- JS로 렌더링 됩니다 -->
+        </div>
+    </div>
+
+    <!-- 데이터 테이블 탭 (Sticky Header 적용됨) -->
+    <div class="card">
+        <h3>📑 상세 리포트 & 기록</h3>
+        <div class="filter-row">
+            <div class="filter-group">
+                <!-- [수정] onclick 제거, id 추가 -->
+                <button class="filter-btn active" id="tab-btn-history">전체 기록</button>
+                <button class="filter-btn" id="tab-btn-monthly">월별 결산</button>
+                <button class="filter-btn" id="tab-btn-weekly">주별 결산</button>
+                <button class="filter-btn" id="tab-btn-milestone">마일스톤</button>
+                <!-- [NEW] 새로운 탭 버튼 -->
+                <button class="filter-btn" id="tab-btn-zone">구간별 체류</button>
+                <button class="filter-btn" id="tab-btn-sprint">스프린트</button>
+                <button class="filter-btn" id="tab-btn-grades">성적표</button>
+                <!-- [NEW] v3.0.57 추가 탭 -->
+                <button class="filter-btn" id="tab-btn-top5">TOP 5 기록</button>
+                <button class="filter-btn" id="tab-btn-monthly-rate">월별 승률</button>
+            </div>
+        </div>
+
+        <!-- 탭 내용 -->
+        <div id="tab-history" class="tab-content" style="max-height: 1200px; overflow-y: auto;">
+            <table class="data-table">
+                <thead><tr><th>날짜</th><th>체중</th><th>체지방</th><th>변화</th><th>관리</th></tr></thead>
+                <tbody id="historyList"></tbody>
+            </table>
+        </div>
+		<div id="tab-monthly" class="tab-content" style="display:none;">
+            <table class="data-table">
+                <thead><tr><th>월</th><th>시작</th><th>종료</th><th>변화량</th><th>평균</th></tr></thead>
+                <tbody id="monthlyTableBody"></tbody>
+            </table>
+        </div>
+        <div id="tab-weekly" class="tab-content" style="display:none;">
+            <table class="data-table">
+                <thead><tr><th>주차 (시작일)</th><th>평균 체중</th><th>변화</th></tr></thead>
+                <tbody id="weeklyTableBody"></tbody>
+            </table>
+        </div>
+        <div id="tab-milestone" class="tab-content" style="display:none;">
+            <table class="data-table">
+                <thead><tr><th>달성 목표</th><th>달성일</th><th>소요 기간</th></tr></thead>
+                <tbody id="milestoneTableBody"></tbody>
+            </table>
+        </div>
+        <!-- [NEW] 새로운 탭 컨텐츠 -->
+        <div id="tab-zone" class="tab-content" style="display:none;">
+            <table class="data-table">
+                <thead><tr><th>구간 (kg대)</th><th>체류 기간 (일)</th><th>탈출 소요</th></tr></thead>
+                <tbody id="zoneReportTableBody"><tr><td colspan="3">분석 중...</td></tr></tbody>
+            </table>
+        </div>
+        <div id="tab-sprint" class="tab-content" style="display:none;">
+            <table class="data-table">
+                <thead><tr><th>순위</th><th>감량 폭 (1kg 기준)</th><th>소요 기간</th><th>일자</th></tr></thead>
+                <tbody id="sprintTableBody"><tr><td colspan="4">분석 중...</td></tr></tbody>
+            </table>
+        </div>
+        <div id="tab-grades" class="tab-content" style="display:none;">
+             <table class="data-table">
+                <thead><tr><th>구분</th><th>평균 감량 (kg)</th><th>승률 (성공%)</th><th>등급</th></tr></thead>
+                <tbody id="gradesTableBody"><tr><td colspan="4">분석 중...</td></tr></tbody>
+            </table>
+        </div>
+        <!-- [NEW] v3.0.57 추가 탭 컨텐츠 -->
+        <div id="tab-top5" class="tab-content" style="display:none;">
+             <table class="data-table">
+                <thead><tr><th>순위</th><th>최고 감량일 (Drop)</th><th>최고 증량일 (Gain)</th><th>연속 감량 (Streak)</th></tr></thead>
+                <tbody id="top5TableBody"><tr><td colspan="4">분석 중...</td></tr></tbody>
+            </table>
+        </div>
+        <div id="tab-monthly-rate" class="tab-content" style="display:none;">
+             <table class="data-table">
+                <thead><tr><th>월</th><th>감량 성공일 수</th><th>전체 일수</th><th>승률 (%)</th></tr></thead>
+                <tbody id="monthlyRateTableBody"><tr><td colspan="4">분석 중...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+	
+	<footer style="margin-top: 40px; padding: 20px 10px; border-top: 1px solid var(--input-border); color: var(--text-light); font-size: 0.9rem; line-height: 1.6;">
+        <!-- 면책 조항 및 정보 -->
+        <div style="margin-bottom: 20px;">
+            <strong style="color: var(--text); font-size: 1.1rem;">⚠️ 면책 조항 (Disclaimer)</strong><br>
+            본 서비스에서 제공하는 모든 지표, 통계, 그래프, 예측 시뮬레이션 및 제안은 일반적인 공식을 기반으로 한 단순 정보 제공 및 건강 관리 보조 목적이며, 전문적인 의학적 진단, 소견, 치료를 대체할 수 없습니다. 개인의 신체적 특성, 기저 질환, 대사량 차이에 따라 실제 결과는 상이할 수 있습니다. 무리한 체중 감량이나 급격한 식단 변경, 운동 계획 수립 전 반드시 의사, 임상영양사 등 의료 전문가와 상담하시기 바랍니다. 제공자는 본 데이터의 활용으로 인해 발생한 건강상의 문제나 결과에 대해 법적 책임을 지지 않습니다.
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <strong style="color: var(--text); font-size: 1.1rem;">ℹ️ 참고용 데이터</strong><br>
+            제공되는 모든 분석 결과와 수치는 의학적 조언이 아니며, 개인의 건강 상태에 따라 다를 수 있습니다. 이 데이터는 참고용으로만 활용하시고, 정확한 진단과 처방은 반드시 전문 의료진과 상의하십시오.
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <strong style="color: var(--text); font-size: 1.1rem;">🚫 의학적 책임의 부인</strong><br>
+            본 프로그램은 의료 기기가 아니며, 산출된 BMI, TDEE, 예상 감량일 등의 데이터는 통계적 추정치일 뿐 과학적 정밀성을 보증하지 않습니다. 본 정보는 사용자의 독자적인 판단 하에 참고용으로만 이용되어야 하며, 이를 근거로 한 자가 진단이나 치료 행위로 인한 직·간접적인 손해에 대해 개발자는 어떠한 민·형사상 책임도 지지 않습니다. 건강 관련 결정은 반드시 전문의의 조언을 따르십시오.
+        </div>
+        
+        <div>
+            <strong style="color: var(--text); font-size: 1.1rem;">💾 데이터 저장 및 프라이버시</strong><br>
+            본 서비스는 별도의 서버 없이 <strong>사용자의 브라우저(로컬 스토리지)</strong>에만 데이터를 저장합니다. 브라우저의 <strong>'쿠키 및 사이트 데이터' 삭제</strong>, 시크릿 모드 사용, 또는 브라우저 앱 삭제 시 데이터가 영구적으로 유실될 수 있습니다. 설정 메뉴의 <strong>[JSON 백업]</strong> 기능을 이용해 주기적으로 데이터를 별도 보관하시기 바랍니다.
+        </div>
+    </footer>
+	
+    <!-- Chart Backdrop -->
+    <!-- [수정] onclick 제거, id 추가 (이미 있음) -->
+    <div id="chartBackdrop" class="chart-backdrop"></div>
+    
+    <!-- Toast Message Container -->
+    <div id="toast-container" class="toast-container"></div>
+</div>
+
+<!-- ================= TEMPLATES FOR JS ================= -->
+
+<!-- 1. History Row Template -->
+<template id="template-history-row">
+    <tr>
+        <td class="history-date"></td>
+        <td class="history-weight"></td>
+        <td class="history-fat"></td>
+        <td class="history-diff"></td>
+        <td class="history-action">
+            <button data-action="edit" class="btn-edit" style="border:none;background:none;cursor:pointer;" title="수정">✏️</button>
+            <button data-action="delete" class="btn-delete" style="border:none;background:none;cursor:pointer;" title="삭제">🗑️</button>
+        </td>
+    </tr>
+</template>
+
+<!-- 2. General Table Row Template (Monthly, Weekly, etc.) -->
+<template id="template-general-row">
+    <tr></tr>
+</template>
+
+<!-- 3. Badge Item Template -->
+<template id="template-badge-item">
+    <div class="badge-item">
+        <span class="badge-icon"></span>
+        <span class="badge-name"></span>
+    </div>
+</template>
+
+<!-- 4. Heatmap Cell Template -->
+<template id="template-heatmap-cell">
+    <div class="heatmap-cell"></div>
+</template>
+
+<!-- 5. Calendar Cell Template -->
+<template id="template-calendar-cell">
+    <div>
+        <div class="calendar-date"></div>
+        <div class="calendar-val" style="font-weight:bold;"></div>
+    </div>
+</template>
+
+<script src="dietChallenge.js"></script>
+</body>
+</html>
