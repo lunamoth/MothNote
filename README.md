@@ -6,6 +6,8 @@
 
 ![MothNote 습관 트래커 상세 페이지 스크린샷](https://raw.githubusercontent.com/lunamoth/MothNote/refs/heads/main/251112_MothNote_Habit_Tracker.png)
 
+![MothNote 다이어트 챌린지 상세 페이지 스크린샷](https://raw.githubusercontent.com/lunamoth/MothNote/refs/heads/main/260103_MothNote_Diet_Challenge.png)
+
 [MothNote lunamoth 4th 블로그 소개 글](http://lunamoth.com/entry/MothNote)
 
 [MothNote GitHub](https://github.com/lunamoth/MothNote)
