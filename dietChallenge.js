@@ -1734,7 +1734,7 @@
 
         // --- [NEW] v3.0.71 Additional Logic ---
 
-        // 25. 주말의 저주 (Weekend Curse)
+        // 25. 주말의 공격
         const satSpikes = [];
         for(let i=1; i<AppState.records.length; i++) {
             const d = DateUtil.parse(AppState.records[i].date);
@@ -1749,7 +1749,7 @@
         }
         if (satSpikes.length > 0) {
             const avgRec = satSpikes.reduce((a,b)=>a+b,0)/satSpikes.length;
-            htmlLines.push(`<li class="insight-item"><span class="insight-label">🕵️ 주말의 저주:</span> " 주로 <strong>토요일</strong>에 체중이 늘어나고, 이를 복구하는 데 평균 <strong>${avgRec.toFixed(1)}일</strong>이 걸립니다. 주말 식단을 조절하면 목표 달성이 빨라집니다."</li>`);
+            htmlLines.push(`<li class="insight-item"><span class="insight-label">🕵️ 주말의 공격:</span> " 주로 <strong>토요일</strong>에 체중이 늘어나고, 이를 복구하는 데 평균 <strong>${avgRec.toFixed(1)}일</strong>이 걸립니다. 주말 식단을 조절하면 목표 달성이 빨라집니다."</li>`);
         }
 
         // 26. 가짜 살 판독기 (Fake Weight Detector)
