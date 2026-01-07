@@ -1418,6 +1418,13 @@
         let htmlLines = [];
         const { PERSONA } = CONFIG.MESSAGES;
 
+        // --- 공통 변수 정의 (추가된 로직용) ---
+        const totalLost = s.totalLost || 0;
+        const current = s.current || 0;
+        const maxPlateau = s.maxPlateau || 0;
+        const lastRec = s.lastRec || {};
+        const dayNames = ['일','월','화','수','목','금','토'];
+
         // 1. 다이어트 성향 (Persona)
         const stdDev = s.stdDev || 0;
         let persona = "";
@@ -1474,7 +1481,7 @@
         const dayAvgs = dayDeltas.map((sum, i) => dayCounts[i] ? sum/dayCounts[i] : 0);
         const bestDayIdx = dayAvgs.indexOf(Math.min(...dayAvgs));
         const worstDayIdx = dayAvgs.indexOf(Math.max(...dayAvgs));
-        const dayNames = ['일','월','화','수','목','금','토'];
+        // const dayNames = ['일','월','화','수','목','금','토']; // 위에서 이미 선언됨
         
         htmlLines.push(`<li class="insight-item"><span class="insight-label">🧐 요일 승률:</span> 
             <strong>${dayNames[bestDayIdx]}요일</strong>에 가장 잘 빠지고, 
@@ -1567,15 +1574,17 @@
         }
 
         // 12. 최장 정체기 (Longest Plateau)
-        let maxPlateau = 0, currPlateau = 0;
+        // let maxPlateau = 0; // 상단에서 공통 변수로 선언됨
+        let currPlateau = 0;
+        let localMaxPlateau = 0; // 변수명 충돌 방지
         for(let i=1; i<AppState.records.length; i++) {
             const diff = Math.abs(MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight));
             if(diff < 0.2) currPlateau++;
             else currPlateau = 0;
-            if(currPlateau > maxPlateau) maxPlateau = currPlateau;
+            if(currPlateau > localMaxPlateau) localMaxPlateau = currPlateau;
         }
-        if(maxPlateau >= 3) {
-            htmlLines.push(`<li class="insight-item"><span class="insight-label">⏳ 최장 정체기:</span> 체중 변화가 거의 없던 최장 기간은 <strong>${maxPlateau}일</strong> 입니다.</li>`);
+        if(localMaxPlateau >= 3) {
+            htmlLines.push(`<li class="insight-item"><span class="insight-label">⏳ 최장 정체기:</span> 체중 변화가 거의 없던 최장 기간은 <strong>${localMaxPlateau}일</strong> 입니다.</li>`);
         }
 
         // 13. 요요 인덱스 (Yoyo Index)
@@ -1732,8 +1741,6 @@
              htmlLines.push(`<li class="insight-item"><span class="insight-label">🐢 거북이 vs 토끼 진단:</span> "최근 1달 데이터를 보니, 천천히 꾸준히 빼는 '${type}'입니다. 급격한 감량보다는 현재 페이스 유지가 요요 방지에 유리합니다."</li>`);
         }
 
-        // --- [NEW] v3.0.71 Additional Logic ---
-
         // 25. 주말의 공격
         const satSpikes = [];
         for(let i=1; i<AppState.records.length; i++) {
@@ -1753,14 +1760,17 @@
         }
 
         // 26. 가짜 살 판독기 (Fake Weight Detector)
-        const lastRec = AppState.records[AppState.records.length-1];
-        const prevRec = AppState.records[AppState.records.length-2];
-        const diffLast = lastRec.weight - prevRec.weight;
-        if (diffLast > 0 && AppState.records.length > 7) {
-            const last7Avg = AppState.records.slice(-7).reduce((a,b)=>a+b.weight,0)/7;
-            const prev7Avg = AppState.records.slice(-8, -1).reduce((a,b)=>a+b.weight,0)/7;
-            if (last7Avg < prev7Avg) {
-                 htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 가짜 살 판독기:</span> "오늘 체중이 +${diffLast.toFixed(1)}kg 늘었지만, 최근 7일 평균선은 여전히 하락세입니다. 이는 단순 수분/변비일 확률이 95%입니다. 멘탈 잡으세요!"</li>`);
+        // const lastRec = ... (상단 공통 변수 lastRec 사용)
+        if (AppState.records.length > 7) {
+            const lastRecVal = AppState.records[AppState.records.length-1].weight;
+            const prevRecVal = AppState.records[AppState.records.length-2].weight;
+            const diffLast = lastRecVal - prevRecVal;
+            if (diffLast > 0) {
+                const last7Avg = AppState.records.slice(-7).reduce((a,b)=>a+b.weight,0)/7;
+                const prev7Avg = AppState.records.slice(-8, -1).reduce((a,b)=>a+b.weight,0)/7;
+                if (last7Avg < prev7Avg) {
+                     htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 가짜 살 판독기:</span> "오늘 체중이 +${diffLast.toFixed(1)}kg 늘었지만, 최근 7일 평균선은 여전히 하락세입니다. 이는 단순 수분/변비일 확률이 95%입니다. 멘탈 잡으세요!"</li>`);
+                }
             }
         }
 
@@ -1798,6 +1808,9 @@
         }
         
         // 30. 노이즈 캔슬링 (Noise Canceling)
+        const lastRecVal = AppState.records[AppState.records.length-1].weight;
+        const prevRecVal = AppState.records[AppState.records.length-2].weight;
+        const diffLast = lastRecVal - prevRecVal;
         if (Math.abs(diffLast) > 0.6) {
              htmlLines.push(`<li class="insight-item"><span class="insight-label">📡 노이즈 캔슬링:</span> "오늘 체중이 급변했지만 무시하셔도 됩니다. 통계적으로 이 정도 변동은 평소 <strong>'일일 변동 허용 범위(±0.6kg)'</strong> 이내입니다. 전체 추세는 여전히 유효합니다."</li>`);
         }
@@ -1825,11 +1838,10 @@
              htmlLines.push(`<li class="insight-item"><span class="insight-label">🗓️ 마의 ${nextMonth}월 예보:</span> "곧 <strong>${nextMonth}월</strong>입니다. 데이터상 ${nextMonth}월마다 평균 <strong>${monthlyGains[nextMonth].toFixed(1)}kg</strong> 증량하는 패턴이 있습니다. 대비하세요!"</li>`);
         }
 
-		// 34. 버티기 (Zone) 승리 예측 (Zone Victory) - 수정됨
-        const currentZoneFloor = Math.floor(s.current / 10) * 10; // 현재 앞자리 (예: 78.5 -> 70)
-        const distToNextZone = s.current - currentZoneFloor; // 남은 거리 (예: 8.5kg)
+		// 34. 버티기 (Zone) 승리 예측 (Zone Victory)
+        const currentZoneFloor = Math.floor(s.current / 10) * 10; 
+        const distToNextZone = s.current - currentZoneFloor; 
 
-        // 최근 30일간의 감량 속도 계산
         const d30 = new Date(); 
         d30.setDate(d30.getDate() - 30);
         const recentRecsForZone = AppState.records.filter(r => DateUtil.parse(r.date) >= d30);
@@ -1840,17 +1852,14 @@
              const periodDays = DateUtil.daysBetween(DateUtil.parse(firstR.date), DateUtil.parse(lastR.date));
              const weightLoss = firstR.weight - lastR.weight;
 
-             // 감량 중일 때만 예측
              if (weightLoss > 0 && periodDays > 0) {
-                 const dailyRate = weightLoss / periodDays; // 일일 감량 속도
-                 const predictedDays = distToNextZone / dailyRate; // 남은 거리 / 속도
+                 const dailyRate = weightLoss / periodDays; 
+                 const predictedDays = distToNextZone / dailyRate; 
 
-                 // 너무 비현실적인 수치(3년 이상 등)는 제외
                  if(predictedDays < 1000) {
                      htmlLines.push(`<li class="insight-item"><span class="insight-label">🧱 버티기 (Zone) 승리 예측:</span> "현재 페이스(${dailyRate.toFixed(2)}kg/일)라면 앞자리를 바꾸는 데 약 <strong>${Math.round(predictedDays)}일</strong>이 소요될 것으로 보입니다. ${currentZoneFloor}kg 진입까지 화이팅!"</li>`);
                  }
              } else if (weightLoss <= 0) {
-                 // 증량 중이거나 변화 없을 때
                  htmlLines.push(`<li class="insight-item"><span class="insight-label">🧱 버티기 (Zone) 승리 예측:</span> "현재 앞자리를 바꾸기 위해 ${distToNextZone.toFixed(1)}kg 감량이 필요합니다. 다시 감량 추세를 만들어봅시다!"</li>`);
              }
         }
@@ -1870,6 +1879,383 @@
                       htmlLines.push(`<li class="insight-item"><span class="insight-label">🥉 과거의 영광 비교:</span> "이번 달 감량 속도는 역대 최고였던 <strong>${bestMonth}</strong>의 퍼포먼스와 유사합니다! 폼이 돌아왔습니다. 🔥"</li>`);
                  }
              }
+        }
+
+        // ---------------------------------------------------------
+        // [추가] 36 ~ 85: 심층 분석 알고리즘 (Deep Insights)
+        // ---------------------------------------------------------
+
+        // 36. 스퀴즈 (Whoosh Effect 전조)
+        if (AppState.records.length > 20) {
+            const last7 = AppState.records.slice(-7).map(r => r.weight);
+            const std7 = MathUtil.stdDev(last7);
+            const last30 = AppState.records.slice(-30).map(r => r.weight);
+            const std30 = MathUtil.stdDev(last30);
+            
+            if (std7 < std30 * 0.5) {
+                htmlLines.push(`<li class="insight-item"><span class="insight-label">💧 폭풍전야 (Whoosh 대기):</span> "최근 7일간 체중 변화가 거의 없습니다. 지방은 탔지만 수분이 그 자리를 채우고 있을 가능성이 높습니다(Whoosh 효과). 포기하지 않으면 곧 급격한 감량이 찾아옵니다."</li>`);
+            }
+        }
+
+        // 37. 급격한 변동 경고 (RSI 로직 응용)
+        if (AppState.records.length > 14) {
+            let gain = 0, loss = 0;
+            const recent14 = AppState.records.slice(-15);
+            for(let i=1; i<recent14.length; i++) {
+                const change = recent14[i].weight - recent14[i-1].weight;
+                if (change > 0) gain += change;
+                else loss -= change;
+            }
+            const rs = loss === 0 ? 100 : gain / loss;
+            const rsi = 100 - (100 / (1 + rs));
+            
+            if (rsi > 70) {
+                htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">⏰ 급찐살 골든타임:</span> "최근 체중이 급격히 늘었습니다(과열). 의학적으로 이것은 지방보다 '수분과 글리코겐'일 확률이 높습니다. 지금 당장 조절하면 지방이 되기 전에 뺄 수 있습니다!"</li>`);
+            } else if (rsi < 30) {
+                htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">🚨 항상성 반발 경고:</span> "최근 감량 속도가 너무 빠릅니다. 우리 몸은 급격한 변화를 싫어해 식욕을 폭발시킬 수 있습니다(요요 현상). 오늘은 조금 더 드셔도 괜찮습니다."</li>`);
+            }
+        }
+
+        // 38. 요요 경고 (Rebound Warning) 
+        if (AppState.records.length > 30) {
+            const periodRecs = AppState.records.slice(-30);
+            const pMax = Math.max(...periodRecs.map(r => r.weight));
+            const pMin = Math.min(...periodRecs.map(r => r.weight));
+            const totalDrop = pMax - pMin;
+            
+            const regained = s.current - pMin;
+            
+            if (totalDrop > 2.0 && regained > totalDrop * 0.5) {
+                htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">⚠️ 요요 경계령:</span> "최근 한 달간 힘들게 뺀 살의 <strong>절반 이상</strong>이 다시 쪘습니다. 단순한 변동이 아니라 '요요 현상'이 시작된 것일 수 있습니다. 다시 긴장감을 가지세요!"</li>`);
+            } else if (totalDrop > 2.0 && regained > totalDrop * 0.3) {
+                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🚧 주의 구간:</span> "최저 체중 대비 <strong>30% 정도</strong> 반등했습니다. 보상 심리로 인해 식단이 느슨해지지 않았는지 점검해보세요."</li>`);
+            }
+        }
+        
+        // 39. 월요병 증후군 (Monday Sickness)
+        let monGains = 0, monCount = 0;
+        for(let i=1; i<AppState.records.length; i++) {
+            const d = DateUtil.parse(AppState.records[i].date);
+            if (d.getDay() === 1) { // 월요일
+                if (AppState.records[i].weight > AppState.records[i-1].weight) monGains++;
+                monCount++;
+            }
+        }
+        if (monCount > 5 && (monGains / monCount) > 0.8) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">📅 월요병 증후군:</span> "월요일 아침마다 체중이 늘어날 확률이 <strong>${((monGains/monCount)*100).toFixed(0)}%</strong>입니다. 일요일 저녁 식사가 주범일 수 있습니다."</li>`);
+        }
+
+        // 40. 불금 효과 (TGIF)
+        let friLosses = 0, friCount = 0;
+        for(let i=1; i<AppState.records.length; i++) {
+            const d = DateUtil.parse(AppState.records[i].date);
+            if (d.getDay() === 5) { // 금요일
+                if (AppState.records[i].weight < AppState.records[i-1].weight) friLosses++;
+                friCount++;
+            }
+        }
+        if (friCount > 5 && (friLosses / friCount) > 0.8) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎉 불금 효과:</span> "통계적으로 <strong>금요일 아침</strong> 체중이 가장 가볍습니다. 주중 관리를 매우 잘하고 계십니다!"</li>`);
+        }
+
+        // 41. 기록 공백 페널티 (Gap Penalty)
+        let gapPenalty = 0;
+        let gapCount = 0;
+        for(let i=1; i<AppState.records.length; i++) {
+            const days = DateUtil.daysBetween(DateUtil.parse(AppState.records[i-1].date), DateUtil.parse(AppState.records[i].date));
+            if (days >= 3) {
+                const diff = AppState.records[i].weight - AppState.records[i-1].weight;
+                if (diff > 0) {
+                    gapPenalty += diff;
+                    gapCount++;
+                }
+            }
+        }
+        if (gapCount >= 2) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🕳️ 기록 공백의 법칙:</span> "3일 이상 기록을 쉴 때마다 평균 <strong>+${(gapPenalty/gapCount).toFixed(1)}kg</strong>씩 증량했습니다. 기록을 멈추면 살이 찝니다."</li>`);
+        }
+
+        // 42. 세트 포인트 저항 (Set Point Theory)
+        const roundedWeights = AppState.records.map(r => Math.round(r.weight));
+        const modeMap = {};
+        let maxEl = roundedWeights[0], maxCount = 1;
+        for(let i = 0; i < roundedWeights.length; i++) {
+            const el = roundedWeights[i];
+            if(modeMap[el] == null) modeMap[el] = 1;
+            else modeMap[el]++;  
+            if(modeMap[el] > maxCount) { maxEl = el; maxCount = modeMap[el]; }
+        }
+        if (Math.abs(s.current - maxEl) < 1 && maxCount > 20) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">⚓ 세트 포인트:</span> "현재 체중 <strong>${maxEl}kg</strong> 부근은 과거 가장 오래 머물렀던 구간입니다. 뇌가 이 체중을 '정상'으로 인식하여 강력히 저항 중입니다. 이 구간을 뚫으려면 평소와 다른 자극이 필요합니다."</li>`);
+        }
+
+        // 43. 마의 29/39/49... (Last Mile)
+        const decimalPart = s.current - Math.floor(s.current);
+        if (decimalPart >= 0.8 && decimalPart <= 0.9) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🏁 라스트 마일:</span> "다음 앞자리 숫자까지 얼마 안 남았습니다! 보통 <strong>.8 ~ .9kg</strong> 구간에서 심리적으로 해이해지기 쉽습니다. 끝까지 긴장하세요."</li>`);
+        }
+
+        // 45. 작심삼일 판독기
+        if (AppState.records.length > 10) {
+            let quitStreak3 = 0;
+            for(let i=0; i<AppState.records.length-3; i++) {
+                const d1 = DateUtil.parse(AppState.records[i].date);
+                const d3 = DateUtil.parse(AppState.records[i+2].date);
+                if (DateUtil.daysBetween(d1, d3) === 2) { 
+                    const dNext = DateUtil.parse(AppState.records[i+3].date);
+                    if (DateUtil.daysBetween(d3, dNext) >= 3) quitStreak3++;
+                }
+            }
+            if (quitStreak3 >= 2) {
+                htmlLines.push(`<li class="insight-item"><span class="insight-label">🔥 작심삼일 판독기:</span> "3일 기록 후 쉬는 패턴이 <strong>${quitStreak3}회</strong> 감지되었습니다. 4일차 고비를 넘기면 습관이 됩니다!"</li>`);
+            }
+        }
+
+        // 48. 적금 만기 (Savings Maturity)
+        const totalSavedCal = totalLost * 7700;
+        if (totalLost > 0) {
+            htmlLines.push(`<li class="insight-item"><span class="insight-label">💰 적금 만기:</span> "지금까지 누적 <strong>${totalSavedCal.toLocaleString()}kcal</strong>를 태웠습니다. 이는 빅맥 ${Math.round(totalSavedCal/550)}개에 해당하는 열량입니다."</li>`);
+        }
+
+        // 49. 급행열차 (Express Train)
+        if (s.rate30 && parseFloat(s.rate30) < -100) { 
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🚅 급행열차 탑승:</span> "최근 한 달간 감량 속도가 매우 빠릅니다. 이 속도라면 일반인 상위 5% 안에 드는 감량 퍼포먼스입니다."</li>`);
+        }
+
+        // 50. 주말 방어율 (Weekend Defense Rate)
+        const myWeekendImpacts = [];
+        for(let i=1; i<AppState.records.length; i++) {
+            const d = DateUtil.parse(AppState.records[i].date);
+            if(d.getDay() === 1) { 
+                const prevFriDate = new Date(d); prevFriDate.setDate(d.getDate()-3);
+                const prevFriStr = DateUtil.format(prevFriDate);
+                const friRec = AppState.records.find(r => r.date === prevFriStr);
+                if(friRec) myWeekendImpacts.push(AppState.records[i].weight - friRec.weight);
+            }
+        }
+        if (myWeekendImpacts.length > 4) {
+             const defended = myWeekendImpacts.filter(v => v <= 0).length;
+             const rate = (defended / myWeekendImpacts.length) * 100;
+             let grade = 'F';
+             if (rate >= 80) grade = 'A';
+             else if (rate >= 60) grade = 'B';
+             else if (rate >= 40) grade = 'C';
+             
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🛡️ 주말 방어율:</span> "당신의 주말 방어율(증량하지 않은 주말)은 <strong>${rate.toFixed(0)}% (${grade}학점)</strong>입니다."</li>`);
+        }
+
+        // 51. 다이버전스 (Divergence)
+        if (AppState.records.length > 7 && s.lastRec.fat) {
+             const r = AppState.records;
+             const wTrend = r[r.length-1].weight - r[r.length-7].weight; 
+             const fTrend = r[r.length-1].fat - r[r.length-7].fat; 
+             
+             if (wTrend < 0 && fTrend > 0) {
+                 htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">⚠️ 하락 다이버전스:</span> "체중은 줄고 있지만 체지방률은 오르고 있습니다. 근손실이 의심됩니다. 단백질 섭취를 늘리세요."</li>`);
+             } else if (wTrend > 0 && fTrend < 0) {
+                 htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">💎 상승 다이버전스:</span> "체중은 늘었지만 체지방률은 떨어졌습니다. 근육량이 늘어나는 긍정적인 신호(린매스업)입니다."</li>`);
+             }
+        }
+
+        // 53. 5일 이동평균선 돌파 (Moving Average Crossover)
+        if (AppState.records.length > 6) {
+            const last5Avg = AppState.records.slice(-6, -1).reduce((a,b)=>a+b.weight,0)/5;
+            if (s.current < last5Avg && AppState.records[AppState.records.length-2].weight > last5Avg) {
+                 htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 5일선 돌파:</span> "오늘 체중이 5일 이동평균선을 뚫고 내려갔습니다. 단기 하락 추세가 시작되었습니다."</li>`);
+            } else if (s.current > last5Avg && AppState.records[AppState.records.length-2].weight < last5Avg) {
+                 htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">📈 5일선 이탈:</span> "체중이 5일 이동평균선 위로 올라왔습니다. 단기 상승 추세로 전환될 수 있으니 주의하세요."</li>`);
+            }
+        }
+
+        // 54. 3일 법칙 (The 3-Day Rule)
+        let threeDayDrop = 0;
+        for(let i=2; i<AppState.records.length; i++) {
+             if(AppState.records[i].weight < AppState.records[i-1].weight && 
+                AppState.records[i-1].weight < AppState.records[i-2].weight) threeDayDrop++;
+        }
+        const totalDrops = AppState.records.filter((r,i)=>i>0 && r.weight < AppState.records[i-1].weight).length;
+        if(totalDrops > 0) {
+            const prob = (threeDayDrop / totalDrops * 100).toFixed(0);
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 관성의 법칙:</span> "체중이 이틀 연속 빠지면, 3일째에도 빠질 확률이 <strong>${prob}%</strong>입니다."</li>`);
+        }
+
+        // 55. 체중계 공포증 (Scale Phobia)
+        let skipAfterGain = 0;
+        let gainEvents = 0;
+        for(let i=1; i<AppState.records.length-2; i++) {
+            if (AppState.records[i].weight > AppState.records[i-1].weight + 0.5) {
+                 gainEvents++;
+                 const nextDay = DateUtil.addDays(AppState.records[i].date, 1);
+                 if (AppState.records[i+1].date !== nextDay) {
+                     skipAfterGain++;
+                 }
+            }
+        }
+        if (gainEvents > 3 && (skipAfterGain/gainEvents) > 0.5) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🫣 타조 효과 (Ostrich Effect):</span> "체중이 많이 늘어난 다음날은 기록을 건너뛰는 경향(${((skipAfterGain/gainEvents)*100).toFixed(0)}%)이 있습니다. 외면하지 말고 직면해야 해결됩니다!"</li>`);
+        }
+
+        // 56. BMI 클래스 변경 임박 (Proximity)
+        const h = AppState.settings.height / 100;
+        const currentBMI = s.current / (h*h);
+        const thresholds = Object.values(CONFIG.BMI);
+        let closestDist = 999;
+        let targetBMI = 0;
+        thresholds.forEach(t => {
+            const dist = currentBMI - t;
+            if (dist > 0 && dist < 1.0 && dist < closestDist) {
+                closestDist = dist;
+                targetBMI = t;
+            }
+        });
+        if (closestDist < 999) {
+            const wToLose = (currentBMI - targetBMI) * h * h;
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎖️ 승급 심사 임박:</span> "앞으로 <strong>${wToLose.toFixed(1)}kg</strong>만 더 빼면 BMI 단계가 내려갑니다! 비만도 등급이 바뀌는 순간입니다."</li>`);
+        }
+
+        // 58. 스키니 진 지수 (Skinny Jeans Index)
+        if (AppState.records.length > 30) {
+            let newLows = 0;
+            let minW = AppState.records[0].weight;
+            for(let i=1; i<AppState.records.length; i++) {
+                if(AppState.records[i].weight < minW) {
+                    minW = AppState.records[i].weight;
+                    newLows++;
+                }
+            }
+            const freq = (AppState.records.length / newLows).toFixed(1);
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">👖 스키니 진 지수:</span> "평균적으로 <strong>${freq}일</strong>마다 최저 체중을 경신하고 있습니다. 다음 신기록까지 화이팅!"</li>`);
+        }
+
+        // 59. 앵커링 효과 (Anchoring)
+        if (totalLost > 5) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">⚓ 앵커링 탈출:</span> "이제 시작 체중(${AppState.settings.startWeight}kg)은 남의 얘기 같습니다. 뇌의 기준점이 성공적으로 낮아지고 있습니다."</li>`);
+        }
+
+        // 60. 파레토 법칙 (80/20 Rule)
+        if (AppState.records.length > 20) {
+            const dailyDrops = [];
+            for(let i=1; i<AppState.records.length; i++) {
+                const diff = AppState.records[i-1].weight - AppState.records[i].weight;
+                if(diff > 0) dailyDrops.push(diff);
+            }
+            dailyDrops.sort((a,b)=>b-a);
+            const top20Count = Math.ceil(dailyDrops.length * 0.2);
+            const top20Sum = dailyDrops.slice(0, top20Count).reduce((a,b)=>a+b,0);
+            const totalSum = dailyDrops.reduce((a,b)=>a+b,0);
+            
+            if (totalSum > 0) {
+                const ratio = (top20Sum / totalSum * 100).toFixed(0);
+                htmlLines.push(`<li class="insight-item"><span class="insight-label">📊 파레토 법칙:</span> "전체 감량의 <strong>${ratio}%</strong>가 상위 20%의 '황금 같은 날들'에 이루어졌습니다. 감량 잘 되는 날의 루틴을 기억하세요."</li>`);
+            }
+        }
+
+        // 62. 뇌피셜 방지 (Fact Check)
+        if (AppState.records.length > 30) {
+             const r7 = AppState.records.slice(-7);
+             const r30 = AppState.records.slice(-30);
+             const trend7 = r7[r7.length-1].weight - r7[0].weight;
+             const trend30 = r30[r30.length-1].weight - r30[0].weight;
+
+             if (trend7 > 0 && trend30 < -1.0) {
+                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🧠 뇌피셜 방지 (Fact Check):</span> "최근 1주일간 체중이 늘어 살이 안 빠진다고 느끼시죠? 하지만 30일 추세는 여전히 하락장입니다. 일시적 반등에 속지 마세요."</li>`);
+             }
+        }
+
+        // 63. 명절/연휴 후유증 (Holiday Blues)
+        const today = new Date();
+        const mmdd = DateUtil.format(today).substring(5);
+        if (['01-02','01-03','01-04', '09-15', '09-16', '12-26'].includes(mmdd)) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎁 명절/연휴 후유증:</span> "연휴 급찐살은 지방이 아니라 글리코겐과 수분입니다. 2주 내에 관리하면 100% 복구됩니다. 골든타임을 놓치지 마세요."</li>`);
+        }
+
+        // 66. 작용 반작용 (Newton's 3rd Law)
+        if (s.maxDrop > 1.5 && s.lastRec.weight - AppState.records[AppState.records.length-2].weight > 0.5) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🍏 작용 반작용:</span> "최근 급격한 감량에 대한 반발력으로 일시적 증량이 왔습니다. 몸이 항상성을 유지하려는 자연스러운 현상입니다."</li>`);
+        }
+
+        // 67. 100일의 기적 (100 Days)
+        const startD = DateUtil.parse(AppState.records[0].date);
+        const lastD = DateUtil.parse(s.lastRec.date);
+        const diffDays = DateUtil.daysBetween(startD, lastD);
+        if (diffDays >= 95 && diffDays <= 105) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">💯 100일의 기적:</span> "다이어트를 시작한 지 100일이 되었습니다! 습관이 형성되기에 충분한 시간입니다. 이제 다이어트는 당신의 일상입니다."</li>`);
+        }
+
+        // 68. 계절성 패턴 (Seasonality - Summer Prep)
+        const m = new Date().getMonth() + 1;
+        if (m === 5 || m === 6) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">👙 여름 준비 기간:</span> "여름이 다가오고 있습니다. 통계적으로 이 시기에 동기부여가 가장 높습니다. 지금 스퍼트를 올리세요!"</li>`);
+        } else if (m === 12 || m === 1) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">❄️ 겨울잠 본능:</span> "기온이 떨어지면 몸은 지방을 축적하려 합니다. 식욕이 느는 것은 본능이니 자책하지 말고 활동량을 늘리세요."</li>`);
+        }
+
+        // 69. 목표 달성 압박감 (Goal Anxiety)
+        if (s.current - AppState.settings.goal1 < 1.0 && s.current > AppState.settings.goal1) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">😫 목표 달성 압박감:</span> "목표까지 딱 1kg 남았습니다! 이 구간이 가장 안 빠지고 심리적으로 힘든 '마의 구간'입니다. 체중계보다 눈바디를 믿으세요."</li>`);
+        }
+
+        // 70. 로또 당첨 확률 (Fun)
+        if (s.diffs && s.diffs.length > 0) {
+            const sameWeightCount = s.diffs.filter(d => d === 0).length;
+            if (sameWeightCount > 5) {
+                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🎰 도플갱어:</span> "소수점까지 체중이 똑같은 날이 <strong>${sameWeightCount}일</strong>이나 됩니다. 체중계 고장은 아니겠죠?"</li>`);
+            }
+        }
+
+        // 73. 1% 클럽 (Top 1%)
+        if (s.totalLost / AppState.settings.startWeight > 0.2) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">👑 상위 1% 클럽:</span> "체중의 20% 이상을 감량하셨군요! 이는 의학적으로도 놀라운 성과이며, 일반인 중 상위 1%에 해당하는 의지력입니다."</li>`);
+        }
+
+        // 75. 우상향 정기예금 (Savings Account)
+        if (s.stdDev < 0.2 && totalLost > 2) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🏦 정기예금 패턴:</span> "체중이 정말 꾸준하고 안정적으로 빠지고 있습니다. 가장 이상적이고 요요가 적은 '정석 다이어트'의 표본입니다."</li>`);
+        }
+
+        // 76. 수분 컷팅 (Water Cut)
+        if (s.lastRec.weight - AppState.records[AppState.records.length-2].weight < -1.5) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">💦 수분 컷팅:</span> "하루 만에 급격히 빠진 것은 지방이 아니라 수분일 가능성이 큽니다. 어제 저염식을 하셨거나 땀을 많이 흘리셨나요?"</li>`);
+        }
+
+        // 78. 다이어트 정체성 (Identity)
+        const bmiCat = s.bmi < 23 ? '유지어터' : '다이어터';
+        if (bmiCat === '유지어터' && totalLost > 5) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎓 졸업반:</span> "이제 '다이어터'가 아니라 '유지어터'의 영역에 들어섰습니다. 빼는 것보다 지키는 것이 더 어렵습니다."</li>`);
+        }
+
+        // 79. 과속 방지턱 (Speed Bump)
+        if (s.rate7 && parseFloat(s.rate7) < -200) { 
+             htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">🚧 과속 방지턱:</span> "감량 속도가 너무 빠릅니다(주당 1.4kg 이상). 담석증이나 탈모 위험이 있으니 탄수화물 섭취를 조금 늘리세요."</li>`);
+        }
+
+        // 80. 버티기 승리 (HODL Victory)
+        if (maxPlateau > 10 && s.current < s.lastRec.weight) { 
+             htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">🚀 버티기는 승리한다:</span> "긴 정체기를 뚫고 드디어 하락 추세로 돌아섰습니다! 포기하지 않은 당신의 승리입니다."</li>`);
+        }
+
+        // 81. 아홉수 (Ending with 9)
+        const lastDigit = Math.floor(s.current) % 10;
+        if (lastDigit === 9) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">9️⃣ 아홉수:</span> "앞자리가 바뀌기 직전인 X9kg대입니다. 조금만 더 힘내면 앞자리가 바뀝니다!"</li>`);
+        }
+
+        // 82. 데칼코마니 (Decalcomania)
+        if (AppState.records.length > 2) {
+             const r = AppState.records;
+             if (r[r.length-1].weight === r[r.length-2].weight) {
+                  htmlLines.push(`<li class="insight-item"><span class="insight-label">🦋 데칼코마니:</span> "어제와 체중이 소수점까지 똑같습니다. 몸이 현재 체중에 적응 중인 것 같습니다."</li>`);
+             }
+        }
+
+        // 83. 손실 회피 성향 (Loss Aversion)
+        if (remaining > 0 && remaining < 2) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">💎 손실 회피:</span> "목표가 코앞입니다. 지금 포기하면 지금까지의 노력이 너무 아깝지 않나요? 딱 3일만 더 버텨봅시다."</li>`);
+        }
+
+        // 85. 럭키 세븐 (Lucky 7)
+        if (s.current.toString().indexOf('77') > -1) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎰 잭팟 (77):</span> "체중에 행운의 숫자 77이 들어있습니다. 오늘은 운 좋은 하루가 될 거예요!"</li>`);
         }
 
         AppState.getEl('advancedAnalysisList').innerHTML = htmlLines.join('');
