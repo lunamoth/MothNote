@@ -717,9 +717,9 @@ const sanitizeContentData = data => {
         const noteUpdatedAt = Number(n.updatedAt);
         const note = {
             id: noteId,
-            // [버그 수정] 제목은 잠재적 HTML을 제거하기 위해 escapeHtml을 유지합니다.
-            title: escapeHtml(String(n.title ?? '제목 없는 노트')).slice(0, 200),
-            // [버그 수정] content는 마크다운 원본을 보존하기 위해 escapeHtml을 제거합니다.
+            // [버그 수정] escapeHtml 제거: renderer.js에서 렌더링 시 XSS를 방지하므로 원본 문자열을 저장합니다.
+            title: String(n.title ?? '제목 없는 노트').slice(0, 200),
+            // [버그 수정] content는 마크다운 원본을 보존하기 위해 escapeHtml을 제거합니다. (기존 유지)
             content: String(n.content ?? ''),
             createdAt: Number.isFinite(noteCreatedAt) ? noteCreatedAt : Date.now(),
             updatedAt: Number.isFinite(noteUpdatedAt) ? noteUpdatedAt : Date.now(),
@@ -741,7 +741,8 @@ const sanitizeContentData = data => {
         const folderUpdatedAt = Number(f.updatedAt);
         return {
             id: folderId,
-            name: escapeHtml(String(f.name ?? '제목 없는 폴더')).slice(0, 100),
+            // [버그 수정] escapeHtml 제거: 원본 문자열 저장
+            name: String(f.name ?? '제목 없는 폴더').slice(0, 100),
             notes: notes,
             createdAt: Number.isFinite(folderCreatedAt) ? folderCreatedAt : Date.now(),
             updatedAt: Number.isFinite(folderUpdatedAt) ? folderUpdatedAt : Date.now(),
@@ -757,7 +758,8 @@ const sanitizeContentData = data => {
             const itemUpdatedAt = Number(item.updatedAt);
             const folder = {
                 id: folderId,
-                name: escapeHtml(String(item.name ?? '제목 없는 폴더')).slice(0, 100),
+                // [버그 수정] escapeHtml 제거: 원본 문자열 저장
+                name: String(item.name ?? '제목 없는 폴더').slice(0, 100),
                 notes: [], type: 'folder', deletedAt: item.deletedAt || Date.now(),
                 createdAt: Number.isFinite(itemCreatedAt) ? itemCreatedAt : (item.deletedAt || Date.now()),
                 updatedAt: Number.isFinite(itemUpdatedAt) ? itemUpdatedAt : (item.deletedAt || Date.now()),
@@ -773,7 +775,6 @@ const sanitizeContentData = data => {
     }, []) : [];
     
     // [BUG FIX] 즐겨찾기 목록을 실제 존재하는 노트 ID만 남도록 정제합니다.
-    // 1. 모든 유효한 최종 노트 ID를 수집합니다.
     const finalNoteIds = new Set();
     sanitizedFolders.forEach(folder => {
         folder.notes.forEach(note => finalNoteIds.add(note.id));
@@ -786,15 +787,14 @@ const sanitizeContentData = data => {
         }
     });
 
-    // 2. 원본 favorites 배열을 순회하며 유효성 검사를 수행합니다.
     const sanitizedFavorites = (Array.isArray(data.favorites) ? data.favorites : [])
-        .map(oldId => idMap.get(oldId) || oldId) // ID가 변경되었다면 새 ID로 매핑하고, 아니면 기존 ID 사용
-        .filter(finalId => finalNoteIds.has(finalId)); // 최종 노트 ID 목록에 존재하는 ID만 필터링
+        .map(oldId => idMap.get(oldId) || oldId) 
+        .filter(finalId => finalNoteIds.has(finalId)); 
 
     return {
         folders: sanitizedFolders,
         trash: sanitizedTrash,
-        favorites: Array.from(new Set(sanitizedFavorites)) // 중복을 제거하여 최종 반환
+        favorites: Array.from(new Set(sanitizedFavorites)) 
     };
 };
 
