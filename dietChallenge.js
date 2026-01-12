@@ -2095,24 +2095,38 @@
              htmlLines.push(`<li class="insight-item"><span class="insight-label">🫣 타조 효과 (Ostrich Effect):</span> "체중이 많이 늘어난 다음날은 기록을 건너뛰는 경향(${((skipAfterGain/gainEvents)*100).toFixed(0)}%)이 있습니다. 외면하지 말고 직면해야 해결됩니다!"</li>`);
         }
 
-        // 56. BMI 클래스 변경 임박 (Proximity)
+		// 56. BMI 클래스 변경 임박 (Proximity)
         const h = AppState.settings.height / 100;
         const currentBMI = s.current / (h*h);
         const thresholds = Object.values(CONFIG.BMI);
         let closestDist = 999;
         let targetBMI = 0;
+        
         thresholds.forEach(t => {
             const dist = currentBMI - t;
+            // 현재 BMI가 기준선보다 높고(빼야 함), 그 차이가 1.0 미만일 때
             if (dist > 0 && dist < 1.0 && dist < closestDist) {
                 closestDist = dist;
                 targetBMI = t;
             }
         });
+
         if (closestDist < 999) {
             const wToLose = (currentBMI - targetBMI) * h * h;
-             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎖️ 승급 심사 임박:</span> "앞으로 <strong>${wToLose.toFixed(1)}kg</strong>만 더 빼면 BMI 단계가 내려갑니다! 비만도 등급이 바뀌는 순간입니다."</li>`);
-        }
+            
+            let weightStr;
+            // 1kg 미만이면 g 단위로 표시
+            if (wToLose < 1.0) {
+                // 0g으로 표시되는 것을 막기 위해 소수점 이하 올림 처리
+                const grams = Math.ceil(wToLose * 1000); 
+                weightStr = `${grams}g`;
+            } else {
+                weightStr = `${wToLose.toFixed(1)}kg`;
+            }
 
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎖️ 승급 심사 임박:</span> "앞으로 <strong>${weightStr}</strong>만 더 빼면 BMI 단계가 내려갑니다! 비만도 등급이 바뀌는 순간입니다."</li>`);
+        }
+		
         // 58. 스키니 진 지수 (Skinny Jeans Index)
         if (AppState.records.length > 30) {
             let newLows = 0;
@@ -2199,7 +2213,7 @@
         if (s.diffs && s.diffs.length > 0) {
             const sameWeightCount = s.diffs.filter(d => d === 0).length;
             if (sameWeightCount > 5) {
-                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🎰 도플갱어:</span> "소수점까지 체중이 똑같은 날이 <strong>${sameWeightCount}일</strong>이나 됩니다. 체중계 고장은 아니겠죠?"</li>`);
+                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🎰 도플갱어:</span> "소수점까지 체중이 똑같은 날이 <strong>${sameWeightCount}일</strong>이나 됩니다."</li>`);
             }
         }
 
