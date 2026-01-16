@@ -1440,18 +1440,25 @@
         if(weekendSpike >= 3) persona = PERSONA.WEEKEND;
         htmlLines.push(`<li class="insight-item"><span class="insight-label">🕵️ 다이어트 성향:</span> 당신은 <strong>${persona}</strong>입니다.</li>`);
 
-        // 2. 수분 마스킹 (Water Masking) & 3. 상승 다이어트 (Lean Mass Up)
+		// 2. 수분 마스킹 (Water Masking) & 3. 상승 다이어트 (Lean Mass Up)
         if(AppState.records.length >= 3) {
             const last = AppState.records[AppState.records.length-1];
             const prev = AppState.records[AppState.records.length-2];
+            
+            // 조건: 체지방 정보가 있고, 체지방은 줄었으나(▼), 체중은 같거나 늘어남(▲ or =)
             if(last.fat && prev.fat && last.fat < prev.fat && last.weight >= prev.weight) {
-                // --- [NEW] v3.0.71 Lean Mass Up ---
-                htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">💪 상승 다이어트:</span> "체중이 +${(last.weight-prev.weight).toFixed(1)}kg 늘었지만 슬퍼하지 마세요! 체지방률은 오히려 떨어졌습니다. 근육이 늘고 지방이 타는 가장 이상적인 '상승 다이어트' 중입니다."</li>`);
-            } else if(last.fat && prev.fat && last.fat < prev.fat && last.weight >= prev.weight) {
-                 htmlLines.push(`<li class="insight-item"><span class="insight-label">💧 수분 마스킹:</span> "체지방은 줄었는데 체중이 그대로입니다. 수분 보유량이 늘어난 것 같습니다. 짠 음식을 드셨나요?"</li>`);
+                const wDiff = last.weight - prev.weight;
+
+                if (wDiff > 0) {
+                    // 체중이 증가한 경우 (+0.1kg 이상)
+                    htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">💪 상승 다이어트:</span> "체중이 +${wDiff.toFixed(1)}kg 늘었지만 슬퍼하지 마세요! 체지방률은 오히려 떨어졌습니다. 근육이 늘고 지방이 타는 가장 이상적인 '상승 다이어트' 중입니다."</li>`);
+                } else {
+                    // 체중이 정확히 같은 경우 (0.0kg)
+                    htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">🧱 체성분 재구성:</span> "체중은 어제와 똑같지만 체지방률은 떨어졌습니다! 지방이 빠진 자리를 근육이나 수분이 채우고 있는 긍정적인 신호(린매스업)입니다."</li>`);
+                }
             }
         }
-
+		
         // 4. 골든 크로스 / 데드 크로스 (Golden/Dead Cross)
         if(AppState.records.length >= 30) {
             const last7 = AppState.records.slice(-7).reduce((a,b)=>a+b.weight,0)/7;
