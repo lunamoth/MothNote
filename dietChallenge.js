@@ -853,7 +853,7 @@
 
         const totalLost = MathUtil.diff(AppState.settings.startWeight, current);
         const hMeter = AppState.settings.height / 100;
-        const bmi = (current / (hMeter * hMeter)).toFixed(1);
+		const bmi = Math.round((current / (hMeter * hMeter)) * 100) / 100;
 
         const getRateVal = (days) => {
              const now = new Date(); now.setHours(0,0,0,0);
@@ -977,7 +977,7 @@
         else if(bmi < CONFIG.BMI.OBESE_2_END) bmiLabel = '2단계 비만';
         else bmiLabel = '3단계 비만 (고도 비만)';
         
-        AppState.getEl('bmiDisplay').innerText = `BMI: ${bmi} (${bmiLabel})`;
+		AppState.getEl('bmiDisplay').innerText = `BMI: ${bmi.toFixed(2)} (${bmiLabel})`;
         updateBmiProgressBar(parseFloat(bmi), bmiLabel);
 
         const percentLost = ((AppState.settings.startWeight - currentW) / AppState.settings.startWeight * 100).toFixed(1);
@@ -2550,10 +2550,10 @@
         AppState.getEl('bmiProgressEmoji').style.right = `${rightPos}%`;
         AppState.getEl('bmiProgressText').style.right = `${rightPos}%`;
 
-        AppState.getEl('bmiProgressText').innerHTML = `
-            <strong>BMI ${bmi}</strong><br>
-            ${label}
-        `;
+		AppState.getEl('bmiProgressText').innerHTML = `
+			<strong>BMI ${bmi.toFixed(2)}</strong><br>
+			${label}
+		`;	
     }
     
     function renderAnalysisText(s) {
@@ -2888,7 +2888,7 @@
         if(!lastRec) return;
 
         const hMeter = AppState.settings.height / 100;
-        const bmi = parseFloat((lastRec.weight / (hMeter * hMeter)).toFixed(1));
+        const bmi = Math.round((lastRec.weight / (hMeter * hMeter)) * 100) / 100;
         const fat = lastRec.fat || 0;
 
 		const createGauge = (id, val, max, ranges, chartKey) => {
@@ -2946,7 +2946,13 @@
 						ctx.fillStyle = colors.text;
 						ctx.textAlign = 'center';
 						ctx.textBaseline = 'middle';
-						ctx.fillText(val, centerX, centerY - (outerRadius * 0.2));
+
+						let displayVal = val;
+						if (!Number.isInteger(val)) {
+							displayVal = val.toFixed(2);
+						}
+						ctx.fillText(displayVal, centerX, centerY - (outerRadius * 0.2));
+
 					}
 				}]
 			};
