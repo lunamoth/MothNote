@@ -2245,10 +2245,19 @@
              htmlLines.push(`<li class="insight-item"><span class="insight-label">🎓 졸업반:</span> "이제 '다이어터'가 아니라 '유지어터'의 영역에 들어섰습니다. 빼는 것보다 지키는 것이 더 어렵습니다."</li>`);
         }
 
-        // 79. 과속 방지턱 (Speed Bump)
-        if (s.rate7 && parseFloat(s.rate7) < -200) { 
-             htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">🚧 과속 방지턱:</span> "감량 속도가 너무 빠릅니다(주당 1.4kg 이상). 담석증이나 탈모 위험이 있으니 탄수화물 섭취를 조금 늘리세요."</li>`);
+
+		// 79. 과속 방지턱 (Speed Bump) - 의학적 정밀 버전 (줄바꿈 없음)
+        if (s.rate7 && parseFloat(s.rate7) <= -200) { 
+             const currentGrams = parseFloat(s.rate7); 
+             const absGPerDay = Math.abs(currentGrams);
+             const kgPerWeek = (absGPerDay * 7 / 1000).toFixed(2); 
+
+             htmlLines.push(`<li class="insight-item text-danger">
+                <span class="insight-label">🚧 과속 방지턱:</span> 
+                "현재 감량 속도(<strong>주당 ${kgPerWeek}kg</strong>)가 과도하게 빠릅니다. 담석증 예방을 위한 <strong>지방(오일, 견과류)</strong>과 탈모 방지를 위한 <strong>단백질</strong> 섭취를 지금 즉시 늘리시고, 만약 <strong>오른쪽 윗배 통증, 발열, 황달</strong>이 발생하면 즉시 병원에 가셔서 진료를 받으세요."
+             </li>`);
         }
+		
 
         // 80. 버티기 승리 (HODL Victory)
         if (maxPlateau > 10 && s.current < s.lastRec.weight) { 
