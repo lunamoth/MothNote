@@ -344,6 +344,23 @@
         });
 
         // -------------------------------------
+        // [수정됨] 캘린더 뷰 이벤트 위임 추가 (버튼 및 셀렉트 박스)
+        const calContainer = AppState.getEl('calendarContainer');
+        if (calContainer) {
+            calContainer.addEventListener('click', (e) => {
+                if (e.target.classList.contains('cal-btn-prev')) {
+                    changeCalendarMonth(-1);
+                } else if (e.target.classList.contains('cal-btn-next')) {
+                    changeCalendarMonth(1);
+                }
+            });
+            calContainer.addEventListener('change', (e) => {
+                if (e.target.id === 'calYearSelect' || e.target.id === 'calMonthSelect') {
+                    jumpToCalendarDate();
+                }
+            });
+        }
+        // -------------------------------------
 
         const dateInput = AppState.getEl('dateInput');
         if (dateInput) dateInput.value = DateUtil.format(new Date());
@@ -436,7 +453,7 @@
         updateFilterButtons();
         updateUI();
     }
-
+	
     // --- 3. 기본 기능 ---
     const debouncedSaveRecords = debounce(() => {
         localStorage.setItem(AppState.STORAGE_KEY, JSON.stringify(AppState.records));
@@ -4137,7 +4154,7 @@
         renderCalendarView();
     }
 
-    function renderCalendarView() {
+	function renderCalendarView() {
         const container = AppState.getEl('calendarContainer');
         if(AppState.records.length === 0) {
             container.innerHTML = '<p style="text-align:center;color:var(--text-light);">데이터가 없습니다.</p>';
@@ -4159,22 +4176,23 @@
             }
         });
 
+        // [수정됨] onclick, onchange 제거 및 클래스 기반으로 변경
         let html = `<div class="calendar-header">
-            <button onclick="App.changeCalendarMonth(-1)">◀ 이전달</button>
+            <button class="cal-btn-prev">◀ 이전달</button>
             <div>
-                <select id="calYearSelect" onchange="App.jumpToCalendarDate()">`;
+                <select id="calYearSelect">`;
         const currentYear = new Date().getFullYear();
         for(let y=currentYear-5; y<=currentYear+1; y++) {
             html += `<option value="${y}" ${y===year?'selected':''}>${y}년</option>`;
         }
         html += `</select>
-                <select id="calMonthSelect" onchange="App.jumpToCalendarDate()">`;
+                <select id="calMonthSelect">`;
         for(let m=0; m<12; m++) {
             html += `<option value="${m}" ${m===month?'selected':''}>${m+1}월</option>`;
         }
         html += `</select>
             </div>
-            <button onclick="App.changeCalendarMonth(1)">다음달 ▶</button>
+            <button class="cal-btn-next">다음달 ▶</button>
         </div>`;
         
         html += `<div class="calendar-grid">`;
@@ -4210,7 +4228,7 @@
         html += `</div>`;
         container.innerHTML = html;
     }
-
+		
     function renderAllTables() {
         renderMonthlyTable();
         renderWeeklyTable();
