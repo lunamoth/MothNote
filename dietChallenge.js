@@ -510,54 +510,85 @@
         showToast('설정이 저장되었습니다.');
     }
 
-    function addRecord() {
-        const date = AppState.getEl('dateInput').value;
-        const weight = parseFloat(AppState.getEl('weightInput').value);
-        const fat = parseFloat(AppState.getEl('fatInput').value);
+	function addRecord() {
+        const dateInput = AppState.getEl('dateInput');
+        const weightInput = AppState.getEl('weightInput');
+        const fatInput = AppState.getEl('fatInput');
+        const btn = AppState.getEl('recordBtn');
+
+        // 값 가져오기
+        const date = dateInput.value;
+        const weightStr = weightInput.value; // 문자열 상태로 먼저 확인
+        const fatStr = fatInput.value;
 
         if (!date) return showToast('날짜를 입력해주세요.');
         
+        // [수정 1] 값이 비어있는지 먼저 명확히 확인 (중복 클릭시 이 조건에 걸림)
+        if (!weightStr || weightStr.trim() === '') {
+            return showToast('체중을 입력해주세요.'); 
+        }
+
+        const weight = parseFloat(weightStr);
+        const fat = parseFloat(fatStr);
+
+        // [수정 2] 유효성 검사
         if (isNaN(weight) || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) {
             return showToast(`유효한 체중을 입력해주세요 (${CONFIG.LIMITS.MIN_WEIGHT}~${CONFIG.LIMITS.MAX_WEIGHT}kg).`);
         }
-        if (!isNaN(fat) && (fat < CONFIG.LIMITS.MIN_FAT || fat > CONFIG.LIMITS.MAX_FAT)) {
+        if (fatStr && (isNaN(fat) || fat < CONFIG.LIMITS.MIN_FAT || fat > CONFIG.LIMITS.MAX_FAT)) {
             return showToast(`유효한 체지방률을 입력해주세요 (${CONFIG.LIMITS.MIN_FAT}~${CONFIG.LIMITS.MAX_FAT}%).`);
         }
 
-        const record = { date, weight: MathUtil.round(weight) };
-        if (!isNaN(fat)) record.fat = MathUtil.round(fat);
+        // [수정 3] 중복 클릭 방지 (버튼 잠금)
+        if (btn.disabled) return;
+        btn.disabled = true;
 
-        const existingIndex = AppState.records.findIndex(r => r.date === date);
+        try {
+            const record = { date, weight: MathUtil.round(weight) };
+            if (!isNaN(fat) && fatStr !== '') record.fat = MathUtil.round(fat);
 
-        if (AppState.state.editingDate) {
-            if (AppState.state.editingDate !== date) {
-                if (existingIndex >= 0) {
-                    if (!confirm(`${date}에 이미 기록이 있습니다. 덮어쓰시겠습니까?`)) return;
-                    AppState.records = AppState.records.filter(r => r.date !== AppState.state.editingDate && r.date !== date);
-                    AppState.records.push(record);
+            const existingIndex = AppState.records.findIndex(r => r.date === date);
+
+            if (AppState.state.editingDate) {
+                if (AppState.state.editingDate !== date) {
+                    if (existingIndex >= 0) {
+                        if (!confirm(`${date}에 이미 기록이 있습니다. 덮어쓰시겠습니까?`)) {
+                            btn.disabled = false; return;
+                        }
+                        AppState.records = AppState.records.filter(r => r.date !== AppState.state.editingDate && r.date !== date);
+                        AppState.records.push(record);
+                    } else {
+                        AppState.records = AppState.records.filter(r => r.date !== AppState.state.editingDate);
+                        AppState.records.push(record);
+                    }
                 } else {
-                    AppState.records = AppState.records.filter(r => r.date !== AppState.state.editingDate);
-                    AppState.records.push(record);
+                    AppState.records[existingIndex] = record;
                 }
             } else {
-                AppState.records[existingIndex] = record;
+                if (existingIndex >= 0) {
+                    if(!confirm(`${date}에 이미 기록이 있습니다. 덮어쓰시겠습니까?`)) {
+                        btn.disabled = false; return;
+                    }
+                    AppState.records[existingIndex] = record;
+                } else {
+                    AppState.records.push(record);
+                }
             }
-        } else {
-            if (existingIndex >= 0) {
-                if(!confirm(`${date}에 이미 기록이 있습니다. 덮어쓰시겠습니까?`)) return;
-                AppState.records[existingIndex] = record;
-            } else {
-                AppState.records.push(record);
-            }
-        }
 
-        AppState.records.sort((a, b) => new Date(a.date) - new Date(b.date));
-        AppState.state.isDirty = true;
-        debouncedSaveRecords();
-        
-        resetForm(date); 
-        updateUI();
-        showToast('기록이 저장되었습니다.');
+            AppState.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+            AppState.state.isDirty = true;
+            debouncedSaveRecords();
+            
+            resetForm(date); 
+            updateUI();
+            showToast('기록이 저장되었습니다.');
+        } catch (e) {
+            console.error(e);
+            showToast('저장 중 오류가 발생했습니다.');
+        } finally {
+            // [수정 3] 버튼 잠금 해제 (약간의 딜레이 후)
+            setTimeout(() => { btn.disabled = false; }, 500);
+        }
     }
 
     function resetForm(lastDateStr = null) {
