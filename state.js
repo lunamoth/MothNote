@@ -22,7 +22,8 @@ export const CONSTANTS = {
     // 가상 폴더 및 UI 관련 상수
     VIRTUAL_FOLDERS: {
         ALL:    { id: 'all-notes-virtual-id', name: '모든 노트', displayName: '📚 모든 노트', icon: '📚', canAddNote: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note) },
-        RECENT: { id: 'recent-notes-virtual-id', name: '최근 노트', displayName: '🕒 최근 노트', icon: '🕒', canAddNote: false, isSortable: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).sort((a,b) => b.updatedAt - a.updatedAt).slice(0, CONSTANTS.RECENT_NOTES_COUNT) },
+        // [수정] slice()를 제거하여 최근 10개가 아닌 전체 노트를 최신순으로 반환하도록 변경
+        RECENT: { id: 'recent-notes-virtual-id', name: '최근 노트', displayName: '🕒 최근 노트', icon: '🕒', canAddNote: false, isSortable: false, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).sort((a,b) => b.updatedAt - a.updatedAt) },
         FAVORITES: { id: 'favorites-virtual-id', name: '즐겨찾기', displayName: '⭐ 즐겨찾기', icon: '⭐', canAddNote: false, isSortable: true, getNotes: (state) => Array.from(state.noteMap.values()).map(entry => entry.note).filter(note => state.favorites.has(note.id)) },
         TRASH:  { id: 'trash-virtual-id', name: '휴지통', displayName: '🗑️ 휴지통', icon: '🗑️', canAddNote: false, isSortable: false, getNotes: (state) => state.trash }
     },
