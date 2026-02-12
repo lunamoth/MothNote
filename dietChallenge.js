@@ -511,19 +511,26 @@
     }
 
 	function addRecord() {
+        // [수정 핵심] 버튼 엘리먼트를 가장 먼저 가져옵니다.
+        const btn = AppState.getEl('recordBtn');
+
+        // [수정 핵심] 중복 실행 방지 (Debounce)
+        // 버튼이 비활성화(처리 중) 상태라면, 유효성 검사도 하지 않고 즉시 함수를 종료합니다.
+        // 이 코드가 맨 위에 있어야 두 번째 호출 시 "체중을 입력해주세요" 메시지가 뜨지 않습니다.
+        if (btn.disabled) return;
+
         const dateInput = AppState.getEl('dateInput');
         const weightInput = AppState.getEl('weightInput');
         const fatInput = AppState.getEl('fatInput');
-        const btn = AppState.getEl('recordBtn');
 
         // 값 가져오기
         const date = dateInput.value;
-        const weightStr = weightInput.value; // 문자열 상태로 먼저 확인
+        const weightStr = weightInput.value; 
         const fatStr = fatInput.value;
 
         if (!date) return showToast('날짜를 입력해주세요.');
         
-        // [수정 1] 값이 비어있는지 먼저 명확히 확인 (중복 클릭시 이 조건에 걸림)
+        // 값이 비어있는지 확인
         if (!weightStr || weightStr.trim() === '') {
             return showToast('체중을 입력해주세요.'); 
         }
@@ -531,7 +538,7 @@
         const weight = parseFloat(weightStr);
         const fat = parseFloat(fatStr);
 
-        // [수정 2] 유효성 검사
+        // 유효성 검사
         if (isNaN(weight) || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) {
             return showToast(`유효한 체중을 입력해주세요 (${CONFIG.LIMITS.MIN_WEIGHT}~${CONFIG.LIMITS.MAX_WEIGHT}kg).`);
         }
@@ -539,8 +546,7 @@
             return showToast(`유효한 체지방률을 입력해주세요 (${CONFIG.LIMITS.MIN_FAT}~${CONFIG.LIMITS.MAX_FAT}%).`);
         }
 
-        // [수정 3] 중복 클릭 방지 (버튼 잠금)
-        if (btn.disabled) return;
+        // [수정 핵심] 유효성 검사를 통과했다면 즉시 버튼을 잠급니다.
         btn.disabled = true;
 
         try {
@@ -550,9 +556,12 @@
             const existingIndex = AppState.records.findIndex(r => r.date === date);
 
             if (AppState.state.editingDate) {
+                // 수정 모드일 때
                 if (AppState.state.editingDate !== date) {
+                    // 날짜를 변경해서 수정하는 경우
                     if (existingIndex >= 0) {
                         if (!confirm(`${date}에 이미 기록이 있습니다. 덮어쓰시겠습니까?`)) {
+                            // 사용자가 취소하면 버튼 잠금 해제 후 종료
                             btn.disabled = false; return;
                         }
                         AppState.records = AppState.records.filter(r => r.date !== AppState.state.editingDate && r.date !== date);
@@ -562,11 +571,14 @@
                         AppState.records.push(record);
                     }
                 } else {
+                    // 날짜는 그대로두고 값만 수정하는 경우
                     AppState.records[existingIndex] = record;
                 }
             } else {
+                // 신규 기록일 때
                 if (existingIndex >= 0) {
                     if(!confirm(`${date}에 이미 기록이 있습니다. 덮어쓰시겠습니까?`)) {
+                        // 사용자가 취소하면 버튼 잠금 해제 후 종료
                         btn.disabled = false; return;
                     }
                     AppState.records[existingIndex] = record;
@@ -575,22 +587,26 @@
                 }
             }
 
+            // 데이터 정렬 및 저장
             AppState.records.sort((a, b) => new Date(a.date) - new Date(b.date));
             AppState.state.isDirty = true;
             debouncedSaveRecords();
             
+            // 입력창 초기화 및 UI 업데이트
             resetForm(date); 
             updateUI();
             showToast('기록이 저장되었습니다.');
+
         } catch (e) {
             console.error(e);
             showToast('저장 중 오류가 발생했습니다.');
         } finally {
-            // [수정 3] 버튼 잠금 해제 (약간의 딜레이 후)
+            // [수정 핵심] 처리가 끝나면(성공이든 실패든) 잠시 후 버튼 잠금을 해제합니다.
+            // 500ms 딜레이는 엔터키 연타로 인한 중복 실행을 확실하게 막아줍니다.
             setTimeout(() => { btn.disabled = false; }, 500);
         }
     }
-
+	
     function resetForm(lastDateStr = null) {
         if (lastDateStr) {
             AppState.getEl('dateInput').value = DateUtil.addDays(lastDateStr, 1);
