@@ -1,4 +1,4 @@
-(function() {
+﻿(function() {
     'use strict';
 
     // --- 0. 설정 및 상수 (CONFIG) ---
@@ -277,7 +277,7 @@
             'top5TableBody', 'monthlyRateTableBody',
             'advancedAnalysisList', 'calendarContainer', 'periodCompareTable', 'detailedStatsTable',
             'progressBarFill', 'progressEmoji', 'progressText', 'labelStart', 'labelGoal',
-            'bmiProgressBarFill', 'bmiProgressEmoji', 'bmiProgressText', 'bmiLabelLeft', 'bmiLabelRight',
+            'bmiProgressBarFill', 'bmiProgressEmoji', 'bmiProgressText', 'bmiLabelLeft', 'bmiLabelRight', 'bmiStageScale',
             'rate7Days', 'rate30Days', 'weeklyCompareDisplay', 'heatmapGrid', 'chartBackdrop',
             'monthlyTableBody', 'weeklyTableBody', 'milestoneTableBody', 'historyList',
             'tab-monthly', 'tab-weekly', 'tab-milestone', 'tab-history', 'tab-zone', 'tab-sprint', 'tab-grades', 'tab-btn-top5', 'tab-btn-monthly-rate',
@@ -2605,13 +2605,51 @@
         `;
     }
 
+    function bmiToPct(value, minScale = 10, maxScale = 35) {
+        const pct = ((value - minScale) / (maxScale - minScale)) * 100;
+        return MathUtil.clamp(pct, 0, 100);
+    }
+
+    function renderBmiStageScale(currentBmi, minScale = 10, maxScale = 35) {
+        const scaleEl = AppState.getEl('bmiStageScale');
+        if (!scaleEl) return;
+
+        const boundaries = [
+            { value: minScale, label: '저체중' },
+            { value: CONFIG.BMI.UNDER, label: '정상' },
+            { value: CONFIG.BMI.NORMAL_END, label: '과체중' },
+            { value: CONFIG.BMI.PRE_OBESE_END, label: '1단계 비만' },
+            { value: CONFIG.BMI.OBESE_1_END, label: '2단계 비만' },
+            { value: maxScale, label: '' }
+        ];
+
+        const clampedCurrent = MathUtil.clamp(currentBmi, minScale, maxScale);
+        let html = '';
+
+        for (let i = 1; i < boundaries.length; i++) {
+            const tickPos = bmiToPct(boundaries[i].value, minScale, maxScale);
+            html += `<span class="bmi-stage-tick" style="left:${tickPos}%"></span>`;
+        }
+
+        for (let i = 0; i < boundaries.length - 1; i++) {
+            const start = boundaries[i].value;
+            const end = boundaries[i + 1].value;
+            const mid = (start + end) / 2;
+            const pos = bmiToPct(mid, minScale, maxScale);
+            const isLastRange = i === boundaries.length - 2;
+            const isActive = clampedCurrent >= start && (isLastRange ? clampedCurrent <= end : clampedCurrent < end);
+            html += `<span class="bmi-stage-label${isActive ? ' active' : ''}" style="left:${pos}%">${boundaries[i].label}</span>`;
+        }
+
+        scaleEl.innerHTML = html;
+    }
+
     function updateBmiProgressBar(bmi, label) {
         const minScale = 10;
         const maxScale = 35;
-        
-        let pct = ((bmi - minScale) / (maxScale - minScale)) * 100;
-        let visualPercent = MathUtil.clamp(pct, 0, 100);
-        let rightPos = 100 - visualPercent;
+
+        const visualPercent = bmiToPct(bmi, minScale, maxScale);
+        const rightPos = 100 - visualPercent;
 
         const fill = AppState.getEl('bmiProgressBarFill');
         if (!fill) return;
@@ -2623,12 +2661,14 @@
         AppState.getEl('bmiProgressEmoji').style.right = `${rightPos}%`;
         AppState.getEl('bmiProgressText').style.right = `${rightPos}%`;
 
-		AppState.getEl('bmiProgressText').innerHTML = `
-			<strong>BMI ${bmi.toFixed(2)}</strong><br>
-			${label}
-		`;	
+        AppState.getEl('bmiProgressText').innerHTML = `
+            <strong>BMI ${bmi.toFixed(2)}</strong><br>
+            ${label}
+        `;
+
+        renderBmiStageScale(bmi, minScale, maxScale);
     }
-    
+
     function renderAnalysisText(s) {
         const txtEl = AppState.getEl('analysisText');
         if (AppState.records.length < 2) {
@@ -5161,3 +5201,4 @@
     window.onload = init;
 
 })();
+

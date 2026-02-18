@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -197,6 +197,34 @@
         }
         body.dark-mode .progress-info-text { background: #333; color: #fff; border-color: #444; }
         .progress-labels { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-light); font-weight: bold; margin-top: -35px; padding: 0 10px; }
+        .bmi-stage-scale {
+            position: relative;
+            height: 34px;
+            margin: 32px 15px 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .bmi-stage-tick {
+            position: absolute;
+            top: 0;
+            width: 1px;
+            height: 8px;
+            background: var(--text-light);
+            opacity: 0.5;
+            transform: translateX(-50%);
+        }
+        .bmi-stage-label {
+            position: absolute;
+            top: 10px;
+            font-size: 0.72rem;
+            color: var(--text-light);
+            white-space: nowrap;
+            transform: translateX(-50%);
+        }
+        .bmi-stage-label.active {
+            color: var(--secondary);
+            font-weight: 700;
+        }
 
         /* 대시보드 그리드 */
         .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-bottom: 20px; }
@@ -487,6 +515,7 @@
                 <span id="bmiLabelLeft">BMI 10</span>
                 <span id="bmiLabelRight">BMI 45</span>
             </div>
+            <div class="bmi-stage-scale" id="bmiStageScale"></div>
         </div>
     </div>
 
@@ -1357,3 +1386,6 @@
 <script src="dietChallenge.js"></script>
 </body>
 </html>
+
+
+
