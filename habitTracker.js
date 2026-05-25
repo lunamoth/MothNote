@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // [기능 추가] 부모 창(MothNote)로부터 테마 변경 메시지 수신
             window.addEventListener('message', (event) => {
                 // 보안을 위해 메시지 출처 확인
-                if (event.origin !== window.location.origin) {
+                if (event.origin !== window.location.origin || event.source !== window.parent) {
                     return;
                 }
                 if (event.data && event.data.type === 'setTheme') {
@@ -185,6 +185,90 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('habitTrackerDataV2_integrated', JSON.stringify(this.state, (key, value) => key === 'chartInstances' ? undefined : value));
         },
 
+        sanitizeLoadedState(rawState = {}) {
+            const now = Date.now();
+            const usedIds = new Set();
+            const safeDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+            const validViews = new Set(['calendar', 'today', 'stats', 'timeline', 'review', 'archive']);
+            const validSorts = new Set(['order', 'name_asc', 'name_desc', 'created_at', 'streak', 'completion_rate']);
+
+            const safeInteger = (value, fallback) => {
+                const num = Number(value);
+                return Number.isSafeInteger(num) && num > 0 ? num : fallback;
+            };
+            const makeId = (value, index) => {
+                let id = safeInteger(value, now + index + 1);
+                while (usedIds.has(String(id))) id += 1;
+                usedIds.add(String(id));
+                return id;
+            };
+            const normalizeFrequency = (frequency) => {
+                const type = frequency?.type === 'specific_days' ? 'specific_days' : 'daily';
+                const rawDays = Array.isArray(frequency?.days) ? frequency.days : [0,1,2,3,4,5,6];
+                const days = Array.from(new Set(rawDays
+                    .map(Number)
+                    .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)));
+                return { type, days: days.length ? days : [0,1,2,3,4,5,6] };
+            };
+            const normalizeLogs = (logs) => {
+                const safeLogs = {};
+                if (!logs || typeof logs !== 'object' || Array.isArray(logs)) return safeLogs;
+                for (const [date, entry] of Object.entries(logs)) {
+                    if (!safeDatePattern.test(date)) continue;
+                    const value = typeof entry === 'object' ? Number(entry?.value) : Number(entry);
+                    if (!Number.isFinite(value)) continue;
+                    safeLogs[date] = { value: value > 0 ? 1 : 0 };
+                }
+                return safeLogs;
+            };
+            const habits = Array.isArray(rawState.habits) ? rawState.habits : [];
+            const sanitizedHabits = habits
+                .map((habit, index) => {
+                    if (!habit || typeof habit !== 'object' || Array.isArray(habit)) return null;
+                    return {
+                        id: makeId(habit.id, index),
+                        name: String(habit.name ?? 'Untitled').trim().slice(0, 120) || 'Untitled',
+                        type: 'check',
+                        goal: 1,
+                        frequency: normalizeFrequency(habit.frequency),
+                        isArchived: Boolean(habit.isArchived),
+                        order: Number.isFinite(Number(habit.order)) ? Number(habit.order) : index,
+                        logs: normalizeLogs(habit.logs),
+                        createdAt: Number.isFinite(Number(habit.createdAt)) ? Number(habit.createdAt) : now + index
+                    };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.order - b.order);
+
+            const rawFilters = rawState.filters && typeof rawState.filters === 'object' ? rawState.filters : {};
+            const rawSettings = rawState.settings && typeof rawState.settings === 'object' ? rawState.settings : {};
+            const rawAchievements = rawState.achievements && typeof rawState.achievements === 'object' ? rawState.achievements : {};
+            const rawVisited = rawState.visitedViews && typeof rawState.visitedViews === 'object' ? rawState.visitedViews : {};
+            const currentDate = rawState.currentDate instanceof Date ? rawState.currentDate : new Date();
+            currentDate.setHours(0, 0, 0, 0);
+
+            return {
+                habits: sanitizedHabits,
+                currentView: validViews.has(rawState.currentView) ? rawState.currentView : 'calendar',
+                currentDate,
+                settings: { theme: rawSettings.theme === 'dark' ? 'dark' : 'light' },
+                achievements: Object.fromEntries(Object.entries(rawAchievements)
+                    .filter(([key, value]) => achievementList[key] && value && typeof value === 'object')
+                    .map(([key, value]) => [key, { unlockedAt: String(value.unlockedAt ?? '') }])),
+                reviewPeriod: rawState.reviewPeriod === 'monthly' ? 'monthly' : 'weekly',
+                visitedViews: Object.fromEntries(Object.entries(rawVisited)
+                    .filter(([key, value]) => validViews.has(key) && Boolean(value))
+                    .map(([key]) => [key, true])),
+                filters: {
+                    search: String(rawFilters.search ?? '').slice(0, 120),
+                    showArchived: Boolean(rawFilters.showArchived),
+                    sortBy: validSorts.has(rawFilters.sortBy) ? rawFilters.sortBy : 'order'
+                },
+                reportPeriod: ['weekly', 'monthly', 'yearly', 'this_week', 'this_month'].includes(rawState.reportPeriod) ? rawState.reportPeriod : 'weekly',
+                chartInstances: {}
+            };
+        },
+
         loadData() {
             // [수정] MothNote와 통합된 키에서 데이터를 로드
             const data = localStorage.getItem('habitTrackerDataV2_integrated');
@@ -192,30 +276,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const veryOldData = localStorage.getItem('habitTrackerData'); // 아주 오래된 버전 키
 
 			if (data) {
-                const parsedData = JSON.parse(data);
-                
-                // [수정] 저장된 날짜(과거)를 무시하고 항상 '오늘' 날짜로 초기화합니다.
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                parsedData.currentDate = today;
+                try {
+                    const parsedData = JSON.parse(data);
+                    
+                    // [수정] 저장된 날짜(과거)를 무시하고 항상 '오늘' 날짜로 초기화합니다.
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    parsedData.currentDate = today;
 
-                // 기존 state에 덮어씌우기
-                this.state = { ...this.state, ...parsedData, chartInstances: {} };
+                    // 기존 state에 덮어씌우되, 손상/조작된 로컬 데이터는 먼저 정규화합니다.
+                    this.state = { ...this.state, ...this.sanitizeLoadedState(parsedData), chartInstances: {} };
+                } catch (error) {
+                    console.error('Habit tracker data load failed. Starting with a safe empty state.', error);
+                    localStorage.removeItem('habitTrackerDataV2_integrated');
+                    this.state = { ...this.state, ...this.sanitizeLoadedState({}), chartInstances: {} };
+                }
                 
-                // [수정] URL 파라미터에서 초기 테마를 가져옵니다.				
-				
+                // [수정] URL 파라미터에서 초기 테마를 가져옵니다.
                 const urlParams = new URLSearchParams(window.location.search);
                 const initialTheme = urlParams.get('theme') || 'light';
-                if (!this.state.settings) {
-                    this.state.settings = { theme: initialTheme };
-                } else {
-                    this.state.settings.theme = initialTheme;
-                }
-
-                if (this.state.settings.startOfWeek !== undefined) delete this.state.settings.startOfWeek;
-                if (!this.state.filters) this.state.filters = { search: '', showArchived: false, sortBy: 'order' };
-                if (!this.state.achievements) this.state.achievements = {};
-                if (!this.state.visitedViews) this.state.visitedViews = {};
+                this.state.settings.theme = initialTheme;
             } else {
                  const urlParams = new URLSearchParams(window.location.search);
                  const initialTheme = urlParams.get('theme') || 'light';
@@ -268,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.removeItem('habitTrackerDataV2');
                 }
 
+                this.state = { ...this.state, ...this.sanitizeLoadedState(this.state), chartInstances: {} };
                 this.saveData(); // 새 키로 저장
                 this.showToast("데이터 구조가 최신 버전으로 업데이트되었습니다!", 'info');
             } catch (e) {
@@ -1505,7 +1586,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // --- BUG FIX START ---
             // Re-order the main habits array based on the new visual order.
-            this.state.habits.sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id));
+            this.state.habits.sort((a, b) => {
+                const aIndex = orderedIds.indexOf(Number(a.id));
+                const bIndex = orderedIds.indexOf(Number(b.id));
+                if (aIndex === -1 && bIndex === -1) return 0;
+                if (aIndex === -1) return 1;
+                if (bIndex === -1) return -1;
+                return aIndex - bIndex;
+            });
             
             // After re-ordering the array, update the 'order' property for consistency.
             this.state.habits.forEach((habit, index) => {

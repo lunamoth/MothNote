@@ -8,6 +8,7 @@ import {
     formatDate, sortNotes, showToast
 } from './components.js';
 import { toYYYYMMDD } from './itemActions.js';
+import { sanitizeHtml } from './sanitizer.js';
 // [수정] 정적 임포트를 제거합니다. 이제 동적으로 불러올 것입니다.
 // import { marked } from './marked.esm.js';
 
@@ -23,10 +24,10 @@ async function getMarkedParser() {
     try {
         // 동적 import()를 사용하여 모듈 로드를 시도합니다.
         const marked = await import('./marked.esm.js');
-        // [버그 수정] XSS 방지를 위해 marked의 내장 sanitizer를 활성화합니다.
-        // 이 옵션은 잠재적으로 위험한 HTML(예: <script>) 태그를 렌더링 전에 제거합니다.
+        // marked는 Markdown을 HTML로 변환만 하며, 출력 HTML 정제는 별도로 수행합니다.
         marked.marked.setOptions({
-            sanitize: true
+            mangle: false,
+            headerIds: false
         });
         markedModule = marked.marked; // 실제 marked 객체를 할당
         return markedModule;
@@ -519,7 +520,7 @@ export const renderEditor = async () => {
         const marked = await getMarkedParser();
         // marked 로드에 성공한 경우에만 파싱을 실행합니다.
         if (marked) {
-            noteContentView.innerHTML = marked.parse(activeNote.content ?? '');
+            noteContentView.innerHTML = sanitizeHtml(marked.parse(activeNote.content ?? ''));
         } else {
             // 실패 시 사용자에게 알림 (getMarkedParser 내부에서 처리)
             noteContentView.innerHTML = '<p style="color: var(--danger-color);">미리보기 기능을 로드하는 데 실패했습니다.</p>';

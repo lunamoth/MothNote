@@ -179,8 +179,11 @@ const notify = () => {
 export const buildNoteMap = () => {
     state._virtualFolderCache = { all: null, recent: null, favorites: null, trash: null };
     state.noteMap.clear();
+    if (!Array.isArray(state.folders)) return;
     for (const folder of state.folders) {
+        if (!folder || !folder.id || !Array.isArray(folder.notes)) continue;
         for (const note of folder.notes) {
+            if (!note || !note.id) continue;
             state.noteMap.set(note.id, { note, folderId: folder.id });
         }
     }
@@ -279,11 +282,11 @@ export const generateUniqueId = (prefix, existingIds) => {
     const checkSet = (existingIds && typeof existingIds.has === 'function') ? existingIds : new Set();
 
     // crypto.randomUUID가 있으면 사용 (더 강력한 고유성)
-    if (typeof crypto?.randomUUID === 'function') {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
         let id;
         do {
             // [BUG FIX] 생성된 UUID 앞에 prefix를 일관되게 추가합니다.
-            id = `${prefix}${crypto.randomUUID()}`;
+            id = `${prefix}${globalThis.crypto.randomUUID()}`;
         } while (checkSet.has(id));
         return id;
     }

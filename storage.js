@@ -61,6 +61,7 @@ import { showToast, showConfirm, importFileInput, sortNotes, showAlert, showProm
 import { updateNoteCreationDates } from './itemActions.js';
 // [수정] welcomeNote.js에서 환영 메시지 내용을 가져옵니다.
 import { welcomeNoteContent } from './welcomeNote.js';
+import { escapeHtml } from './sanitizer.js';
 // [기능 추가] LunaFlowACT.js에서 노트 내용을 가져옵니다.
 import { lunaFlowACTContent } from './LunaFlowACT.js';
 
@@ -94,99 +95,167 @@ export const saveSession = () => {
 };
 
 /**
- * [BUG-C-CRITICAL 전면 수정] 로드된 데이터의 무결성을 검증하고 ID 충돌을 자동 복구하는 함수
+ * [CRITICAL FIX] 로드된 데이터의 무결성을 검증하고, 손상된 배열/객체/ID 참조를 자동 복구합니다.
+ * 일반 폴더는 type 필드가 없으므로 notes 배열을 기준으로도 폴더를 판별합니다.
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
- * @returns {{sanitizedData: object, wasSanitized: boolean, idUpdateMap: Map<string, string>}} - 복구된 데이터와 복구 여부, 그리고 ID 변경 맵
+ * @returns {{sanitizedData: object, wasSanitized: boolean, idUpdateMap: Map<string, string>}}
  */
 const verifyAndSanitizeLoadedData = (data) => {
     if (!data || typeof data !== 'object') {
         return { sanitizedData: data, wasSanitized: false, idUpdateMap: new Map() };
     }
 
-    const folders = data.folders || [];
-    const trash = data.trash || [];
-    const favorites = data.favorites || [];
-
     const idUpdateMap = new Map();
+    const usedIds = new Set();
     let changesMade = false;
+    const now = Date.now();
 
-    // --- 1. 모든 ID를 먼저 수집하여 완전한 중복 검사 환경을 만듭니다. ---
-    const checkSet = new Set();
-    
-    // [BUG FIX] 무한 루프 방지를 위해 방문한 객체를 추적하는 Set을 추가합니다.
-    const visited = new WeakSet();
-
-    const fixItems = (items) => {
-        if (!Array.isArray(items)) return; // items가 배열이 아닌 경우 방어
-        for (const item of items) {
-            if (!item || !item.id) continue;
-            
-            // [BUG FIX] 순환 참조가 감지되면 재귀를 중단합니다.
-            if (item.type === 'folder' && visited.has(item)) {
-                console.warn(`[Data Sanitization] Circular reference detected and skipped for folder ID: ${item.id}`);
-                // 순환을 유발하는 notes 배열을 비워서 문제를 해결합니다.
-                item.notes = []; 
-                changesMade = true;
-                continue; // 다음 아이템으로 넘어감
-            }
-            
-            if (checkSet.has(item.id)) {
-                // 중복 발견
-                const oldId = item.id;
-                const prefix = (item.type === 'folder' ? CONSTANTS.ID_PREFIX.FOLDER : CONSTANTS.ID_PREFIX.NOTE);
-                // [BUG FIX] generateUniqueId에 모든 ID가 포함된 Set을 전달하여 완벽한 고유성 보장
-                const newId = generateUniqueId(prefix, checkSet);
-                item.id = newId;
-                checkSet.add(newId); // 새로 생성된 ID도 즉시 추가
-                idUpdateMap.set(oldId, newId);
-                changesMade = true;
-                console.warn(`[Data Sanitization] Duplicate ID found and fixed on load: ${oldId} -> ${newId}`);
-            } else {
-                checkSet.add(item.id);
-            }
-
-            // 폴더인 경우, 내부 노트도 재귀적으로 처리
-            if (item.type === 'folder' && Array.isArray(item.notes)) {
-                // [BUG FIX] 재귀 호출 전에 현재 폴더를 방문 목록에 추가합니다.
-                visited.add(item);
-                fixItems(item.notes);
-            }
+    const markChanged = () => { changesMade = true; };
+    const ensureArray = (value) => {
+        if (Array.isArray(value)) return value;
+        if (value !== undefined) markChanged();
+        return [];
+    };
+    const ensureObject = (value) => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+        if (value !== undefined) markChanged();
+        return {};
+    };
+    const normalizeText = (value, fallback, maxLength) => {
+        const text = String(value ?? fallback ?? '').trim();
+        return text.slice(0, maxLength);
+    };
+    const normalizeTimestamp = (value, fallback = now) => {
+        const timestamp = Number(value);
+        if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
+        markChanged();
+        return fallback;
+    };
+    const normalizeId = (item, prefix) => {
+        const oldId = item.id === undefined || item.id === null ? '' : String(item.id);
+        let finalId = oldId;
+        if (!finalId || usedIds.has(finalId)) {
+            finalId = generateUniqueId(prefix, usedIds);
+            item.id = finalId;
+            if (oldId) idUpdateMap.set(oldId, finalId);
+            markChanged();
+            console.warn(`[Data Sanitization] Invalid or duplicate ID fixed on load: ${oldId || '(empty)'} -> ${finalId}`);
         }
+        usedIds.add(finalId);
+        return finalId;
     };
 
-    fixItems(folders);
-    fixItems(trash);
+    data.folders = ensureArray(data.folders);
+    data.trash = ensureArray(data.trash);
+    data.favorites = ensureArray(data.favorites);
+    data.lastActiveNotePerFolder = ensureObject(data.lastActiveNotePerFolder);
 
-
-    // --- 2. ID 변경이 있었다면, 모든 참조를 업데이트합니다. ---
-    if (changesMade) {
-        // 2-1. 즐겨찾기 목록 업데이트
-        const newFavorites = new Set();
-        for (const favId of favorites) {
-            newFavorites.add(idUpdateMap.get(favId) || favId);
+    const normalizeNote = (rawNote, isTrash = false) => {
+        if (!rawNote || typeof rawNote !== 'object' || Array.isArray(rawNote)) {
+            markChanged();
+            return null;
         }
-        data.favorites = Array.from(newFavorites);
 
-        // 2-2. 휴지통에 있는 노트의 originalFolderId 업데이트
-        for (const item of trash) {
-            if (item && (item.type === 'note' || !item.type) && item.originalFolderId) {
-                if (idUpdateMap.has(item.originalFolderId)) {
-                    item.originalFolderId = idUpdateMap.get(item.originalFolderId);
-                }
+        const note = rawNote;
+        normalizeId(note, CONSTANTS.ID_PREFIX.NOTE);
+        note.title = normalizeText(note.title, '제목 없음', 200) || '제목 없음';
+        note.content = String(note.content ?? '');
+        note.createdAt = normalizeTimestamp(note.createdAt);
+        note.updatedAt = normalizeTimestamp(note.updatedAt, note.createdAt);
+        note.isPinned = Boolean(note.isPinned);
+
+        if (isTrash) {
+            note.type = CONSTANTS.ITEM_TYPE.NOTE;
+            note.deletedAt = normalizeTimestamp(note.deletedAt);
+            if (note.originalFolderId !== undefined && note.originalFolderId !== null) {
+                note.originalFolderId = String(note.originalFolderId);
             }
+            if ('wasFavorite' in note) note.wasFavorite = Boolean(note.wasFavorite);
+        } else if (note.type !== undefined) {
+            delete note.type;
+            markChanged();
         }
-        
-        // 2-3. 폴더별 마지막 활성 노트 ID 업데이트
-        if (data.lastActiveNotePerFolder) {
-            const newLastActiveMap = {};
-            for (const oldFolderId in data.lastActiveNotePerFolder) {
-                const newFolderId = idUpdateMap.get(oldFolderId) || oldFolderId;
-                const oldNoteId = data.lastActiveNotePerFolder[oldFolderId];
-                const newNoteId = idUpdateMap.get(oldNoteId) || oldNoteId;
-                newLastActiveMap[newFolderId] = newNoteId;
+        return note;
+    };
+
+    const normalizeFolder = (rawFolder, isTrash = false) => {
+        if (!rawFolder || typeof rawFolder !== 'object' || Array.isArray(rawFolder)) {
+            markChanged();
+            return null;
+        }
+
+        const folder = rawFolder;
+        normalizeId(folder, CONSTANTS.ID_PREFIX.FOLDER);
+        folder.name = normalizeText(folder.name, '새 폴더', 120) || '새 폴더';
+        folder.createdAt = normalizeTimestamp(folder.createdAt);
+        folder.updatedAt = normalizeTimestamp(folder.updatedAt, folder.createdAt);
+
+        const rawNotes = ensureArray(folder.notes);
+        folder.notes = rawNotes
+            .map(note => normalizeNote(note, isTrash))
+            .filter(Boolean);
+
+        if (isTrash) {
+            folder.type = CONSTANTS.ITEM_TYPE.FOLDER;
+            folder.deletedAt = normalizeTimestamp(folder.deletedAt);
+        } else if (folder.type !== undefined) {
+            delete folder.type;
+            markChanged();
+        }
+        return folder;
+    };
+
+    data.folders = data.folders
+        .map(folder => normalizeFolder(folder, false))
+        .filter(Boolean);
+
+    data.trash = data.trash
+        .map(item => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                markChanged();
+                return null;
             }
-            data.lastActiveNotePerFolder = newLastActiveMap;
+            const isFolderLike = item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes);
+            return isFolderLike ? normalizeFolder(item, true) : normalizeNote(item, true);
+        })
+        .filter(Boolean);
+
+    const activeFolderIds = new Set(data.folders.map(folder => folder.id));
+    const activeNoteIds = new Set();
+    data.folders.forEach(folder => folder.notes.forEach(note => activeNoteIds.add(note.id)));
+
+    // ID가 바뀐 참조를 보정하고, 현재 활성 노트에 존재하지 않는 즐겨찾기/세션 참조는 제거합니다.
+    data.favorites = Array.from(new Set(data.favorites
+        .map(id => idUpdateMap.get(String(id)) || String(id))
+        .filter(id => activeNoteIds.has(id))));
+
+    data.trash.forEach(item => {
+        const applyOriginalFolderFix = (note) => {
+            if (note?.originalFolderId) {
+                note.originalFolderId = idUpdateMap.get(String(note.originalFolderId)) || String(note.originalFolderId);
+            }
+        };
+        if (item?.type === CONSTANTS.ITEM_TYPE.FOLDER) item.notes.forEach(applyOriginalFolderFix);
+        else applyOriginalFolderFix(item);
+    });
+
+    const newLastActiveMap = {};
+    for (const [folderId, noteId] of Object.entries(data.lastActiveNotePerFolder)) {
+        const newFolderId = idUpdateMap.get(String(folderId)) || String(folderId);
+        const newNoteId = idUpdateMap.get(String(noteId)) || String(noteId);
+        if (activeFolderIds.has(newFolderId) && activeNoteIds.has(newNoteId)) {
+            newLastActiveMap[newFolderId] = newNoteId;
+        } else {
+            markChanged();
         }
+    }
+    data.lastActiveNotePerFolder = newLastActiveMap;
+
+    if (data.activeFolderId !== undefined && data.activeFolderId !== null) {
+        data.activeFolderId = idUpdateMap.get(String(data.activeFolderId)) || String(data.activeFolderId);
+    }
+    if (data.activeNoteId !== undefined && data.activeNoteId !== null) {
+        data.activeNoteId = idUpdateMap.get(String(data.activeNoteId)) || String(data.activeNoteId);
     }
 
     return { sanitizedData: data, wasSanitized: changesMade, idUpdateMap };
@@ -332,11 +401,13 @@ export const loadData = async () => {
                 let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
                 
                 if(backupChanges.noteUpdate) {
-                    confirmMessage += `<strong>📝 노트 수정:</strong> '${backupChanges.noteUpdate.title.slice(0, 20)}...'<br>`;
+                    const safeTitle = escapeHtml(String(backupChanges.noteUpdate.title ?? '').slice(0, 20));
+                    confirmMessage += `<strong>📝 노트 수정:</strong> '${safeTitle}...'<br>`;
                 }
                 if(backupChanges.itemRename) {
                     const itemTypeStr = backupChanges.itemRename.type === 'folder' ? '📁 폴더' : '📝 노트';
-                    confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr} → '${backupChanges.itemRename.newName.slice(0, 20)}...'<br>`;
+                    const safeNewName = escapeHtml(String(backupChanges.itemRename.newName ?? '').slice(0, 20));
+                    confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr} → '${safeNewName}...'<br>`;
                 }
                 confirmMessage += "<br>이 변경사항을 복원하시겠습니까?";
 
@@ -526,7 +597,7 @@ export const loadData = async () => {
                 finalState.lastActiveNotePerFolder = {};
             }
 
-            finalState.totalNoteCount = finalState.folders.reduce((sum, f) => sum + f.notes.length, 0);
+            finalState.totalNoteCount = finalState.folders.reduce((sum, f) => sum + (Array.isArray(f.notes) ? f.notes.length : 0), 0);
             
             setState(finalState);
             buildNoteMap();
@@ -683,12 +754,6 @@ const fallbackAnchorDownload = (url, filename) => {
     }
 };
 
-const escapeHtml = str => {
-    if (typeof str !== 'string') return '';
-    const tempDiv = document.createElement('div');
-    tempDiv.textContent = str;
-    return tempDiv.innerHTML;
-};
 
 const sanitizeContentData = data => {
     if (!data || !Array.isArray(data.folders)) throw new Error("유효하지 않은 파일 구조입니다.");
@@ -875,7 +940,7 @@ export const handleExport = async (settings) => {
         const filename = `${year}${month}${day}_MothNote_Backup.json`;
 
         // chrome.downloads API가 사용 가능한지 확인하고 우선적으로 사용합니다.
-        if (chrome && chrome.downloads && typeof chrome.downloads.download === 'function') {
+        if (typeof chrome !== 'undefined' && chrome.downloads && typeof chrome.downloads.download === 'function') {
             chrome.downloads.download({
                 url: url,
                 filename: filename,

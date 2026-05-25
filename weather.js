@@ -287,12 +287,30 @@
 
     function renderError(message, url = null) {
         DOM.errorMessage.style.display = 'block';
-        let html = `<span>⚠️</span>${message}`;
+        DOM.errorMessage.innerHTML = '';
+
+        const icon = document.createElement('span');
+        icon.textContent = '⚠️';
+        DOM.errorMessage.append(icon, document.createTextNode(String(message ?? '날씨 정보 로드 실패')));
+
         if (url) {
-            const displayUrl = url.length > 200 ? `${url.substring(0, 200)}...` : url;
-            html += `<br><a href="${url}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color); word-break:break-all;">API 요청 URL (${displayUrl})</a>`;
+            try {
+                const parsedUrl = new URL(String(url));
+                if (parsedUrl.protocol === 'https:') {
+                    const displayUrl = parsedUrl.href.length > 200 ? `${parsedUrl.href.substring(0, 200)}...` : parsedUrl.href;
+                    const link = document.createElement('a');
+                    link.href = parsedUrl.href;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.style.color = 'var(--accent-color)';
+                    link.style.wordBreak = 'break-all';
+                    link.textContent = `API 요청 URL (${displayUrl})`;
+                    DOM.errorMessage.append(document.createElement('br'), link);
+                }
+            } catch (error) {
+                console.warn('Invalid weather error URL was ignored.', error);
+            }
         }
-        DOM.errorMessage.innerHTML = html;
     }
 
     function clearError() {

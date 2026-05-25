@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💪 다이어트 챌린지 (Ver 3.0.74)</title>
+    <title>💪 다이어트 챌린지 (Ver 3.0.76)</title>
     
     <!-- 필수 라이브러리: Chart.js 및 Date Adapter (defer 추가로 로딩 최적화) -->
     <script src="chart.js" defer></script>
@@ -311,6 +311,224 @@
         .insight-item:last-child { border-bottom: none; }
         .insight-label { font-weight: bold; margin-right: 5px; color: var(--secondary); }
 
+
+        /* 의학 근거 기반 A4 10페이지 서술형 분석 리포트 */
+        .medical-narrative-card {
+            border: 1px solid rgba(76, 175, 80, 0.18);
+            background: linear-gradient(180deg, var(--card-bg), rgba(76, 175, 80, 0.03));
+        }
+        .medical-narrative-badge {
+            font-size: 0.75rem;
+            background: rgba(76, 175, 80, 0.12);
+            color: var(--primary-dark);
+            border: 1px solid rgba(76, 175, 80, 0.22);
+            border-radius: 999px;
+            padding: 4px 10px;
+            white-space: nowrap;
+        }
+        body.dark-mode .medical-narrative-badge { color: #9be9a8; background: rgba(76, 175, 80, 0.16); }
+        .narrative-helper {
+            color: var(--text-light);
+            font-size: 0.9rem;
+            margin: -4px 0 14px;
+            line-height: 1.7;
+        }
+        .narrative-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .narrative-action-btn {
+            border: none;
+            border-radius: 999px;
+            padding: 8px 14px;
+            cursor: pointer;
+            color: white;
+            background: var(--secondary);
+            font-weight: 700;
+            font-size: 0.86rem;
+            box-shadow: 0 2px 6px rgba(33, 150, 243, 0.18);
+        }
+        .narrative-action-btn.secondary { background: var(--text-light); }
+        .narrative-action-btn.print { background: var(--primary); }
+        .narrative-action-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+        .narrative-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .narrative-summary-item {
+            border: 1px solid var(--input-border);
+            border-radius: 12px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.45);
+        }
+        body.dark-mode .narrative-summary-item { background: rgba(255, 255, 255, 0.03); }
+        .narrative-summary-label { font-size: 0.75rem; color: var(--text-light); margin-bottom: 4px; }
+        .narrative-summary-value { font-size: 1.05rem; font-weight: 800; color: var(--text); }
+        .narrative-summary-note { font-size: 0.72rem; color: var(--text-light); margin-top: 4px; line-height: 1.5; }
+        .narrative-report {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .narrative-empty {
+            border: 1px dashed var(--input-border);
+            border-radius: 14px;
+            padding: 24px;
+            text-align: center;
+            color: var(--text-light);
+            background: rgba(33, 150, 243, 0.04);
+        }
+        .narrative-page {
+            background: var(--card-bg);
+            border: 1px solid var(--input-border);
+            border-radius: 14px;
+            padding: 20px 24px 18px;
+            min-height: 0;
+            height: auto;
+            box-sizing: border-box;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+            color: var(--text);
+        }
+        .narrative-page > :last-child { margin-bottom: 0; }
+        .narrative-page-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            border-bottom: 1px solid var(--input-border);
+            padding-bottom: 12px;
+            margin-bottom: 14px;
+        }
+        .narrative-page-number {
+            font-size: 0.78rem;
+            color: var(--text-light);
+            white-space: nowrap;
+            font-weight: 700;
+        }
+        .narrative-page h4 {
+            margin: 0;
+            font-size: 1.23rem;
+            color: var(--text);
+            line-height: 1.45;
+        }
+        .narrative-lead {
+            font-size: 0.98rem;
+            color: var(--text);
+            line-height: 1.85;
+            margin: 0 0 12px;
+            font-weight: 600;
+        }
+        .narrative-page p {
+            font-size: 0.94rem;
+            line-height: 1.9;
+            margin: 0 0 12px;
+            text-align: justify;
+        }
+        .narrative-metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+            gap: 8px;
+            margin: 12px 0 16px;
+        }
+        .narrative-metric {
+            border: 1px solid var(--input-border);
+            border-radius: 10px;
+            padding: 9px 10px;
+            background: rgba(33, 150, 243, 0.04);
+        }
+        body.dark-mode .narrative-metric { background: rgba(33, 150, 243, 0.08); }
+        .narrative-metric-label { font-size: 0.72rem; color: var(--text-light); margin-bottom: 3px; }
+        .narrative-metric-value { font-size: 1rem; font-weight: 800; color: var(--text); }
+        .narrative-callout {
+            border-left: 4px solid var(--accent);
+            background: rgba(255, 152, 0, 0.08);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 14px 0;
+            color: var(--text);
+            font-size: 0.9rem;
+            line-height: 1.75;
+        }
+        .narrative-callout.warning { border-left-color: var(--danger); background: rgba(244, 67, 54, 0.08); }
+        .narrative-callout.good { border-left-color: var(--primary); background: rgba(76, 175, 80, 0.08); }
+        .evidence-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 14px;
+        }
+        .evidence-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.72rem;
+            color: var(--secondary-dark);
+            border: 1px solid rgba(33, 150, 243, 0.25);
+            background: rgba(33, 150, 243, 0.07);
+            border-radius: 999px;
+            padding: 4px 8px;
+            text-decoration: none;
+        }
+        body.dark-mode .evidence-chip { color: #90caf9; background: rgba(33, 150, 243, 0.13); }
+        .narrative-reference-list {
+            padding-left: 18px;
+            margin: 8px 0 0;
+        }
+        .narrative-reference-list li {
+            margin-bottom: 8px;
+            font-size: 0.86rem;
+            line-height: 1.65;
+        }
+        .narrative-reference-list a { color: var(--secondary-dark); }
+        body.dark-mode .narrative-reference-list a { color: #90caf9; }
+
+        @media print {
+            @page { size: A4; margin: 16mm; }
+            body.print-narrative-only {
+                background: #fff !important;
+                color: #111 !important;
+                padding: 0 !important;
+            }
+            body.print-narrative-only .container { max-width: none; margin: 0; }
+            body.print-narrative-only .container > *:not(#medicalNarrativeCard) { display: none !important; }
+            body.print-narrative-only #medicalNarrativeCard {
+                display: block !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: #fff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            body.print-narrative-only #medicalNarrativeCard > h3,
+            body.print-narrative-only .narrative-helper,
+            body.print-narrative-only .narrative-controls,
+            body.print-narrative-only .narrative-summary-grid { display: none !important; }
+            body.print-narrative-only .narrative-report { display: block; }
+            body.print-narrative-only .narrative-page {
+                page-break-after: always;
+                break-after: page;
+                min-height: 0 !important;
+                height: auto !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+                background: #fff !important;
+                color: #111 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            body.print-narrative-only .narrative-page:last-child { page-break-after: auto; break-after: auto; }
+            body.print-narrative-only .narrative-page p,
+            body.print-narrative-only .narrative-lead,
+            body.print-narrative-only .narrative-callout,
+            body.print-narrative-only .narrative-reference-list li { color: #111 !important; }
+            body.print-narrative-only .evidence-chip-row { display: none !important; }
+        }
+
         /* 토스트 메시지 */
         .toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 1000; pointer-events: none; }
         .toast {
@@ -330,6 +548,9 @@
             .filter-row { flex-direction: column; align-items: flex-start; }
             .input-group { flex-direction: column; }
             .input-wrapper, button.add-btn { width: 100%; }
+            .narrative-report { gap: 10px; }
+            .narrative-page { padding: 16px 14px 14px; border-radius: 12px; }
+            .narrative-page-header { flex-direction: column; gap: 6px; }
         }
 
         /* 차트 확대 기능 */
@@ -1128,6 +1349,24 @@
         <ul class="insight-list" id="advancedAnalysisList">
             <li class="insight-item">데이터를 수집중입니다...</li>
         </ul>
+    </div>
+
+    <!-- 의학 근거 기반 A4 10페이지 서술형 현재 상태 분석 -->
+    <div class="card medical-narrative-card" id="medicalNarrativeCard">
+        <h3>🩺 의학 근거 기반 서술형 현재 상태 분석 <span class="medical-narrative-badge">A4 10페이지 리포트</span></h3>
+        <p class="narrative-helper">
+            현재 체중 기록, 체지방률 기록, 키·시작 체중·목표 체중 설정값을 바탕으로 BMI, 감량 속도, 변동성, 정체기, 체성분, 기록 성실도, 목표 달성 가능성, 안전 신호를 여러 부문으로 나누어 서술형으로 분석합니다. 분석은 참고용 건강 관리 보조 정보이며 진단·처방을 대체하지 않습니다.
+        </p>
+        <div class="narrative-controls">
+            <button class="narrative-action-btn" id="btn-generate-medical-narrative">리포트 생성/갱신</button>
+            <button class="narrative-action-btn secondary" id="btn-copy-medical-narrative">본문 복사</button>
+            <button class="narrative-action-btn secondary" id="btn-download-medical-narrative">TXT 저장</button>
+            <button class="narrative-action-btn print" id="btn-print-medical-narrative">인쇄/PDF 저장</button>
+        </div>
+        <div class="narrative-summary-grid" id="medicalNarrativeSummary"></div>
+        <div class="narrative-report" id="medicalNarrativeReport">
+            <div class="narrative-empty">체중 기록을 입력하면 의학 근거 기반 A4 10페이지 서술형 분석 리포트가 생성됩니다.</div>
+        </div>
     </div>
 
     <!-- 기간별 기록 비교 (신규 추가) -->

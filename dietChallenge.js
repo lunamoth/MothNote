@@ -1,4 +1,4 @@
-﻿(function() {
+(function() {
     'use strict';
 
     // --- 0. 설정 및 상수 (CONFIG) ---
@@ -69,6 +69,117 @@
                 NEED_DATA: "데이터가 충분하지 않습니다. 7일 이상 기록해주세요."
             }
         },
+        // 의학 근거 기반 서술형 분석 리포트 참고문헌 라이브러리
+        MEDICAL_EVIDENCE: [
+            {
+                key: 'KSSO_DIAG_2022',
+                label: 'KSSO 2022 진단',
+                year: '2023',
+                title: 'Diagnosis of Obesity: 2022 Update of Clinical Practice Guidelines for Obesity by the Korean Society for the Study of Obesity',
+                source: 'Journal of Obesity & Metabolic Syndrome',
+                url: 'https://www.jomes.org/journal/view.html?doi=10.7570/jomes23031',
+                note: '한국 성인 비만 전 단계와 비만의 BMI 기준 및 허리둘레 보조 평가 근거.'
+            },
+            {
+                key: 'KSSO_MGMT_2020',
+                label: 'KSSO 2020 관리',
+                year: '2021',
+                title: '2020 Korean Society for the Study of Obesity Guidelines for the Management of Obesity in Korea',
+                source: 'Journal of Obesity & Metabolic Syndrome',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC8277596/',
+                note: '6개월 5~10% 감량 목표, 영양치료, 신체활동 등 한국 비만 관리 지침.'
+            },
+            {
+                key: 'USPSTF_BEHAVIOR_2018',
+                label: 'USPSTF 2018',
+                year: '2018',
+                title: 'Behavioral Weight Loss Interventions to Prevent Obesity-Related Morbidity and Mortality in Adults',
+                source: 'JAMA / USPSTF',
+                url: 'https://jamanetwork.com/journals/jama/fullarticle/2702878',
+                note: '성인 비만에서 집중적·다요소 행동중재 권고 근거.'
+            },
+            {
+                key: 'CANADA_CPG_2020',
+                label: 'Canada CPG 2020',
+                year: '2020',
+                title: 'Obesity in adults: a clinical practice guideline',
+                source: 'Canadian Medical Association Journal',
+                url: 'https://www.cmaj.ca/content/192/31/e875',
+                note: 'BMI와 허리둘레, 만성질환 관점의 비만 평가 및 장기 관리 프레임.'
+            },
+            {
+                key: 'WHO_PA_2020',
+                label: 'WHO 2020 운동',
+                year: '2020',
+                title: 'WHO guidelines on physical activity and sedentary behaviour',
+                source: 'World Health Organization / BJSM',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7719906/',
+                note: '성인 주 150~300분 중강도 유산소 또는 75~150분 고강도 운동과 주 2회 이상 근력운동 권고.'
+            },
+            {
+                key: 'SELF_MONITOR_2024',
+                label: '체중 자기모니터링',
+                year: '2024',
+                title: 'Self-Monitoring of Weight as a Weight Loss Strategy',
+                source: 'Current Obesity Reports',
+                url: 'https://link.springer.com/article/10.1007/s12170-024-00746-5',
+                note: '정기적 체중 자기모니터링 빈도와 감량 성공의 관련성.'
+            },
+            {
+                key: 'VUORINEN_2021',
+                label: 'JMIR 2021 기록 빈도',
+                year: '2021',
+                title: 'Frequency of Self-Weighing and Weight Change',
+                source: 'Journal of Medical Internet Research',
+                url: 'https://www.jmir.org/2021/6/e25529/',
+                note: '자유생활 환경에서도 잦은 체중 측정이 더 유리한 감량 결과와 관련.'
+            },
+            {
+                key: 'LONGLAND_2016',
+                label: '단백질·운동 RCT',
+                year: '2016',
+                title: 'Higher compared with lower dietary protein during an energy deficit combined with intense exercise promotes greater lean mass gain and fat mass loss',
+                source: 'American Journal of Clinical Nutrition',
+                url: 'https://pubmed.ncbi.nlm.nih.gov/26817506/',
+                note: '에너지 제한 중 높은 단백질과 운동이 제지방량 보존·체지방 감량에 유리했던 무작위시험.'
+            },
+            {
+                key: 'VERREIJEN_2017',
+                label: '고단백·저항운동',
+                year: '2017',
+                title: 'Effect of a high protein diet and/or resistance exercise on the preservation of fat free mass during weight loss',
+                source: 'Nutrition Journal',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5294725/',
+                note: '과체중·비만 성인의 감량 중 제지방량 보존과 저항운동·단백질 전략 근거.'
+            },
+            {
+                key: 'SLEEP_EXTENSION_2022',
+                label: '수면 연장 RCT',
+                year: '2022',
+                title: 'Effect of Sleep Extension on Objectively Assessed Energy Intake Among Adults With Overweight in Real-life Settings',
+                source: 'JAMA Internal Medicine',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC8822469/',
+                note: '짧게 자는 과체중 성인에서 수면 연장이 에너지 섭취 감소와 음의 에너지 균형에 기여한 임상시험.'
+            },
+            {
+                key: 'WEIGHT_VARIABILITY_2023',
+                label: '체중 변동성 메타분석',
+                year: '2023',
+                title: 'Weight variability and cardiovascular outcomes: a systematic review and meta-analysis',
+                source: 'Cardiovascular Diabetology',
+                url: 'https://link.springer.com/article/10.1186/s12933-022-01735-x',
+                note: '장기 체중 변동성과 심혈관 위험의 관련성을 다룬 체계적 문헌고찰·메타분석.'
+            },
+            {
+                key: 'WAIST_2020',
+                label: '허리둘레 vital sign',
+                year: '2020',
+                title: 'Waist circumference as a vital sign in clinical practice',
+                source: 'Nature Reviews Endocrinology',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7027970/',
+                note: 'BMI만으로 부족한 복부 비만·대사 위험 평가에서 허리둘레 측정의 중요성.'
+            }
+        ],
         // 뱃지 정의
         BADGES: [
             { id: 'start', name: '시작이 반', icon: '🐣', desc: '첫 기록을 남겼습니다.' },
@@ -161,6 +272,11 @@
             var yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
             var weekNo = Math.ceil(( ( (d - yearStart) / 86400000) + 1)/7);
             return weekNo;
+        },
+        isValidDateString: (str) => {
+            if (typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+            const parsed = DateUtil.parse(str);
+            return parsed instanceof Date && !isNaN(parsed.getTime()) && DateUtil.format(parsed) === str;
         }
     };
 
@@ -234,12 +350,12 @@
         SETTINGS_KEY: 'diet_pro_settings',
         FILTER_KEY: 'diet_pro_filter_mode',
         records: [],
-		settings: { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 }, 
+        settings: { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 },
         chartFilterMode: 'ALL',
         customStart: null,
         customEnd: null,
         // charts 객체는 차트 인스턴스 추적용
-        charts: {}, 
+        charts: {},
         _elCache: {},
         getEl: function(id) {
             if (!this._elCache[id]) {
@@ -248,11 +364,56 @@
             return this._elCache[id];
         },
         state: {
-            editingDate: null, 
-            statsCache: null, 
-            isDirty: true,     
-            calendarViewDate: new Date() 
+            editingDate: null,
+            statsCache: null,
+            isDirty: true,
+            calendarViewDate: new Date(),
+            medicalNarrativePlainText: ''
         }
+    };
+
+    const sanitizeDietRecord = (raw) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        const date = String(raw.date ?? '').trim();
+        if (!DateUtil.isValidDateString(date)) return null;
+
+        const weight = Number(raw.weight);
+        if (!Number.isFinite(weight) || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) return null;
+
+        const record = { date, weight: MathUtil.round(weight) };
+        const hasFat = raw.fat !== undefined && raw.fat !== null && String(raw.fat).trim() !== '';
+        if (hasFat) {
+            const fat = Number(raw.fat);
+            if (Number.isFinite(fat) && fat >= CONFIG.LIMITS.MIN_FAT && fat <= CONFIG.LIMITS.MAX_FAT) {
+                record.fat = MathUtil.round(fat);
+            }
+        }
+        return record;
+    };
+
+    const sanitizeDietRecords = (records) => {
+        const byDate = new Map();
+        if (!Array.isArray(records)) return [];
+        records.forEach(raw => {
+            const record = sanitizeDietRecord(raw);
+            if (record) byDate.set(record.date, record);
+        });
+        return Array.from(byDate.values()).sort((a, b) => new Date(a.date) - new Date(b.date));
+    };
+
+    const sanitizeDietSettings = (settings) => {
+        const defaults = { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 };
+        if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return { ...defaults };
+        const height = Number(settings.height);
+        const startWeight = Number(settings.startWeight);
+        const goal1 = Number(settings.goal1);
+        const intake = Number(settings.intake);
+        return {
+            height: Number.isFinite(height) && height > 0 && height <= 300 ? MathUtil.round(height) : defaults.height,
+            startWeight: Number.isFinite(startWeight) && startWeight > 0 && startWeight <= 500 ? MathUtil.round(startWeight) : defaults.startWeight,
+            goal1: Number.isFinite(goal1) && goal1 > 0 && goal1 <= 500 ? MathUtil.round(goal1) : defaults.goal1,
+            intake: Number.isFinite(intake) && intake > 0 && intake <= 10000 ? Math.round(intake) : defaults.intake
+        };
     };
 
     // --- 2. 초기화 ---
@@ -290,7 +451,10 @@
             'goalTunnelChart', 'drawdownChart', 'lbmFatAreaChart', 'speedometerChart',
             'wallTableBody', 'monthlyFatLossTableBody',
             // [추가] 이벤트 리스너용 ID들
-            'btn-theme-toggle', 'btn-settings-toggle', 'btn-save-settings', 'btn-import-json', 'btn-export-json', 'btn-export-csv', 'btn-import-csv', 'btn-reset-data', 'badge-toggle-header'
+            'btn-theme-toggle', 'btn-settings-toggle', 'btn-save-settings', 'btn-import-json', 'btn-export-json', 'btn-export-csv', 'btn-import-csv', 'btn-reset-data', 'badge-toggle-header',
+            // [추가] 의학 근거 기반 A4 10페이지 서술형 분석 리포트
+            'medicalNarrativeCard', 'medicalNarrativeSummary', 'medicalNarrativeReport',
+            'btn-generate-medical-narrative', 'btn-copy-medical-narrative', 'btn-download-medical-narrative', 'btn-print-medical-narrative'
         ];
         ids.forEach(id => AppState.getEl(id));
         
@@ -315,6 +479,11 @@
         bindClick('recordBtn', addRecord);
         bindClick('badge-toggle-header', toggleBadges);
         bindClick('chartBackdrop', closeAllExpands);
+        bindClick('btn-generate-medical-narrative', () => renderMedicalNarrativeReport(AppState.state.statsCache || analyzeRecords(AppState.records), true));
+        bindClick('btn-copy-medical-narrative', copyMedicalNarrativeReport);
+        bindClick('btn-download-medical-narrative', downloadMedicalNarrativeReport);
+        bindClick('btn-print-medical-narrative', printMedicalNarrativeReport);
+        window.addEventListener('afterprint', () => document.body.classList.remove('print-narrative-only'));
 
         bindChange('showTrend', updateMainChart);
         bindChange('chartStartDate', applyCustomDateRange);
@@ -366,9 +535,9 @@
         if (dateInput) dateInput.value = DateUtil.format(new Date());
         
         try {
-            AppState.records = JSON.parse(localStorage.getItem(AppState.STORAGE_KEY)) || [];
+            AppState.records = sanitizeDietRecords(JSON.parse(localStorage.getItem(AppState.STORAGE_KEY)) || []);
             const savedSettings = JSON.parse(localStorage.getItem(AppState.SETTINGS_KEY));
-            if (savedSettings) AppState.settings = savedSettings;
+            if (savedSettings) AppState.settings = sanitizeDietSettings(savedSettings);
         } catch (e) {
             console.error('Data Load Error', e);
             AppState.records = [];
@@ -438,7 +607,11 @@
         
         // [기능 추가] 부모 창(MothNote)로부터 테마 변경 메시지 수신
         window.addEventListener('message', (event) => {
-            if (event.data.type === 'setTheme') {
+            if (event.origin !== window.location.origin || event.source !== window.parent) {
+                console.warn('Blocked a message from an untrusted source:', event.origin);
+                return;
+            }
+            if (event.data && event.data.type === 'setTheme') {
                 if (event.data.theme === 'dark') {
                     document.body.classList.add('dark-mode');
                     localStorage.setItem('diet_pro_dark_mode', 'true');
@@ -528,7 +701,7 @@
         const weightStr = weightInput.value; 
         const fatStr = fatInput.value;
 
-        if (!date) return showToast('날짜를 입력해주세요.');
+        if (!date || !DateUtil.isValidDateString(date)) return showToast('유효한 날짜를 입력해주세요.');
         
         // 값이 비어있는지 확인
         if (!weightStr || weightStr.trim() === '') {
@@ -588,7 +761,7 @@
             }
 
             // 데이터 정렬 및 저장
-            AppState.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+            AppState.records = sanitizeDietRecords(AppState.records);
             AppState.state.isDirty = true;
             debouncedSaveRecords();
             
@@ -679,17 +852,16 @@
             try {
                 const data = JSON.parse(content);
                 if(data.records && Array.isArray(data.records)) {
-                    AppState.records = data.records.filter(r => r.date && !isNaN(r.weight));
-                    if(data.settings) AppState.settings = data.settings;
+                    AppState.records = sanitizeDietRecords(data.records);
+                    if(data.settings) AppState.settings = sanitizeDietSettings(data.settings);
                     
-                    AppState.records.sort((a, b) => new Date(a.date) - new Date(b.date));
                     AppState.state.isDirty = true;
                     
                     localStorage.setItem(AppState.STORAGE_KEY, JSON.stringify(AppState.records));
                     localStorage.setItem(AppState.SETTINGS_KEY, JSON.stringify(AppState.settings));
                     
                     updateUI();
-                    showToast('데이터(JSON) 복원 완료');
+                    showToast(`데이터(JSON) 복원 완료: ${AppState.records.length}건`);
                 } else {
                     throw new Error('올바르지 않은 JSON 형식');
                 }
@@ -724,13 +896,9 @@
                 if(matches.length >= 2) {
                     const d = matches[0].trim().replace(/['"]/g, ''); 
                     const w = parseFloat(matches[1]);
-                    
-                    if(d.match(/^\d{4}-\d{2}-\d{2}$/) && !isNaN(w)) {
-                        const rec = { date: d, weight: w };
-                        if(matches[2] && !isNaN(parseFloat(matches[2]))) {
-                            rec.fat = parseFloat(matches[2]);
-                        }
-                        const idx = AppState.records.findIndex(r => r.date === d);
+                    const rec = sanitizeDietRecord({ date: d, weight: w, fat: matches[2] });
+                    if(rec) {
+                        const idx = AppState.records.findIndex(r => r.date === rec.date);
                         if(idx >= 0) AppState.records[idx] = rec;
                         else AppState.records.push(rec);
                         count++;
@@ -738,7 +906,7 @@
                 }
                 csvRegex.lastIndex = 0;
             }
-            AppState.records.sort((a, b) => new Date(a.date) - new Date(b.date));
+            AppState.records = sanitizeDietRecords(AppState.records);
             AppState.state.isDirty = true;
             
             localStorage.setItem(AppState.STORAGE_KEY, JSON.stringify(AppState.records));
@@ -803,6 +971,7 @@
         renderNewStats(s); 
         renderAnalysisText(s);
         renderAdvancedText(s); 
+        renderMedicalNarrativeReport(s);
         renderPlateauHelper(s); 
         renderPeriodComparison(); 
         renderDetailedStats(s); 
@@ -2667,6 +2836,677 @@
         `;
 
         renderBmiStageScale(bmi, minScale, maxScale);
+    }
+
+
+    // --- 8.5 의학 근거 기반 A4 10페이지 서술형 현재 상태 분석 ---
+    function getBmiInfo(bmi) {
+        if (!isFinite(bmi) || bmi <= 0) {
+            return { label: '데이터 부족', range: '-', grade: 'unknown', description: '키와 체중 기록이 있어야 BMI 해석이 가능합니다.' };
+        }
+        if (bmi < CONFIG.BMI.UNDER) {
+            return { label: '저체중', range: '<18.5', grade: 'danger', description: '감량보다 영양 상태와 체중 회복 필요성을 먼저 평가해야 하는 범위입니다.' };
+        }
+        if (bmi < CONFIG.BMI.NORMAL_END) {
+            return { label: '정상 범위', range: '18.5~22.9', grade: 'good', description: '한국 성인 기준 정상 BMI 범위입니다. 체중 숫자보다 체성분과 유지 가능성이 더 중요해집니다.' };
+        }
+        if (bmi < CONFIG.BMI.PRE_OBESE_END) {
+            return { label: '비만 전 단계', range: '23.0~24.9', grade: 'caution', description: '한국 성인에서 대사 위험이 증가하기 시작하는 구간으로 해석합니다.' };
+        }
+        if (bmi < CONFIG.BMI.OBESE_1_END) {
+            return { label: '1단계 비만', range: '25.0~29.9', grade: 'caution', description: '한국 성인 비만 기준에 해당합니다. 허리둘레, 혈압, 혈당, 지질 등 동반 위험 평가가 중요합니다.' };
+        }
+        if (bmi < CONFIG.BMI.OBESE_2_END) {
+            return { label: '2단계 비만', range: '30.0~34.9', grade: 'danger', description: '비만 관련 동반질환 평가와 전문적인 체중 관리 계획을 고려해야 하는 범위입니다.' };
+        }
+        return { label: '3단계 비만', range: '≥35.0', grade: 'danger', description: '비만 관련 합병증 위험 평가와 의료진 상담이 특히 중요한 범위입니다.' };
+    }
+
+    function formatNumber(value, decimals = 1, fallback = '-') {
+        return (typeof value === 'number' && isFinite(value)) ? value.toFixed(decimals) : fallback;
+    }
+
+    function formatKg(value, decimals = 1) {
+        return (typeof value === 'number' && isFinite(value)) ? `${value.toFixed(decimals)}kg` : '-';
+    }
+
+    function formatSignedKg(value, decimals = 1) {
+        if (typeof value !== 'number' || !isFinite(value)) return '-';
+        return `${value > 0 ? '+' : ''}${value.toFixed(decimals)}kg`;
+    }
+
+    function formatPercent(value, decimals = 1) {
+        return (typeof value === 'number' && isFinite(value)) ? `${value.toFixed(decimals)}%` : '-';
+    }
+
+    function formatSignedPercent(value, decimals = 1) {
+        if (typeof value !== 'number' || !isFinite(value)) return '-';
+        return `${value > 0 ? '+' : ''}${value.toFixed(decimals)}%`;
+    }
+
+    function rateToText(weeklyKg) {
+        if (typeof weeklyKg !== 'number' || !isFinite(weeklyKg)) return '데이터 부족';
+        if (weeklyKg < -0.05) return `${Math.abs(weeklyKg).toFixed(2)}kg/주 감량`;
+        if (weeklyKg > 0.05) return `${weeklyKg.toFixed(2)}kg/주 증량`;
+        return '거의 유지';
+    }
+
+    function getRecentRecordsByDays(days) {
+        if (AppState.records.length === 0) return [];
+        const lastDate = DateUtil.parse(AppState.records[AppState.records.length - 1].date);
+        const cutoff = new Date(lastDate);
+        cutoff.setDate(cutoff.getDate() - days);
+        return AppState.records.filter(r => DateUtil.parse(r.date) >= cutoff);
+    }
+
+    function calcWindowMetric(days) {
+        const rel = getRecentRecordsByDays(days);
+        if (rel.length < 2) return null;
+        const first = rel[0];
+        const last = rel[rel.length - 1];
+        const actualDays = Math.max(1, DateUtil.daysBetween(DateUtil.parse(first.date), DateUtil.parse(last.date)));
+        const changeKg = MathUtil.diff(last.weight, first.weight);
+        const weeklyKg = changeKg / actualDays * 7;
+        const percentWeekly = first.weight ? (weeklyKg / first.weight) * 100 : 0;
+        return { days, actualDays, count: rel.length, first, last, changeKg, weeklyKg, percentWeekly };
+    }
+
+    function calcLinearTrend(records) {
+        if (!records || records.length < 2) return null;
+        const firstDate = DateUtil.parse(records[0].date);
+        const xs = records.map(r => DateUtil.daysBetween(firstDate, DateUtil.parse(r.date)));
+        const ys = records.map(r => r.weight);
+        const meanX = MathUtil.mean(xs);
+        const meanY = MathUtil.mean(ys);
+        let numerator = 0, denominator = 0;
+        xs.forEach((x, i) => {
+            numerator += (x - meanX) * (ys[i] - meanY);
+            denominator += Math.pow(x - meanX, 2);
+        });
+        if (denominator === 0) return null;
+        const slope = numerator / denominator;
+        const intercept = meanY - slope * meanX;
+        let ssTot = 0, ssRes = 0;
+        ys.forEach((y, i) => {
+            const fitted = intercept + slope * xs[i];
+            ssTot += Math.pow(y - meanY, 2);
+            ssRes += Math.pow(y - fitted, 2);
+        });
+        const r2 = ssTot > 0 ? Math.max(0, Math.min(1, 1 - ssRes / ssTot)) : 0;
+        return { slopeKgPerDay: slope, weeklyKg: slope * 7, r2, count: records.length };
+    }
+
+    function calcRecordingQuality() {
+        if (AppState.records.length === 0) return null;
+        const firstDate = DateUtil.parse(AppState.records[0].date);
+        const lastDate = DateUtil.parse(AppState.records[AppState.records.length - 1].date);
+        const spanDays = Math.max(1, Math.round(DateUtil.daysBetween(firstDate, lastDate)) + 1);
+        const uniqueDates = new Set(AppState.records.map(r => r.date));
+        const fullAdherence = Math.min(100, uniqueDates.size / spanDays * 100);
+        const cutoff30 = new Date(lastDate);
+        cutoff30.setDate(cutoff30.getDate() - 29);
+        const recent30Records = AppState.records.filter(r => DateUtil.parse(r.date) >= cutoff30);
+        const recentSpan = Math.min(30, spanDays);
+        const recentAdherence = Math.min(100, new Set(recent30Records.map(r => r.date)).size / recentSpan * 100);
+        const gaps = [];
+        for (let i = 1; i < AppState.records.length; i++) {
+            gaps.push(DateUtil.daysBetween(DateUtil.parse(AppState.records[i - 1].date), DateUtil.parse(AppState.records[i].date)));
+        }
+        const maxGap = gaps.length ? Math.max(...gaps) : 0;
+        const avgGap = gaps.length ? MathUtil.mean(gaps) : 0;
+        let quality = '보통';
+        if (recentAdherence >= 80) quality = '매우 좋음';
+        else if (recentAdherence >= 55) quality = '좋음';
+        else if (recentAdherence < 35) quality = '낮음';
+        return { spanDays, totalRecords: AppState.records.length, fullAdherence, recentAdherence, maxGap, avgGap, quality };
+    }
+
+    function calcVolatility() {
+        const diffs = [];
+        for (let i = 1; i < AppState.records.length; i++) {
+            diffs.push(AppState.records[i].weight - AppState.records[i - 1].weight);
+        }
+        if (diffs.length === 0) return { meanAbsDiff: 0, diffStd: 0, spikeCount: 0, largestGain: 0, largestDrop: 0 };
+        const absDiffs = diffs.map(v => Math.abs(v));
+        const meanAbsDiff = MathUtil.mean(absDiffs);
+        const diffStd = MathUtil.stdDev(diffs);
+        const spikeCount = diffs.filter(v => Math.abs(v) >= 0.7).length;
+        const largestGain = Math.max(0, ...diffs);
+        const largestDrop = Math.min(0, ...diffs);
+        let status = '안정적';
+        if (meanAbsDiff >= 0.6 || diffStd >= 0.7) status = '변동 큼';
+        else if (meanAbsDiff >= 0.35 || diffStd >= 0.45) status = '중간 변동';
+        return { meanAbsDiff, diffStd, spikeCount, largestGain, largestDrop, status };
+    }
+
+    function calcPlateauStatus() {
+        if (AppState.records.length < 2) return { current: 0, longest: 0, label: '데이터 부족' };
+        let current = 0;
+        for (let i = AppState.records.length - 1; i > 0; i--) {
+            const diff = Math.abs(AppState.records[i].weight - AppState.records[i - 1].weight);
+            if (diff < 0.2) current++;
+            else break;
+        }
+        let longest = 0, run = 0;
+        for (let i = 1; i < AppState.records.length; i++) {
+            const diff = Math.abs(AppState.records[i].weight - AppState.records[i - 1].weight);
+            if (diff < 0.2) run++;
+            else run = 0;
+            longest = Math.max(longest, run);
+        }
+        let label = '정체 아님';
+        if (current >= 14) label = '장기 정체 가능성';
+        else if (current >= 7) label = '정체기 관찰';
+        else if (current >= 3) label = '짧은 유지 구간';
+        return { current, longest, label };
+    }
+
+    function calcWeekdayPattern() {
+        const names = ['일', '월', '화', '수', '목', '금', '토'];
+        const sum = Array(7).fill(0);
+        const total = Array(7).fill(0);
+        const loss = Array(7).fill(0);
+        for (let i = 1; i < AppState.records.length; i++) {
+            const day = DateUtil.parse(AppState.records[i].date).getDay();
+            const diff = AppState.records[i].weight - AppState.records[i - 1].weight;
+            sum[day] += diff;
+            total[day]++;
+            if (diff < 0) loss[day]++;
+        }
+        const rows = names.map((name, i) => {
+            const avg = total[i] ? sum[i] / total[i] : null;
+            const winRate = total[i] ? loss[i] / total[i] * 100 : null;
+            return { name, index: i, avg, winRate, total: total[i] };
+        }).filter(r => r.total > 0);
+        const best = rows.length ? [...rows].sort((a, b) => a.avg - b.avg)[0] : null;
+        const worst = rows.length ? [...rows].sort((a, b) => b.avg - a.avg)[0] : null;
+        const weekendRows = rows.filter(r => r.index === 0 || r.index === 6);
+        const weekdayRows = rows.filter(r => r.index >= 1 && r.index <= 5);
+        const weekendAvg = weekendRows.length ? MathUtil.mean(weekendRows.map(r => r.avg)) : null;
+        const weekdayAvg = weekdayRows.length ? MathUtil.mean(weekdayRows.map(r => r.avg)) : null;
+        return { rows, best, worst, weekendAvg, weekdayAvg };
+    }
+
+    function calcBodyCompositionContext() {
+        const fatRecords = AppState.records.filter(r => typeof r.fat === 'number' && isFinite(r.fat));
+        if (fatRecords.length < 2) {
+            return { hasData: false, fatRecordCount: fatRecords.length };
+        }
+        const first = fatRecords[0];
+        const last = fatRecords[fatRecords.length - 1];
+        const startFatKg = first.weight * (first.fat / 100);
+        const endFatKg = last.weight * (last.fat / 100);
+        const startLeanKg = first.weight - startFatKg;
+        const endLeanKg = last.weight - endFatKg;
+        const fatChange = endFatKg - startFatKg;
+        const leanChange = endLeanKg - startLeanKg;
+        const weightChange = last.weight - first.weight;
+        const fatLossShare = weightChange < 0 ? Math.max(0, -fatChange) / Math.abs(weightChange) * 100 : null;
+        let status = '해석 가능';
+        if (weightChange < 0 && leanChange < -Math.abs(weightChange) * 0.35) status = '제지방 감소 주의';
+        else if (weightChange < 0 && fatChange < 0 && leanChange >= -Math.abs(weightChange) * 0.2) status = '체성분 흐름 양호';
+        return { hasData: true, fatRecordCount: fatRecords.length, first, last, startFatKg, endFatKg, startLeanKg, endLeanKg, fatChange, leanChange, weightChange, fatLossShare, status };
+    }
+
+    function calcForecastContext(currentWeight, goalWeight) {
+        const recent30 = getRecentRecordsByDays(30);
+        const recent90 = getRecentRecordsByDays(90);
+        const trend = calcLinearTrend(recent30.length >= 4 ? recent30 : (recent90.length >= 4 ? recent90 : AppState.records));
+        if (!trend || currentWeight <= goalWeight || trend.slopeKgPerDay >= -0.01) {
+            return { available: false, trend };
+        }
+        const daysToGoal = (currentWeight - goalWeight) / Math.abs(trend.slopeKgPerDay);
+        const lastDate = DateUtil.parse(AppState.records[AppState.records.length - 1].date);
+        const eta = new Date(lastDate);
+        eta.setDate(eta.getDate() + Math.round(daysToGoal));
+        let confidence = '낮음';
+        if (trend.count >= 20 && trend.r2 >= 0.55) confidence = '보통~높음';
+        else if (trend.count >= 10 && trend.r2 >= 0.3) confidence = '보통';
+        return { available: true, trend, daysToGoal, eta: DateUtil.format(eta), confidence };
+    }
+
+    function calcMedicalNarrativeContext(s) {
+        const records = AppState.records;
+        const first = records[0];
+        const last = records[records.length - 1];
+        const current = last.weight;
+        const startWeight = AppState.settings.startWeight;
+        const goalWeight = AppState.settings.goal1;
+        const heightM = AppState.settings.height / 100;
+        const bmi = current / (heightM * heightM);
+        const bmiInfo = getBmiInfo(bmi);
+        const totalChangeFromStart = current - startWeight;
+        const totalLost = startWeight - current;
+        const percentFromStart = startWeight ? (totalLost / startWeight) * 100 : 0;
+        const targetGap = startWeight - goalWeight;
+        const progressPct = targetGap ? MathUtil.clamp((startWeight - current) / targetGap * 100, 0, 100) : 0;
+        const remaining = Math.max(0, current - goalWeight);
+        const firstDate = DateUtil.parse(first.date);
+        const lastDate = DateUtil.parse(last.date);
+        const spanDays = Math.max(1, Math.round(DateUtil.daysBetween(firstDate, lastDate)) + 1);
+        const allTrend = calcLinearTrend(records);
+        const m7 = calcWindowMetric(7);
+        const m14 = calcWindowMetric(14);
+        const m30 = calcWindowMetric(30);
+        const m90 = calcWindowMetric(90);
+        const quality = calcRecordingQuality();
+        const volatility = calcVolatility();
+        const plateau = calcPlateauStatus();
+        const weekday = calcWeekdayPattern();
+        const bodyComp = calcBodyCompositionContext();
+        const forecast = calcForecastContext(current, goalWeight);
+        const safeWeeklyLow = current * 0.005;
+        const safeWeeklyHigh = current * 0.01;
+        const activeRate = m30 || m14 || m7 || (allTrend ? { weeklyKg: allTrend.weeklyKg, percentWeekly: current ? allTrend.weeklyKg / current * 100 : 0, count: records.length } : null);
+        const activeWeeklyKg = activeRate ? activeRate.weeklyKg : 0;
+        const activeWeeklyLoss = activeWeeklyKg < 0 ? Math.abs(activeWeeklyKg) : 0;
+        let speedStatus = '평가 보류';
+        if (activeRate) {
+            if (activeWeeklyLoss > safeWeeklyHigh) speedStatus = '빠른 감량';
+            else if (activeWeeklyLoss >= safeWeeklyLow && activeWeeklyLoss <= safeWeeklyHigh) speedStatus = '권장 범위에 가까움';
+            else if (activeWeeklyKg > 0.15) speedStatus = '최근 증량';
+            else speedStatus = '느린 감량 또는 유지';
+        }
+        const energyDailyDeficit = activeWeeklyKg < 0 ? Math.abs(activeWeeklyKg) / 7 * 7700 : 0;
+        const estimatedTdee = energyDailyDeficit > 0 ? (AppState.settings.intake || 0) + energyDailyDeficit : null;
+        const flags = [];
+        if (records.length < 7) flags.push('기록 수가 7개 미만이라 추세 신뢰도가 낮습니다.');
+        if (bmi < CONFIG.BMI.UNDER) flags.push('BMI가 저체중 범위입니다. 감량 목표보다 의학적 평가가 우선입니다.');
+        if (activeWeeklyLoss > safeWeeklyHigh && activeWeeklyLoss > 0) flags.push('최근 감량 속도가 현재 체중의 1%/주를 초과합니다. 피로, 어지러움, 폭식 반동, 제지방 감소를 점검해야 합니다.');
+        if (bodyComp.hasData && bodyComp.status === '제지방 감소 주의') flags.push('체지방률 기록상 제지방 감소 비중이 커 보입니다. 단백질 섭취와 저항운동 점검이 필요합니다.');
+        if (volatility.status === '변동 큼') flags.push('체중 변동성이 큽니다. 나트륨, 수면, 생리주기, 음주, 운동 후 염증·수분 저류 요인을 함께 봐야 합니다.');
+        return {
+            s, records, first, last, current, startWeight, goalWeight, bmi, bmiInfo,
+            totalChangeFromStart, totalLost, percentFromStart, progressPct, remaining,
+            spanDays, allTrend, m7, m14, m30, m90, quality, volatility, plateau, weekday, bodyComp,
+            forecast, safeWeeklyLow, safeWeeklyHigh, activeRate, activeWeeklyKg, activeWeeklyLoss,
+            speedStatus, energyDailyDeficit, estimatedTdee, flags
+        };
+    }
+
+    function buildMetricHtml(metrics) {
+        if (!metrics || metrics.length === 0) return '';
+        return `<div class="narrative-metric-grid">${metrics.map(m => `
+            <div class="narrative-metric">
+                <div class="narrative-metric-label">${DomUtil.escapeHtml(m.label)}</div>
+                <div class="narrative-metric-value">${DomUtil.escapeHtml(m.value)}</div>
+            </div>`).join('')}</div>`;
+    }
+
+    function getEvidenceMap() {
+        const map = {};
+        CONFIG.MEDICAL_EVIDENCE.forEach(e => { map[e.key] = e; });
+        return map;
+    }
+
+    function buildEvidenceChips(keys) {
+        const map = getEvidenceMap();
+        const chips = (keys || []).map(k => map[k]).filter(Boolean).map(e => {
+            return `<a class="evidence-chip" href="${DomUtil.escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">📚 ${DomUtil.escapeHtml(e.label)}</a>`;
+        });
+        return chips.length ? `<div class="evidence-chip-row">${chips.join('')}</div>` : '';
+    }
+
+    function buildPageHtml(page, index, total) {
+        const paragraphs = page.paragraphs.map(p => `<p>${DomUtil.escapeHtml(p)}</p>`).join('');
+        const callout = page.callout ? `<div class="narrative-callout ${DomUtil.escapeHtml(page.calloutType || '')}">${DomUtil.escapeHtml(page.callout)}</div>` : '';
+        const references = page.referencesHtml || '';
+        return `<section class="narrative-page">
+            <div class="narrative-page-header">
+                <h4>${DomUtil.escapeHtml(page.title)}</h4>
+                <div class="narrative-page-number">A4 ${index + 1}/${total}</div>
+            </div>
+            <p class="narrative-lead">${DomUtil.escapeHtml(page.lead)}</p>
+            ${buildMetricHtml(page.metrics)}
+            ${paragraphs}
+            ${callout}
+            ${references}
+            ${buildEvidenceChips(page.evidence)}
+        </section>`;
+    }
+
+    function buildPageText(page, index, total) {
+        const metricText = page.metrics && page.metrics.length
+            ? ['핵심 지표', ...page.metrics.map(m => `- ${m.label}: ${m.value}`), ''].join('\n')
+            : '';
+        const evidenceMap = getEvidenceMap();
+        const evidenceText = page.evidence && page.evidence.length
+            ? '\n근거: ' + page.evidence.map(k => evidenceMap[k]).filter(Boolean).map(e => `${e.label}(${e.year})`).join(', ') + '\n'
+            : '';
+        const refsText = page.referencesText ? '\n' + page.referencesText + '\n' : '';
+        return [`[A4 ${index + 1}/${total}] ${page.title}`, page.lead, '', metricText, page.paragraphs.join('\n\n'), page.callout ? `\n주의/해석: ${page.callout}\n` : '', refsText, evidenceText].filter(Boolean).join('\n');
+    }
+
+    function buildMedicalNarrativePages(ctx) {
+        const recentRateText = ctx.activeRate ? rateToText(ctx.activeRate.weeklyKg) : '데이터 부족';
+        const bestDay = ctx.weekday.best ? `${ctx.weekday.best.name}요일(${formatSignedKg(ctx.weekday.best.avg, 2)}/기록)` : '데이터 부족';
+        const worstDay = ctx.weekday.worst ? `${ctx.weekday.worst.name}요일(${formatSignedKg(ctx.weekday.worst.avg, 2)}/기록)` : '데이터 부족';
+        const bodyCompSummary = ctx.bodyComp.hasData
+            ? `체지방량 변화 ${formatSignedKg(ctx.bodyComp.fatChange, 1)}, 제지방량 변화 ${formatSignedKg(ctx.bodyComp.leanChange, 1)}`
+            : `체지방률 기록 ${ctx.bodyComp.fatRecordCount}개로 정밀한 체성분 해석은 보류`;
+        const forecastText = ctx.forecast.available
+            ? `${ctx.forecast.eta} 전후, 약 ${Math.round(ctx.forecast.daysToGoal)}일, 신뢰도 ${ctx.forecast.confidence}`
+            : '현재 추세만으로는 목표일 예측 보류';
+        const warningText = ctx.flags.length ? ctx.flags.join(' ') : '현재 기록만으로 즉시 중단이 필요한 위험 신호는 뚜렷하지 않습니다. 다만 앱 데이터는 진단이 아니므로 증상이나 기저질환이 있으면 의료진 판단이 우선입니다.';
+        const calorieText = ctx.energyDailyDeficit > 0
+            ? `최근 추세를 7,700kcal/kg의 단순 환산으로 보면 하루 약 ${Math.round(ctx.energyDailyDeficit)}kcal의 에너지 부족에 해당합니다.`
+            : '최근 추세가 유지 또는 증량에 가까워 단순 결손 열량을 산출하지 않았습니다.';
+        const estimatedTdeeText = ctx.estimatedTdee ? `섭취 ${AppState.settings.intake || 0}kcal 가정 시 관찰 기반 TDEE는 약 ${Math.round(ctx.estimatedTdee)}kcal로 추정됩니다.` : '감량 추세가 명확하지 않아 관찰 기반 TDEE 추정은 보류합니다.';
+        const refsHtml = `<ol class="narrative-reference-list">${CONFIG.MEDICAL_EVIDENCE.map(e => `<li><strong>${DomUtil.escapeHtml(e.label)}</strong> (${DomUtil.escapeHtml(e.year)}). ${DomUtil.escapeHtml(e.title)}. <em>${DomUtil.escapeHtml(e.source)}</em>. <a href="${DomUtil.escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">원문 보기</a><br>${DomUtil.escapeHtml(e.note)}</li>`).join('')}</ol>`;
+        const refsText = '참고문헌\n' + CONFIG.MEDICAL_EVIDENCE.map((e, i) => `${i + 1}. ${e.label} (${e.year}). ${e.title}. ${e.source}. ${e.url} - ${e.note}`).join('\n');
+
+        return [
+            {
+                title: '현재 상태 총괄 요약: 체중 숫자보다 추세와 안전성을 함께 보는 해석',
+                lead: `현재 마지막 기록은 ${ctx.last.date}의 ${formatKg(ctx.current, 1)}이며, 시작 체중 ${formatKg(ctx.startWeight, 1)} 대비 ${formatSignedKg(ctx.totalChangeFromStart, 1)} 변화했습니다.`,
+                metrics: [
+                    { label: '현재 체중', value: formatKg(ctx.current, 1) },
+                    { label: '시작 대비 변화', value: `${formatSignedKg(ctx.totalChangeFromStart, 1)} (${formatSignedPercent(-ctx.percentFromStart, 1)})` },
+                    { label: '목표까지', value: formatKg(ctx.remaining, 1) },
+                    { label: '목표 진행률', value: formatPercent(ctx.progressPct, 1) }
+                ],
+                paragraphs: [
+                    `이 리포트는 입력된 체중과 체지방률 기록을 시간순으로 해석하여 현재 상태를 서술형으로 정리합니다. 단순히 오늘 체중이 줄었는지 늘었는지보다, 전체 기록 기간 ${ctx.spanDays}일 동안의 방향성, 최근 7일·14일·30일의 속도, 변동성, 기록 성실도, 체성분 신호, 목표 체중까지의 거리와 안전성을 함께 보도록 설계되어 있습니다.`,
+                    `현재까지의 총 변화는 ${ctx.totalLost >= 0 ? '감량' : '증량'} 방향입니다. 시작 체중 대비 체중 변화율은 ${formatPercent(ctx.percentFromStart, 1)}로 계산됩니다. 임상적으로는 체중의 3~5%만 줄어도 혈압, 혈당, 지질 등 일부 대사 지표가 개선될 수 있고, 5~10% 감량은 많은 비만 관리 지침에서 1차 목표로 다루어집니다. 따라서 ${formatPercent(ctx.percentFromStart, 1)}라는 수치는 미용적 평가가 아니라 대사 건강 관점에서도 의미를 가질 수 있는 변화인지 확인하는 출발점입니다.`,
+                    `목표 체중 ${formatKg(ctx.goalWeight, 1)}까지 남은 거리는 ${formatKg(ctx.remaining, 1)}입니다. 진행률은 ${formatPercent(ctx.progressPct, 1)}로 표시되지만, 진행률이 높다고 해서 반드시 건강한 감량이라는 뜻은 아닙니다. 너무 빠른 속도, 체지방보다 제지방이 더 많이 줄어드는 흐름, 기록 공백이 많은 데이터는 별도로 경고해야 합니다.`,
+                    `현재 앱은 한국 성인 기준 BMI 분류를 적용하고, 최근 속도는 현재 체중의 약 0.5~1.0%/주 범위를 참고 범위로 삼아 해석합니다. 이는 개인의 질환, 약물, 운동량, 수면, 생리주기, 염분 섭취, 측정 시간 차이를 모두 반영한 진단은 아니지만, 기록 기반 자기 점검에는 충분히 유용한 기준점이 됩니다.`,
+                    `이번 총괄 결론은 “${ctx.speedStatus}”입니다. 최근 대표 감량 속도는 ${recentRateText}로 계산되며, 현재 체중에서 앱이 보는 참고 속도 범위는 약 ${formatKg(ctx.safeWeeklyLow, 2)}~${formatKg(ctx.safeWeeklyHigh, 2)}/주입니다. 이 범위를 크게 넘으면 단기 수분 변화인지, 실제 열량 결손이 과도한지, 운동 후 염증·글리코겐 변화인지 구분해야 합니다.`
+                ],
+                callout: warningText,
+                calloutType: ctx.flags.length ? 'warning' : 'good',
+                evidence: ['KSSO_MGMT_2020', 'KSSO_DIAG_2022', 'USPSTF_BEHAVIOR_2018']
+            },
+            {
+                title: '기록 품질과 자기모니터링 분석: 데이터가 좋아야 해석도 좋아집니다',
+                lead: `전체 ${ctx.quality.totalRecords}개 기록, 전체 기록 밀도 ${formatPercent(ctx.quality.fullAdherence, 1)}, 최근 30일 기록 성실도 ${formatPercent(ctx.quality.recentAdherence, 1)}입니다.`,
+                metrics: [
+                    { label: '기록 기간', value: `${ctx.first.date} ~ ${ctx.last.date}` },
+                    { label: '전체 기록 수', value: `${ctx.quality.totalRecords}개` },
+                    { label: '최근 30일 성실도', value: formatPercent(ctx.quality.recentAdherence, 1) },
+                    { label: '최대 공백', value: `${Math.round(ctx.quality.maxGap)}일` }
+                ],
+                paragraphs: [
+                    `체중 관리는 “완벽한 하루”보다 “관찰 가능한 반복”에서 힘이 생깁니다. 현재 데이터의 기록 품질은 ${ctx.quality.quality}으로 평가됩니다. 최근 30일 성실도 ${formatPercent(ctx.quality.recentAdherence, 1)}는 단기 추세 해석의 신뢰도를 결정하는 핵심 값입니다. 기록 간 평균 간격은 약 ${formatNumber(ctx.quality.avgGap, 1)}일이며, 최대 공백은 ${Math.round(ctx.quality.maxGap)}일입니다.`,
+                    `체중은 음식 섭취량, 수분, 염분, 배변, 운동 후 근육 손상, 호르몬 변화의 영향을 받습니다. 그래서 며칠의 숫자만으로 성공과 실패를 판단하면 과잉해석이 생깁니다. 반대로 같은 조건에서 자주 기록하면 노이즈가 평균화되어 추세가 선명해집니다.`,
+                    `최근 자기모니터링 연구들은 정기적인 체중 기록이 행동 피드백, 식사 선택, 활동량 조절, 체중 증가의 조기 감지에 도움이 될 수 있음을 보여줍니다. 이 앱의 리포트는 바로 그 장점을 살리기 위해 기록 성실도를 별도 지표로 분리했습니다.`,
+                    `가장 좋은 방식은 아침 기상 후 화장실을 다녀온 뒤, 식사 전, 비슷한 복장 또는 동일 조건에서 측정하는 것입니다. 매일 기록하더라도 하루 변화에 감정적으로 반응하기보다 7일 평균과 30일 추세를 기준으로 판단하는 편이 안전합니다.`,
+                    `현재 기록 품질이 낮게 나오는 경우, 감량이 되지 않는다는 결론보다 먼저 “데이터가 충분하지 않다”는 결론이 우선입니다. 특히 주말, 외식 다음날, 운동 다음날, 수면 부족 다음날 기록이 빠지면 체중 패턴의 중요한 구간이 사라질 수 있습니다.`
+                ],
+                callout: `권장 사용법: 최소 주 4회 이상, 가능하면 매일 같은 조건에서 측정하고, 단기 평가는 7일 평균, 전략 평가는 30일 추세로 보십시오.`,
+                evidence: ['SELF_MONITOR_2024', 'VUORINEN_2021', 'USPSTF_BEHAVIOR_2018']
+            },
+            {
+                title: 'BMI와 한국 성인 비만 기준 해석: 현재 숫자의 의학적 위치',
+                lead: `현재 BMI는 ${formatNumber(ctx.bmi, 2)}이며 한국 성인 기준 ${ctx.bmiInfo.label} 범위입니다.`,
+                metrics: [
+                    { label: 'BMI', value: formatNumber(ctx.bmi, 2) },
+                    { label: '분류', value: ctx.bmiInfo.label },
+                    { label: '기준 구간', value: ctx.bmiInfo.range },
+                    { label: 'BMI Prime', value: formatNumber(ctx.bmi / 23, 2) }
+                ],
+                paragraphs: [
+                    `BMI는 체중을 키의 제곱으로 나눈 값입니다. 현재 ${formatNumber(ctx.bmi, 2)}라는 값은 한국 성인 기준으로 ${ctx.bmiInfo.label}에 해당합니다. 한국 기준은 서구권의 BMI 25 과체중, 30 비만 기준과 다르게, 대사 위험 증가가 더 낮은 BMI에서 관찰되는 아시아인 특성을 반영합니다.`,
+                    `${ctx.bmiInfo.description} 이 해석은 체중의 “좋고 나쁨”을 평가하는 도덕적 판단이 아니라, 대사 위험을 놓치지 않기 위한 선별 도구입니다.`,
+                    `다만 BMI는 지방량과 근육량을 구분하지 못합니다. 근력운동을 많이 하는 사람은 BMI가 높아도 체지방률이 낮을 수 있고, 반대로 BMI가 정상이어도 복부 지방이 많으면 대사 위험이 커질 수 있습니다. 따라서 체지방률, 허리둘레, 혈압, 공복혈당, HbA1c, 지질검사 같은 정보를 함께 볼 때 해석력이 좋아집니다.`,
+                    `현재 앱에 허리둘레 입력칸은 없지만, 리포트는 허리둘레 측정의 중요성을 계속 안내합니다. 한국 성인에서는 남성 90cm 이상, 여성 85cm 이상을 복부비만 기준으로 사용합니다. 복부비만은 같은 BMI라도 심혈관·대사 위험을 더 잘 설명할 수 있습니다.`,
+                    `따라서 현재 목표 체중은 BMI 숫자만으로 정하지 않는 편이 좋습니다. 목표는 “BMI 정상화”와 함께 “지방 감소, 제지방 보존, 유지 가능한 식사·운동 패턴, 대사 지표 개선”을 동시에 만족해야 합니다.`
+                ],
+                callout: `BMI가 비만 범위이거나 허리둘레가 기준 이상이라면 체중 기록만으로 끝내지 말고 혈압, 혈당, 지질, 간수치, 수면무호흡 증상 등을 점검하는 것이 안전합니다.`,
+                evidence: ['KSSO_DIAG_2022', 'CANADA_CPG_2020', 'WAIST_2020']
+            },
+            {
+                title: '감량 속도와 추세 분석: 최근 변화가 지속 가능한 변화인지 평가',
+                lead: `대표 최근 속도는 ${recentRateText}이며, 전체 선형 추세는 ${ctx.allTrend ? rateToText(ctx.allTrend.weeklyKg) : '데이터 부족'}입니다.`,
+                metrics: [
+                    { label: '최근 7일', value: ctx.m7 ? rateToText(ctx.m7.weeklyKg) : '부족' },
+                    { label: '최근 14일', value: ctx.m14 ? rateToText(ctx.m14.weeklyKg) : '부족' },
+                    { label: '최근 30일', value: ctx.m30 ? rateToText(ctx.m30.weeklyKg) : '부족' },
+                    { label: '속도 판정', value: ctx.speedStatus }
+                ],
+                paragraphs: [
+                    `체중 변화는 하루 단위보다 주 단위로 보아야 합니다. 현재 최근 7일 속도는 ${ctx.m7 ? rateToText(ctx.m7.weeklyKg) : '데이터 부족'}, 최근 14일 속도는 ${ctx.m14 ? rateToText(ctx.m14.weeklyKg) : '데이터 부족'}, 최근 30일 속도는 ${ctx.m30 ? rateToText(ctx.m30.weeklyKg) : '데이터 부족'}입니다.`,
+                    `단기 속도가 빠르게 보일 때는 실제 지방 감소와 수분·글리코겐 감소가 섞여 있을 가능성이 큽니다. 반대로 며칠간 체중이 오르더라도 30일 추세가 내려가고 있다면 전략이 실패했다고 단정하기 어렵습니다.`,
+                    `현재 체중 기준으로 앱이 참고하는 감량 속도 범위는 ${formatKg(ctx.safeWeeklyLow, 2)}~${formatKg(ctx.safeWeeklyHigh, 2)}/주입니다. 이 범위는 사용자의 현재 체중에 비례하도록 설정되어, 체중이 낮아질수록 과도한 감량 경고가 더 민감해집니다.`,
+                    `전체 선형 추세의 설명력은 ${ctx.allTrend ? formatPercent(ctx.allTrend.r2 * 100, 1) : '부족'}입니다. 이 값이 높을수록 체중이 비교적 일정한 방향으로 움직였다는 뜻이고, 낮을수록 체중 변화가 들쭉날쭉해 예측이 어렵다는 뜻입니다.`,
+                    `임상적으로 중요한 점은 “빠르게 줄이는 것”이 아니라 “지방을 줄이면서 장기 유지가 가능한가”입니다. 지나치게 빠른 감량은 피로, 운동 수행 저하, 배고픔 증가, 폭식 반동, 제지방 감소, 담석 위험 증가와 연결될 수 있으므로 리포트는 빠른 속도를 무조건 좋은 신호로 해석하지 않습니다.`
+                ],
+                callout: `현재 속도 판정은 ${ctx.speedStatus}입니다. 최근 30일 이상 데이터가 쌓일수록 이 판정은 더 안정적으로 변합니다.`,
+                calloutType: ctx.speedStatus === '빠른 감량' ? 'warning' : '',
+                evidence: ['KSSO_MGMT_2020', 'USPSTF_BEHAVIOR_2018', 'CANADA_CPG_2020']
+            },
+            {
+                title: '변동성·수분·정체기 분석: 체중계 노이즈를 실패로 오해하지 않기',
+                lead: `평균 일간 변동폭은 ${formatKg(ctx.volatility.meanAbsDiff, 2)}, 변동성 상태는 ${ctx.volatility.status}, 현재 정체 신호는 ${ctx.plateau.label}입니다.`,
+                metrics: [
+                    { label: '평균 일간 변동', value: formatKg(ctx.volatility.meanAbsDiff, 2) },
+                    { label: '최대 증가', value: formatSignedKg(ctx.volatility.largestGain, 1) },
+                    { label: '최대 감소', value: formatSignedKg(ctx.volatility.largestDrop, 1) },
+                    { label: '현재 정체', value: `${ctx.plateau.current}회 연속` }
+                ],
+                paragraphs: [
+                    `체중계의 하루 변화는 지방만 반영하지 않습니다. 탄수화물 섭취가 늘면 글리코겐과 수분이 함께 저장되고, 짠 음식을 먹으면 수분 저류가 늘 수 있으며, 강한 운동 후에는 근육 염증과 회복 과정 때문에 체중이 일시적으로 오를 수 있습니다.`,
+                    `현재 평균 일간 변동폭은 ${formatKg(ctx.volatility.meanAbsDiff, 2)}입니다. 이 값이 커질수록 하루 체중보다 이동평균을 우선해야 합니다. 변동성이 큰 시기에는 “어제보다 늘었다”가 아니라 “7일 평균이 어떻게 움직였는가”를 보아야 합니다.`,
+                    `현재 정체기 판정은 ${ctx.plateau.label}입니다. 앱은 인접 기록 간 변화가 0.2kg 미만인 흐름을 정체 관찰 신호로 잡습니다. 다만 정체는 대사 적응만의 결과가 아니라, 기록 공백, 배변·수분 변화, 섭취량 추정 오차, 활동량 감소, 수면 부족이 함께 만든 결과일 수 있습니다.`,
+                    `장기 체중 변동성이 높은 사람에서 심혈관 위험이 높게 관찰된 연구들이 있지만, 개인 앱의 단기 변동을 질병 위험으로 직접 해석해서는 안 됩니다. 여기서 변동성 지표는 “전략이 너무 흔들리는지”, “측정 조건이 일정한지”, “수분 요인을 과잉해석하고 있지 않은지”를 점검하는 도구입니다.`,
+                    `체중이 정체될 때 가장 먼저 할 일은 극단적 절식이 아니라 기록 품질 확인, 평균 섭취량 재점검, 단백질과 식이섬유 보강, 수면 확보, 주당 운동량과 NEAT 감소 여부 확인입니다. 체중이 줄면서 자연스럽게 에너지 소비량도 줄기 때문에 초기에 통하던 섭취량이 나중에는 유지 칼로리에 가까워질 수 있습니다.`
+                ],
+                callout: `정체가 2주 이상 지속되고 기록 성실도가 충분하다면, 하루 섭취량·외식 빈도·음주·수면·운동량을 같이 재검토하십시오.`,
+                evidence: ['WEIGHT_VARIABILITY_2023', 'SLEEP_EXTENSION_2022', 'KSSO_MGMT_2020']
+            },
+            {
+                title: '체성분과 제지방 보존 분석: 감량의 질을 보는 페이지',
+                lead: bodyCompSummary,
+                metrics: [
+                    { label: '체지방률 기록', value: `${ctx.bodyComp.fatRecordCount || 0}개` },
+                    { label: '체지방량 변화', value: ctx.bodyComp.hasData ? formatSignedKg(ctx.bodyComp.fatChange, 1) : '부족' },
+                    { label: '제지방량 변화', value: ctx.bodyComp.hasData ? formatSignedKg(ctx.bodyComp.leanChange, 1) : '부족' },
+                    { label: '체성분 판정', value: ctx.bodyComp.status || '보류' }
+                ],
+                paragraphs: [
+                    `체중 감량의 질은 “몇 kg 줄었는가”보다 “무엇이 줄었는가”로 평가해야 합니다. 지방량이 줄고 제지방량이 유지되는 흐름은 대사 건강, 운동 수행, 장기 유지 가능성 측면에서 더 바람직합니다.`,
+                    ctx.bodyComp.hasData
+                        ? `현재 체지방률 기록을 기준으로 첫 체지방 기록(${ctx.bodyComp.first.date})과 마지막 체지방 기록(${ctx.bodyComp.last.date})을 비교하면 체지방량은 ${formatSignedKg(ctx.bodyComp.fatChange, 1)}, 제지방량은 ${formatSignedKg(ctx.bodyComp.leanChange, 1)} 변했습니다. 감량 기간 중 지방 손실 비중 추정치는 ${ctx.bodyComp.fatLossShare === null ? '산출 보류' : formatPercent(ctx.bodyComp.fatLossShare, 1)}입니다.`
+                        : `현재 체지방률 기록이 충분하지 않아 지방량과 제지방량 변화를 분리해 해석하기 어렵습니다. 체중은 줄었지만 근육과 수분이 많이 줄었는지, 지방이 주로 줄었는지는 체지방률·허리둘레·운동 수행 변화를 함께 기록해야 더 잘 알 수 있습니다.`,
+                    `가정용 체지방률 측정기는 수분 상태, 운동 직후 여부, 측정 시간, 피부 온도 등에 영향을 받습니다. 따라서 체지방률도 하루 수치보다 같은 조건에서의 장기 추세가 더 중요합니다.`,
+                    `무작위시험과 여러 임상 연구는 에너지 제한 중 충분한 단백질 섭취와 저항운동이 제지방량 보존에 유리할 수 있음을 보여줍니다. 앱은 특정 식단을 처방하지 않지만, 체성분 페이지에서 제지방 감소 신호가 보이면 단백질, 근력운동, 감량 속도를 함께 점검하도록 설계했습니다.`,
+                    `제지방량 감소가 의심될 때는 감량 속도를 늦추고, 근력운동 수행 기록, 단백질 섭취량, 수면, 회복 상태를 우선 확인하는 것이 좋습니다. 특히 피로감, 어지러움, 무월경, 탈모, 폭식 반동, 운동 수행 급감이 동반되면 단순 앱 분석이 아니라 의료진 또는 임상영양사 상담이 필요합니다.`
+                ],
+                callout: `체성분 해석을 강화하려면 체중과 함께 체지방률 또는 허리둘레를 주 1~3회, 같은 시간대에 기록하십시오.`,
+                evidence: ['LONGLAND_2016', 'VERREIJEN_2017', 'WAIST_2020']
+            },
+            {
+                title: '에너지 균형과 섭취량 해석: 칼로리 계산은 방향계이지 진단기가 아닙니다',
+                lead: `${calorieText} ${estimatedTdeeText}`,
+                metrics: [
+                    { label: '입력 섭취량', value: `${AppState.settings.intake || 0}kcal/일` },
+                    { label: '관찰 결손 추정', value: ctx.energyDailyDeficit > 0 ? `${Math.round(ctx.energyDailyDeficit)}kcal/일` : '보류' },
+                    { label: '관찰 TDEE 추정', value: ctx.estimatedTdee ? `${Math.round(ctx.estimatedTdee)}kcal/일` : '보류' },
+                    { label: '최근 대표 속도', value: recentRateText }
+                ],
+                paragraphs: [
+                    `에너지 균형은 체중 변화의 핵심 원리입니다. 그러나 사람의 몸은 단순 계산기처럼 움직이지 않습니다. 체중이 줄면 기초대사량과 활동 에너지 소비가 변하고, 무의식적 활동량이 줄 수 있으며, 수분과 글리코겐 변화가 단기 체중을 크게 흔듭니다.`,
+                    `${calorieText} 이 값은 체지방 1kg을 약 7,700kcal로 보는 단순 환산을 이용한 참고값입니다. 실제 지방 조직의 에너지 밀도, 체성분 변화, 수분 변화, 대사 적응 때문에 개인별 실제 값은 달라질 수 있습니다.`,
+                    `${estimatedTdeeText} 이 추정치는 사용자가 입력한 평균 섭취량이 실제와 가깝고, 최근 체중 변화가 주로 지방 변화라는 가정에 의존합니다. 외식, 간식, 조리유, 음료, 주말 섭취가 빠지면 추정 TDEE는 왜곡됩니다.`,
+                    `비만 관리 지침에서는 대개 식사, 신체활동, 행동전략을 함께 쓰는 다요소 접근을 강조합니다. 단순히 섭취 열량만 낮추면 초기에는 체중이 줄 수 있지만, 배고픔 증가와 활동량 감소로 장기 유지가 어려워질 수 있습니다.`,
+                    `이 페이지의 핵심은 “정확한 칼로리 숫자”가 아니라 “현재 전략이 관찰 결과와 맞는가”입니다. 기록한 섭취량 대비 체중이 예상보다 덜 줄면 섭취 누락, 주말 편차, 활동량 감소, 수면 부족, 체중 정체기를 차례로 점검하는 것이 합리적입니다.`
+                ],
+                callout: `하루 섭취량을 더 낮추기 전에 단백질·식이섬유·수면·근력운동·활동량을 먼저 점검하는 편이 장기 유지에 더 안전합니다.`,
+                evidence: ['KSSO_MGMT_2020', 'USPSTF_BEHAVIOR_2018', 'WHO_PA_2020']
+            },
+            {
+                title: '요일·주말·행동 패턴 분석: 반복되는 환경을 찾는 페이지',
+                lead: `가장 유리한 요일은 ${bestDay}, 가장 주의가 필요한 요일은 ${worstDay}입니다.`,
+                metrics: [
+                    { label: '최고 요일', value: bestDay },
+                    { label: '주의 요일', value: worstDay },
+                    { label: '평일 평균 변화', value: ctx.weekday.weekdayAvg === null ? '-' : formatSignedKg(ctx.weekday.weekdayAvg, 2) },
+                    { label: '주말 평균 변화', value: ctx.weekday.weekendAvg === null ? '-' : formatSignedKg(ctx.weekday.weekendAvg, 2) }
+                ],
+                paragraphs: [
+                    `체중은 의지력만의 결과가 아니라 환경 반복의 결과입니다. 특정 요일에 체중이 자주 오르면 그 요일의 외식, 음주, 야식, 수면 부족, 운동 공백, 염분 섭취가 원인일 수 있습니다.`,
+                    `현재 기록에서는 ${bestDay}에 체중 변화가 가장 유리하게 나타났고, ${worstDay}에 가장 불리하게 나타났습니다. 이 결과는 원인을 확정하지는 않지만, 점검할 요일을 좁혀 줍니다.`,
+                    `주말 평균 변화는 ${ctx.weekday.weekendAvg === null ? '데이터 부족' : formatSignedKg(ctx.weekday.weekendAvg, 2)}이고, 평일 평균 변화는 ${ctx.weekday.weekdayAvg === null ? '데이터 부족' : formatSignedKg(ctx.weekday.weekdayAvg, 2)}입니다. 주말에 오르는 패턴이 반복된다면 월요일 체중 상승을 “실패”가 아니라 “예상 가능한 수분·염분·섭취 패턴”으로 보고, 금요일 저녁부터 월요일 아침까지의 전략을 따로 설계하는 것이 좋습니다.`,
+                    `행동중재의 핵심은 큰 결심보다 작은 마찰을 줄이는 것입니다. 예를 들어 외식 전 단백질·채소 우선 섭취, 음료 열량 줄이기, 주말 아침 체중 기록 유지, 늦은 밤 배달 앱 차단, 산책 일정 고정처럼 반복 가능한 장치를 만드는 편이 좋습니다.`,
+                    `앱은 요일별 승률과 평균 변화량을 보여주므로, 다음 실험은 “가장 약한 요일 하나”를 대상으로 설계하는 것이 좋습니다. 모든 것을 동시에 바꾸기보다 가장 반복적으로 체중을 올리는 환경 하나를 수정하는 편이 성공 가능성이 높습니다.`
+                ],
+                callout: `다음 2주 동안은 ${ctx.weekday.worst ? ctx.weekday.worst.name + '요일' : '취약 요일'}의 식사·수면·활동 기록을 더 자세히 남겨 보십시오.`,
+                evidence: ['USPSTF_BEHAVIOR_2018', 'SELF_MONITOR_2024', 'VUORINEN_2021']
+            },
+            {
+                title: '목표 달성 전망과 안전 계획: 예측보다 중요한 것은 조정 가능성',
+                lead: `목표 예측은 ${forecastText}입니다.`,
+                metrics: [
+                    { label: '목표 체중', value: formatKg(ctx.goalWeight, 1) },
+                    { label: '남은 체중', value: formatKg(ctx.remaining, 1) },
+                    { label: '예상일', value: ctx.forecast.available ? ctx.forecast.eta : '보류' },
+                    { label: '예측 신뢰도', value: ctx.forecast.available ? ctx.forecast.confidence : '낮음' }
+                ],
+                paragraphs: [
+                    `예측일은 동기부여에는 도움이 되지만, 몸은 직선으로 변하지 않습니다. 앱은 최근 30일 또는 충분한 최근 기록을 바탕으로 선형 추세를 계산하고, 현재 체중에서 목표 체중까지의 거리를 나누어 예상일을 산출합니다.`,
+                    ctx.forecast.available
+                        ? `현재 추세가 유지된다면 목표 체중 ${formatKg(ctx.goalWeight, 1)}까지 약 ${Math.round(ctx.forecast.daysToGoal)}일이 필요하고, 예상일은 ${ctx.forecast.eta} 전후입니다. 다만 추세 설명력, 기록 수, 생활 변화에 따라 실제 결과는 크게 달라질 수 있습니다.`
+                        : `현재는 목표일을 신뢰 있게 계산하기 어렵습니다. 이유는 최근 감량 기울기가 충분히 뚜렷하지 않거나, 기록 수가 부족하거나, 체중이 이미 목표에 가까워졌기 때문입니다.`,
+                    `목표가 가까워질수록 감량 속도는 느려지는 것이 자연스럽습니다. 체중이 줄면 필요한 에너지도 줄고, 무의식적 활동량이 감소할 수 있습니다. 따라서 초반 속도를 그대로 끝까지 기대하기보다, 2~4주 단위로 목표 속도를 재설정해야 합니다.`,
+                    `안전 계획의 핵심은 중단 기준을 정하는 것입니다. 어지러움, 실신, 흉통, 호흡곤란, 심한 피로, 식사 통제 상실, 폭식·구토, 무월경, 급격한 탈모, 기존 질환 악화, 약물 복용 중 저혈당 증상이 나타나면 감량 목표보다 의료 평가가 우선입니다.`,
+                    `목표 달성 후에는 유지 단계가 시작됩니다. 유지 단계에서는 감량기보다 작은 칼로리 결손을 없애고, 체중 허용 범위를 정하고, 기록 빈도를 낮추더라도 주간 평균을 계속 확인하는 방식이 유리합니다.`
+                ],
+                callout: `목표일은 약속이 아니라 추정입니다. 2~4주마다 새 기록으로 다시 계산하고, 감량 속도보다 건강 신호를 우선하십시오.`,
+                evidence: ['KSSO_MGMT_2020', 'CANADA_CPG_2020', 'SLEEP_EXTENSION_2022']
+            },
+            {
+                title: '근거 요약과 해석 한계: 이 리포트가 사용하는 의학 문헌',
+                lead: '아래 근거들은 앱의 해석 기준을 구성하는 참고문헌이며, 개인 진단이나 치료 처방을 대신하지 않습니다.',
+                metrics: [
+                    { label: '근거 범위', value: '2016~2026 우선' },
+                    { label: '분석 방식', value: '기록 기반 서술형' },
+                    { label: '진단 여부', value: '진단 아님' },
+                    { label: '권장 행동', value: '의료진 상담 우선' }
+                ],
+                paragraphs: [
+                    `이 기능은 최근 10년 내 임상지침, 무작위시험, 체계적 문헌고찰을 우선 반영해 구성했습니다. BMI 분류는 한국 성인 기준을 사용하고, 체중 감량 목표는 5~10%의 임상적 의미, 자기모니터링의 행동중재 가치, 신체활동과 근력운동의 역할, 단백질과 제지방 보존, 수면과 에너지 섭취, 체중 변동성 해석을 함께 고려합니다.`,
+                    `다만 앱에 없는 정보가 많습니다. 허리둘레, 혈압, 혈당, 지질, 간기능, 갑상샘 기능, 약물, 기저질환, 임신·수유, 섭식장애 위험, 수면무호흡, 운동량, 실제 식사 기록이 없기 때문에 이 리포트는 “기록 기반 위험 신호 탐지와 자기 점검”에 초점을 둡니다.`,
+                    `체중과 체지방률 기록은 측정 오차를 포함합니다. 가정용 체지방률은 수분 상태에 크게 흔들릴 수 있고, 체중도 염분·탄수화물·운동·수면·배변에 따라 하루 0.5~2kg까지 변할 수 있습니다.`,
+                    `그래서 이 기능은 특정 약물, 극단적 식단, 단식, 보충제, 한방·한약 접근을 권하지 않습니다. 건강 결정은 개인의 병력과 검사 결과를 아는 의료진의 평가가 필요합니다.`,
+                    `가장 실용적인 다음 단계는 기록의 질을 높이고, 7일 평균과 30일 추세를 보며, 감량 속도가 과하지 않은지 확인하고, 지방 감량과 제지방 보존을 함께 추적하는 것입니다.`
+                ],
+                callout: `본 리포트는 교육·기록 보조 기능입니다. 질병 진단, 치료, 약물 조정, 식단 처방은 반드시 의사 또는 자격 있는 임상영양사와 상의하십시오.`,
+                referencesHtml: refsHtml,
+                referencesText: refsText,
+                evidence: CONFIG.MEDICAL_EVIDENCE.map(e => e.key)
+            }
+        ];
+    }
+
+    function buildMedicalNarrativeReport(s) {
+        if (!AppState.records || AppState.records.length === 0) {
+            return { pages: [], html: '<div class="narrative-empty">체중 기록을 입력하면 의학 근거 기반 A4 10페이지 서술형 분석 리포트가 생성됩니다.</div>', plainText: '' };
+        }
+        const ctx = calcMedicalNarrativeContext(s || analyzeRecords(AppState.records));
+        const pages = buildMedicalNarrativePages(ctx);
+        const html = pages.map((page, index) => buildPageHtml(page, index, pages.length)).join('');
+        const plainText = [
+            'MothNote 다이어트 챌린지 - 의학 근거 기반 A4 10페이지 서술형 현재 상태 분석',
+            `생성일: ${DateUtil.format(new Date())}`,
+            `기록 범위: ${ctx.first.date} ~ ${ctx.last.date}`,
+            '',
+            ...pages.map((page, index) => buildPageText(page, index, pages.length))
+        ].join('\n\n');
+        return { pages, html, plainText, ctx };
+    }
+
+    function setMedicalNarrativeButtons(enabled) {
+        ['btn-copy-medical-narrative', 'btn-download-medical-narrative', 'btn-print-medical-narrative'].forEach(id => {
+            const btn = AppState.getEl(id);
+            if (btn) btn.disabled = !enabled;
+        });
+    }
+
+    function renderMedicalNarrativeReport(s, manual = false) {
+        const reportEl = AppState.getEl('medicalNarrativeReport');
+        const summaryEl = AppState.getEl('medicalNarrativeSummary');
+        if (!reportEl || !summaryEl) return;
+        const report = buildMedicalNarrativeReport(s);
+        reportEl.innerHTML = report.html;
+        AppState.state.medicalNarrativePlainText = report.plainText;
+
+        if (!report.ctx) {
+            summaryEl.innerHTML = '';
+            setMedicalNarrativeButtons(false);
+            if (manual) showToast('먼저 체중 기록을 입력해주세요.');
+            return;
+        }
+        const ctx = report.ctx;
+        const summaryItems = [
+            { label: '현재 BMI', value: `${formatNumber(ctx.bmi, 2)} (${ctx.bmiInfo.label})`, note: '한국 성인 기준' },
+            { label: '최근 대표 속도', value: ctx.activeRate ? rateToText(ctx.activeRate.weeklyKg) : '데이터 부족', note: `참고 범위 ${formatKg(ctx.safeWeeklyLow, 2)}~${formatKg(ctx.safeWeeklyHigh, 2)}/주` },
+            { label: '기록 성실도', value: formatPercent(ctx.quality.recentAdherence, 1), note: '최근 30일 기준' },
+            { label: '체성분 신호', value: ctx.bodyComp.status || '보류', note: ctx.bodyComp.hasData ? `체지방률 ${ctx.bodyComp.fatRecordCount}개` : '체지방률 추가 필요' }
+        ];
+        summaryEl.innerHTML = summaryItems.map(item => `
+            <div class="narrative-summary-item">
+                <div class="narrative-summary-label">${DomUtil.escapeHtml(item.label)}</div>
+                <div class="narrative-summary-value">${DomUtil.escapeHtml(item.value)}</div>
+                <div class="narrative-summary-note">${DomUtil.escapeHtml(item.note)}</div>
+            </div>
+        `).join('');
+        setMedicalNarrativeButtons(true);
+        if (manual) showToast('의학 근거 기반 서술형 분석 리포트를 갱신했습니다.');
+    }
+
+    function ensureMedicalNarrativeText() {
+        if (!AppState.state.medicalNarrativePlainText && AppState.records.length > 0) {
+            const report = buildMedicalNarrativeReport(AppState.state.statsCache || analyzeRecords(AppState.records));
+            AppState.state.medicalNarrativePlainText = report.plainText;
+        }
+        return AppState.state.medicalNarrativePlainText || '';
+    }
+
+    function fallbackCopyText(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            showToast('리포트 본문을 복사했습니다.');
+        } catch (e) {
+            showToast('복사에 실패했습니다. 브라우저 권한을 확인해주세요.');
+        } finally {
+            document.body.removeChild(ta);
+        }
+    }
+
+    function copyMedicalNarrativeReport() {
+        const text = ensureMedicalNarrativeText();
+        if (!text) return showToast('복사할 리포트가 없습니다. 먼저 기록을 입력해주세요.');
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text)
+                .then(() => showToast('리포트 본문을 복사했습니다.'))
+                .catch(() => fallbackCopyText(text));
+        } else {
+            fallbackCopyText(text);
+        }
+    }
+
+    function downloadMedicalNarrativeReport() {
+        const text = ensureMedicalNarrativeText();
+        if (!text) return showToast('저장할 리포트가 없습니다. 먼저 기록을 입력해주세요.');
+        const now = new Date();
+        const yy = String(now.getFullYear()).slice(2);
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        downloadFile(text, `${yy}${mm}${dd}_Diet_Medical_Narrative_Report.txt`, 'text/plain;charset=utf-8');
+    }
+
+    function printMedicalNarrativeReport() {
+        if (AppState.records.length === 0) return showToast('인쇄할 리포트가 없습니다. 먼저 기록을 입력해주세요.');
+        renderMedicalNarrativeReport(AppState.state.statsCache || analyzeRecords(AppState.records));
+        document.body.classList.add('print-narrative-only');
+        window.print();
+        setTimeout(() => document.body.classList.remove('print-narrative-only'), 1000);
     }
 
     function renderAnalysisText(s) {
@@ -5147,6 +5987,10 @@
         switchTab,
         toggleChartExpand,
         closeAllExpands,
+        renderMedicalNarrativeReport,
+        copyMedicalNarrativeReport,
+        downloadMedicalNarrativeReport,
+        printMedicalNarrativeReport,
         
         enableInlineEdit: function(date) {
             const btn = document.querySelector(`button[data-date="${date}"][data-action="edit"]`);

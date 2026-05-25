@@ -83,7 +83,7 @@ const updateStorageUsageDisplay = async () => {
 
     try {
         // chrome.storage.local API가 사용 가능한지 확인합니다.
-        if (chrome && chrome.storage && chrome.storage.local) {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
             // 현재 사용량을 비동기적으로 가져옵니다.
             const usedBytes = await new Promise((resolve, reject) => {
                 // null을 전달하여 전체 사용량을 가져옵니다.
@@ -660,11 +660,13 @@ class Dashboard {
 
         const WEATHER_CACHE_KEY = CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY;
         const CACHE_DURATION_MINUTES = 60;
+        const { lat, lon } = appSettings.weather;
 
         try {
             const cachedData = JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY));
             const now = new Date().getTime();
-            if (cachedData && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) {
+            const isSameLocation = cachedData?.lat === lat && cachedData?.lon === lon;
+            if (cachedData && isSameLocation && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) {
                 const { weather, temp } = cachedData.data;
                 this.dom.weatherContainer.innerHTML = `<span id="weather-icon">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
                 this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
@@ -682,7 +684,6 @@ class Dashboard {
         this.dom.weatherContainer.innerHTML = `<span>⏳</span>`;
 
         try {
-            const { lat, lon } = appSettings.weather;
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
                 this.dom.weatherContainer.innerHTML = `<span id="weather-icon">⚠️</span>`;
                 this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
@@ -708,6 +709,8 @@ class Dashboard {
             try {
                 localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({
                     timestamp: new Date().getTime(),
+                    lat,
+                    lon,
                     data: { weather, temp }
                 }));
             } catch (e) {
