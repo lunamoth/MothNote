@@ -178,6 +178,123 @@
                 source: 'Nature Reviews Endocrinology',
                 url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7027970/',
                 note: 'BMI만으로 부족한 복부 비만·대사 위험 평가에서 허리둘레 측정의 중요성.'
+            },
+            {
+                key: 'HALL_UPF_2019',
+                label: '초가공식품 RCT',
+                year: '2019',
+                title: 'Ultra-processed diets cause excess calorie intake and weight gain: an inpatient randomized controlled trial of ad libitum food intake',
+                source: 'Cell Metabolism',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7946062/',
+                note: '식품 가공도와 자유 섭취 에너지, 체중 변화의 인과 가능성을 평가한 입원 교차 무작위시험.'
+            },
+            {
+                key: 'LOWE_TRE_2020',
+                label: 'TRE 2020 RCT',
+                year: '2020',
+                title: 'Effects of Time-Restricted Eating on Weight Loss and Other Metabolic Parameters in Women and Men With Overweight and Obesity',
+                source: 'JAMA Internal Medicine',
+                url: 'https://jamanetwork.com/journals/jamainternalmedicine/fullarticle/2771095',
+                note: '16:8 시간제한식이 단독으로 체중·대사지표 이득을 확실히 보이지 않았던 무작위시험.'
+            },
+            {
+                key: 'TRE_NEJM_2022',
+                label: 'TRE NEJM 2022',
+                year: '2022',
+                title: 'Calorie Restriction with or without Time-Restricted Eating in Weight Loss',
+                source: 'New England Journal of Medicine',
+                url: 'https://www.nejm.org/doi/full/10.1056/NEJMoa2114833',
+                note: '비만 성인에서 열량 제한에 시간제한식을 더해도 체중·체지방·대사 위험 감소가 추가로 커지지 않았던 임상시험.'
+            },
+            {
+                key: 'EARLY_TRE_2022',
+                label: 'eTRE 2022 RCT',
+                year: '2022',
+                title: 'Effectiveness of Early Time-Restricted Eating for Weight Loss, Fat Loss, and Cardiometabolic Health in Adults With Obesity',
+                source: 'JAMA Internal Medicine',
+                url: 'https://pubmed.ncbi.nlm.nih.gov/35939311/',
+                note: '초기 시간대 식사 제한이 일부 체중·혈압·기분 지표에서 유리할 수 있음을 보인 14주 무작위시험.'
+            },
+            {
+                key: 'MORTON_PROTEIN_2018',
+                label: '단백질·저항운동 메타분석',
+                year: '2018',
+                title: 'A systematic review, meta-analysis and meta-regression of the effect of protein supplementation on resistance training-induced gains in muscle mass and strength',
+                source: 'British Journal of Sports Medicine',
+                url: 'https://pubmed.ncbi.nlm.nih.gov/28698222/',
+                note: '저항운동 중 단백질 보충과 근육량·근력 적응의 관련성을 정량화한 대규모 메타분석.'
+            },
+            {
+                key: 'PROTEIN_META_2024',
+                label: '단백질 메타분석',
+                year: '2024',
+                title: 'Enhanced protein intake on maintaining muscle mass, strength, and physical function in adults with overweight/obesity',
+                source: 'Clinical Nutrition ESPEN',
+                url: 'https://pubmed.ncbi.nlm.nih.gov/39002131/',
+                note: '과체중·비만 성인의 감량 중 높은 단백질 섭취가 근육량 감소 억제와 관련된 체계적 문헌고찰·메타분석.'
+            },
+            {
+                key: 'RESISTANCE_META_2022',
+                label: '저항운동 메타분석',
+                year: '2022',
+                title: 'Resistance training effectiveness on body composition and body weight outcomes in individuals with overweight and obesity across the lifespan',
+                source: 'Obesity Reviews',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC9285060/',
+                note: '열량 제한 중 저항운동이 제지방량 보존과 체성분 관리에 중요함을 다룬 체계적 문헌고찰·메타분석.'
+            },
+            {
+                key: 'BMJ_PRIMARYCARE_2022',
+                label: '일차진료 행동중재',
+                year: '2022',
+                title: 'Effectiveness of behavioural weight management interventions for adults with obesity delivered in primary care',
+                source: 'BMJ',
+                url: 'https://www.bmj.com/content/377/bmj-2021-069719',
+                note: '일차진료 기반 행동 체중관리 중재 효과를 평가한 체계적 문헌고찰·메타분석.'
+            },
+            {
+                key: 'MAINTENANCE_2022',
+                label: '감량 유지 메타분석',
+                year: '2022',
+                title: 'Weight Maintenance after Dietary Weight Loss: Systematic Review and Meta-Analysis on the Effectiveness of Behavioural Intensive Intervention',
+                source: 'Nutrients',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC8953094/',
+                note: '감량 후 유지 단계에서 행동중재가 체중 재증가를 줄이는지 평가한 체계적 문헌고찰·메타분석.'
+            },
+            {
+                key: 'HALL_MAINTENANCE_2018',
+                label: '장기 유지 리뷰',
+                year: '2018',
+                title: 'Maintenance of lost weight and long-term management of obesity',
+                source: 'Medical Clinics of North America',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5764193/',
+                note: '감량 후 체중 재증가가 흔하며 장기 관리가 필요하다는 생리·행동학적 근거 정리.'
+            },
+            {
+                key: 'EATING_DISORDER_2023',
+                label: '섭식장애 위험',
+                year: '2023',
+                title: 'Eating disorder risk during behavioral weight management in adults with overweight or obesity',
+                source: 'Obesity Reviews',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10909435/',
+                note: '체중관리 중재와 섭식장애 위험을 함께 고려해야 함을 다룬 체계적 문헌고찰.'
+            },
+            {
+                key: 'GALLSTONE_2021',
+                label: '담석 위험 리뷰',
+                year: '2021',
+                title: 'Excess Body Weight and Gallstone Disease',
+                source: 'Visceral Medicine',
+                url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC8406364/',
+                note: '비만과 빠른 체중감량이 담석 형성과 관련될 수 있음을 정리한 임상 리뷰.'
+            },
+            {
+                key: 'NICE_OBESITY_2025',
+                label: 'NICE NG246',
+                year: '2025',
+                title: 'Overweight and obesity management',
+                source: 'National Institute for Health and Care Excellence',
+                url: 'https://www.nice.org.uk/guidance/ng246',
+                note: '과체중·비만·중심성 비만의 예방과 관리, 평가와 의뢰 원칙을 통합한 최신 지침.'
             }
         ],
         // 뱃지 정의
@@ -452,7 +569,7 @@
             'wallTableBody', 'monthlyFatLossTableBody',
             // [추가] 이벤트 리스너용 ID들
             'btn-theme-toggle', 'btn-settings-toggle', 'btn-save-settings', 'btn-import-json', 'btn-export-json', 'btn-export-csv', 'btn-import-csv', 'btn-reset-data', 'badge-toggle-header',
-            // [추가] 의학 근거 기반 A4 10페이지 서술형 분석 리포트
+            // [추가] 의학 근거 기반 A4 20페이지 서술형 분석 리포트
             'medicalNarrativeCard', 'medicalNarrativeSummary', 'medicalNarrativeReport',
             'btn-generate-medical-narrative', 'btn-copy-medical-narrative', 'btn-download-medical-narrative', 'btn-print-medical-narrative'
         ];
@@ -2839,7 +2956,7 @@
     }
 
 
-    // --- 8.5 의학 근거 기반 A4 10페이지 서술형 현재 상태 분석 ---
+    // --- 8.5 의학 근거 기반 A4 20페이지 서술형 현재 상태 분석 ---
     function getBmiInfo(bmi) {
         if (!isFinite(bmi) || bmi <= 0) {
             return { label: '데이터 부족', range: '-', grade: 'unknown', description: '키와 체중 기록이 있어야 BMI 해석이 가능합니다.' };
@@ -3194,6 +3311,37 @@
         const estimatedTdeeText = ctx.estimatedTdee ? `섭취 ${AppState.settings.intake || 0}kcal 가정 시 관찰 기반 TDEE는 약 ${Math.round(ctx.estimatedTdee)}kcal로 추정됩니다.` : '감량 추세가 명확하지 않아 관찰 기반 TDEE 추정은 보류합니다.';
         const refsHtml = `<ol class="narrative-reference-list">${CONFIG.MEDICAL_EVIDENCE.map(e => `<li><strong>${DomUtil.escapeHtml(e.label)}</strong> (${DomUtil.escapeHtml(e.year)}). ${DomUtil.escapeHtml(e.title)}. <em>${DomUtil.escapeHtml(e.source)}</em>. <a href="${DomUtil.escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">원문 보기</a><br>${DomUtil.escapeHtml(e.note)}</li>`).join('')}</ol>`;
         const refsText = '참고문헌\n' + CONFIG.MEDICAL_EVIDENCE.map((e, i) => `${i + 1}. ${e.label} (${e.year}). ${e.title}. ${e.source}. ${e.url} - ${e.note}`).join('\n');
+        const trendReliabilityText = ctx.allTrend
+            ? (ctx.allTrend.r2 >= 0.55 ? '높음' : (ctx.allTrend.r2 >= 0.30 ? '보통' : '낮음'))
+            : '데이터 부족';
+        const adherenceActionText = ctx.quality.recentAdherence >= 80
+            ? '현재 기록 루틴을 유지하면서 식사·수면·운동 같은 보조 변수를 조금씩 추가하면 좋습니다.'
+            : (ctx.quality.recentAdherence >= 55
+                ? '기록 누락이 생기는 요일을 줄이는 것이 다음 개선 포인트입니다.'
+                : '분석보다 먼저 기록 루틴을 회복하는 것이 우선입니다. 최소 2주 동안 같은 조건의 체중 기록을 다시 쌓으십시오.');
+        const plateauActionText = ctx.plateau.current >= 14
+            ? '2주 이상 정체 신호가 이어지므로 섭취량 추정, 주말 패턴, 수면, 활동량, 저항운동 수행 저하를 순서대로 재점검해야 합니다.'
+            : (ctx.plateau.current >= 7
+                ? '1주 이상 유지 구간입니다. 즉시 절식하기보다 7일 평균과 30일 추세를 한 번 더 확인하는 편이 안전합니다.'
+                : '현재는 장기 정체보다 일반적인 체중 노이즈 가능성이 더 큽니다.');
+        const speedSafetyText = ctx.speedStatus === '빠른 감량'
+            ? '현재 속도는 빠른 감량 경고에 해당하므로 에너지 결손을 더 키우기보다 단백질·저항운동·수면·증상 여부를 먼저 확인해야 합니다.'
+            : (ctx.speedStatus === '최근 증량'
+                ? '최근 증량 신호가 있으므로 단기 수분 변화와 실제 섭취 증가를 구분해 보아야 합니다.'
+                : '현재 속도는 극단적인 조정보다 유지 가능한 생활 패턴을 다듬는 접근이 더 적합합니다.');
+        const weekendDeltaText = (ctx.weekday.weekendAvg !== null && ctx.weekday.weekdayAvg !== null)
+            ? formatSignedKg(ctx.weekday.weekendAvg - ctx.weekday.weekdayAvg, 2)
+            : '데이터 부족';
+        const maintenanceBandText = ctx.goalWeight
+            ? `${formatKg(ctx.goalWeight - 1, 1)}~${formatKg(ctx.goalWeight + 2, 1)}`
+            : '목표 체중 설정 필요';
+        const weeklyPercentText = ctx.activeRate ? formatPercent(Math.abs(ctx.activeRate.percentWeekly || 0), 2) : '데이터 부족';
+        const nextExperimentTarget = ctx.plateau.current >= 7
+            ? '정체기 원인 분해'
+            : (ctx.quality.recentAdherence < 55
+                ? '기록 루틴 회복'
+                : (ctx.weekday.worst ? `${ctx.weekday.worst.name}요일 환경 조정` : '가장 반복되는 실패 환경 1개 조정'));
+        const dataConfidenceText = `${ctx.quality.quality} 기록 품질 · 추세 신뢰도 ${trendReliabilityText}`;
 
         return [
             {
@@ -3334,6 +3482,201 @@
                 evidence: ['KSSO_MGMT_2020', 'USPSTF_BEHAVIOR_2018', 'WHO_PA_2020']
             },
             {
+                title: '식사 구성 품질 분석: 같은 칼로리라도 포만감과 지속성은 다릅니다',
+                lead: `현재 앱에는 식품별 섭취 기록이 없으므로, 이 페이지는 체중 추세와 입력 섭취량을 바탕으로 식사 품질 점검 항목을 제시합니다.`,
+                metrics: [
+                    { label: '입력 섭취량', value: `${AppState.settings.intake || 0}kcal/일` },
+                    { label: '대표 감량 속도', value: recentRateText },
+                    { label: '기록 신뢰도', value: dataConfidenceText },
+                    { label: '우선 점검', value: '단백질·섬유·가공도' }
+                ],
+                paragraphs: [
+                    `체중 변화는 에너지 균형의 영향을 받지만, 같은 열량이라도 식품 구성에 따라 배고픔, 포만감, 식후 혈당 변동, 다음 끼니 섭취량, 장기 지속성이 달라질 수 있습니다. 따라서 리포트는 칼로리 숫자만 낮추기보다 식사의 구조를 함께 보도록 설계했습니다.`,
+                    `가장 먼저 볼 항목은 매 끼니의 단백질 식품, 채소·과일·통곡류·콩류 같은 섬유 급원, 그리고 액상 열량·과자·배달 음식·초가공 간편식의 빈도입니다. 앱은 식품 사진이나 식단 로그를 직접 분석하지 않으므로, 체중 추세가 예상과 다를 때 이 세 항목을 사용자가 스스로 점검하도록 안내합니다.`,
+                    `초가공식품을 자유 섭취하게 한 입원 교차 무작위시험에서는 초가공식품 식단에서 에너지 섭취와 체중 증가가 더 크게 나타났습니다. 모든 가공식품을 금지하라는 뜻은 아니지만, 감량이 정체될 때는 포만감이 낮고 빨리 먹기 쉬운 식품 비중이 늘었는지 확인할 필요가 있습니다.`,
+                    `현재 대표 속도는 ${recentRateText}입니다. 체중이 예상보다 덜 줄고 있다면 먼저 섭취량 기록 누락, 주말 식사, 음료·간식·소스·조리유·야식 같은 숨은 열량을 점검하십시오. 반대로 너무 빠르게 줄고 있다면 단백질과 미량영양소가 부족하지 않은지, 피로와 어지러움이 없는지 확인해야 합니다.`,
+                    `이 페이지의 결론은 특정 식단 유행을 따르라는 것이 아닙니다. 임상적으로 더 안전한 접근은 충분한 단백질과 섬유를 확보하고, 초가공식품과 액상 열량의 빈도를 줄이며, 본인이 오래 반복할 수 있는 식사 구조를 찾는 것입니다.`
+                ],
+                callout: `다음 2주 동안 체중과 함께 “단백질 충분/부족”, “채소·섬유 충분/부족”, “초가공·배달·음료 많음/적음”만 체크해도 정체 원인을 훨씬 잘 분리할 수 있습니다.`,
+                evidence: ['HALL_UPF_2019', 'KSSO_MGMT_2020', 'BMJ_PRIMARYCARE_2022']
+            },
+            {
+                title: '단백질·저항운동 심화 분석: 체중보다 몸의 기능을 지키는 페이지',
+                lead: `체성분 판정은 ${ctx.bodyComp.status || '보류'}이며, 빠른 감량 여부는 ${ctx.speedStatus}입니다.`,
+                metrics: [
+                    { label: '제지방량 변화', value: ctx.bodyComp.hasData ? formatSignedKg(ctx.bodyComp.leanChange, 1) : '체지방률 기록 부족' },
+                    { label: '감량 속도', value: ctx.speedStatus },
+                    { label: '주간 감량률', value: weeklyPercentText },
+                    { label: '핵심 전략', value: '단백질+저항운동' }
+                ],
+                paragraphs: [
+                    `감량 과정에서 가장 중요한 질문 중 하나는 “체중이 줄었는가”가 아니라 “기능을 잃지 않고 지방을 줄이고 있는가”입니다. 제지방량은 근육, 장기, 뼈, 수분 등을 포함하므로 가정용 체성분계로 완벽히 측정되지는 않지만, 장기 추세를 보면 감량의 질을 판단하는 데 도움이 됩니다.`,
+                    ctx.bodyComp.hasData
+                        ? `현재 체성분 기록에서는 제지방량 변화가 ${formatSignedKg(ctx.bodyComp.leanChange, 1)}로 추정됩니다. 체지방률 측정 오차를 고려해야 하지만, 제지방 감소가 계속 커지면 감량 속도, 단백질 섭취, 저항운동 강도, 회복 상태를 함께 점검해야 합니다.`
+                        : `현재 체지방률 기록이 부족해 제지방 보존 여부를 확정하기 어렵습니다. 이 경우 체중만 보지 말고 허리둘레, 운동 수행 무게와 반복 횟수, 일상 피로, 수면, 식사 포만감을 함께 기록하는 것이 현실적입니다.`,
+                    `최근 체계적 문헌고찰·메타분석은 과체중·비만 성인의 감량 중 단백질 섭취를 높이는 전략이 근육량 감소 억제에 도움이 될 수 있음을 보여줍니다. 또한 저항운동은 열량 제한 중 제지방량을 보존하고 체성분을 개선하는 핵심 축입니다.`,
+                    `실전에서는 매 끼니 단백질을 분산하고, 주 2회 이상 전신 저항운동을 배치하며, 운동 수행이 급격히 떨어질 정도의 에너지 결손을 피하는 방식이 좋습니다. 신장질환, 간질환, 임신·수유, 고령, 복합질환이 있으면 단백질 목표를 의료진과 따로 정해야 합니다.`,
+                    `${speedSafetyText} 이 앱은 단백질 g수를 처방하지 않고, 제지방 감소 신호가 보일 때 전문가 상담과 운동·식사 루틴 점검을 촉발하는 방향으로 작동합니다.`
+                ],
+                callout: `체중이 잘 줄어도 근력, 컨디션, 월경, 수면, 집중력, 폭식 충동이 악화되면 좋은 감량으로 보지 않습니다.`,
+                calloutType: (ctx.bodyComp.hasData && ctx.bodyComp.status === '제지방 감소 주의') || ctx.speedStatus === '빠른 감량' ? 'warning' : '',
+                evidence: ['PROTEIN_META_2024', 'RESISTANCE_META_2022', 'LONGLAND_2016', 'MORTON_PROTEIN_2018']
+            },
+            {
+                title: '신체활동·NEAT 분석: 운동 시간보다 하루 전체 움직임을 보는 페이지',
+                lead: `현재 앱에는 운동 기록이 없으므로, 체중 추세·감량 속도·정체 신호를 이용해 활동량 점검 필요성을 추정합니다.`,
+                metrics: [
+                    { label: 'WHO 성인 권고', value: '유산소+주 2회 근력' },
+                    { label: '현재 정체 신호', value: ctx.plateau.label },
+                    { label: '최근 속도', value: recentRateText },
+                    { label: '다음 점검', value: '걸음·근력·좌식시간' }
+                ],
+                paragraphs: [
+                    `운동은 단순히 칼로리를 태우는 도구가 아니라 심폐체력, 근육 기능, 인슐린 민감도, 혈압, 기분, 수면을 함께 다루는 치료적 생활요소입니다. WHO는 성인에게 주당 150~300분 중강도 유산소 활동 또는 75~150분 고강도 활동, 그리고 주 2회 이상 주요 근육군 근력운동을 권고합니다.`,
+                    `다만 체중 감량 중에는 의식적인 운동보다 비운동성 활동 열생산, 즉 NEAT가 크게 흔들릴 수 있습니다. 적게 먹고 피로해지면 무의식적으로 덜 걷고, 덜 서 있고, 움직임이 줄어 총소비량이 내려갈 수 있습니다.`,
+                    `현재 정체 신호는 ${ctx.plateau.label}이고, 대표 속도는 ${recentRateText}입니다. 정체가 길어지는데 섭취량 기록이 비교적 안정적이라면 운동을 더 강하게 밀어붙이기 전에 하루 걸음 수, 좌식 시간, 계단 사용, 출퇴근 이동, 주말 활동량이 줄었는지 확인하는 편이 안전합니다.`,
+                    `저항운동은 특히 감량의 질을 개선합니다. 체중이 천천히 줄어도 허리둘레가 줄고 근력 수행이 유지되면 체성분 변화가 양호할 수 있습니다. 반대로 체중이 빨리 줄어도 운동 수행이 급락하면 제지방 손실 가능성을 의심해야 합니다.`,
+                    `앱 차원에서는 운동 로그가 없으므로 직접 처방은 하지 않습니다. 대신 정체·빠른 감량·제지방 감소 신호가 나타날 때 “운동량 증가”만 말하지 않고, 회복 가능한 범위의 활동량과 근력운동을 점검하도록 설계했습니다.`
+                ],
+                callout: `다음 업데이트 기록에는 가능하면 걸음 수, 근력운동 횟수, 좌식 시간이 긴 날 여부를 함께 남기면 체중 정체 원인 해석이 크게 좋아집니다.`,
+                evidence: ['WHO_PA_2020', 'RESISTANCE_META_2022', 'USPSTF_BEHAVIOR_2018']
+            },
+            {
+                title: '수면·회복 분석: 덜 먹는 것만으로 설명되지 않는 감량 변수',
+                lead: `수면 기록은 없지만, 체중 변동성 ${ctx.volatility.status}와 최근 속도 ${recentRateText}를 함께 보아 회복 점검 필요성을 안내합니다.`,
+                metrics: [
+                    { label: '변동성', value: ctx.volatility.status },
+                    { label: '평균 일간 변동', value: formatKg(ctx.volatility.meanAbsDiff, 2) },
+                    { label: '정체 신호', value: ctx.plateau.label },
+                    { label: '회복 점검', value: '수면·스트레스·피로' }
+                ],
+                paragraphs: [
+                    `수면은 체중 관리에서 자주 과소평가됩니다. 수면 부족은 다음 날 식욕, 간식 선택, 피로, 운동 수행, 스트레스 반응, 활동량에 영향을 줄 수 있고, 결과적으로 기록된 체중 추세를 흔들 수 있습니다.`,
+                    `과체중 성인을 대상으로 한 수면 연장 무작위시험에서는 수면을 늘리는 중재가 실제 생활 환경에서 에너지 섭취 감소와 음의 에너지 균형에 기여했습니다. 이는 수면이 단순한 보조 요소가 아니라 체중 관리 전략의 한 축이 될 수 있음을 시사합니다.`,
+                    `현재 평균 일간 변동폭은 ${formatKg(ctx.volatility.meanAbsDiff, 2)}이고 변동성 상태는 ${ctx.volatility.status}입니다. 수면이 부족한 주에는 수분 저류, 염분 섭취 증가, 야식, 운동 회복 지연이 겹쳐 체중이 일시적으로 오를 수 있습니다.`,
+                    `수면이 부족한 상태에서 섭취량을 더 줄이면 단기 체중은 줄 수 있어도 피로, 폭식 반동, 운동 수행 저하, 제지방 감소 위험이 커질 수 있습니다. 그래서 리포트는 감량이 정체될 때 곧바로 절식을 권하지 않고 수면·회복 상태를 먼저 점검하도록 안내합니다.`,
+                    `실용적인 방법은 기상 시각 고정, 늦은 카페인 줄이기, 취침 전 과식과 음주 줄이기, 운동 강도와 회복일 조절, 주말 수면 리듬 급변 방지입니다. 불면, 수면무호흡 의심, 심한 주간졸림이 있으면 의료 평가가 필요합니다.`
+                ],
+                callout: `체중 정체가 이어지는 2주 동안 수면 시간이 함께 줄었다면, 식사량 추가 감축보다 수면 회복을 먼저 실험해 보십시오.`,
+                evidence: ['SLEEP_EXTENSION_2022', 'WHO_PA_2020', 'KSSO_MGMT_2020']
+            },
+            {
+                title: '식사 시간·간헐적 단식 해석: 유행보다 안전성과 총섭취량을 우선합니다',
+                lead: `현재 리포트는 식사 시간을 기록하지 않으므로, 시간제한식은 자동 권고가 아니라 선택 가능한 행동 도구로만 설명합니다.`,
+                metrics: [
+                    { label: '시간 기록', value: '앱 입력 없음' },
+                    { label: '핵심 판단', value: '총섭취량·지속성' },
+                    { label: '주의 대상', value: '저체중·임신·질환' },
+                    { label: '현재 속도', value: recentRateText }
+                ],
+                paragraphs: [
+                    `간헐적 단식이나 시간제한식은 많은 사용자가 관심을 갖는 방법이지만, 모든 사람에게 우월한 방법으로 단정할 수 없습니다. 임상시험에서는 열량 제한에 시간제한식을 더해도 추가 이득이 크지 않았던 결과와, 이른 시간대 식사 제한에서 일부 지표가 유리했던 결과가 함께 존재합니다.`,
+                    `따라서 이 앱은 시간제한식을 필수 전략으로 추천하지 않습니다. 시간제한식의 효과는 대개 총섭취량 감소, 야식 감소, 식사 구조 단순화, 수면 리듬 개선과 분리하기 어렵습니다. 반대로 공복 시간이 길어져 폭식, 어지러움, 집중력 저하, 운동 수행 저하가 생기면 맞지 않는 전략일 수 있습니다.`,
+                    `현재 대표 속도는 ${recentRateText}입니다. 이미 빠르게 줄고 있거나 저체중 범위라면 공복 시간을 더 늘리는 시도는 위험할 수 있습니다. 당뇨병 약, 인슐린, 임신·수유, 섭식장애 병력, 청소년, 고령, 만성질환이 있으면 임의의 장시간 단식을 피하고 의료진과 상의해야 합니다.`,
+                    `시간제한식을 선택한다면 “얼마나 오래 굶는가”보다 “식사 시간 안에 충분한 단백질, 섬유, 미량영양소를 먹는가”가 더 중요합니다. 식사 시간이 짧아져 영양 밀도가 낮아지면 체중은 줄어도 건강한 감량으로 보기 어렵습니다.`,
+                    `앱의 역할은 시간제한식을 처방하는 것이 아니라, 시간 전략을 사용하더라도 7일 평균, 30일 추세, 제지방 보존, 피로·어지러움·폭식 신호를 함께 확인하도록 돕는 것입니다.`
+                ],
+                callout: `시간제한식은 “도구”이지 “필수 조건”이 아닙니다. 총섭취량, 식사 질, 수면, 운동, 안전 신호가 더 높은 우선순위입니다.`,
+                evidence: ['LOWE_TRE_2020', 'TRE_NEJM_2022', 'EARLY_TRE_2022']
+            },
+            {
+                title: '정체기 의사결정 알고리즘: 더 적게 먹기 전에 원인을 분해합니다',
+                lead: `현재 정체 판정은 ${ctx.plateau.label}이며, ${plateauActionText}`,
+                metrics: [
+                    { label: '현재 정체', value: `${ctx.plateau.current}회 연속` },
+                    { label: '최장 정체', value: `${ctx.plateau.longest}회` },
+                    { label: '최근 기록 성실도', value: formatPercent(ctx.quality.recentAdherence, 1) },
+                    { label: '추세 신뢰도', value: trendReliabilityText }
+                ],
+                paragraphs: [
+                    `정체기는 체중 관리에서 매우 흔합니다. 하지만 정체의 원인을 “대사가 망가졌다”로 바로 해석하면 불필요하게 극단적인 절식이나 과운동으로 이어질 수 있습니다. 이 리포트는 정체를 먼저 데이터 문제, 수분 문제, 행동 문제, 에너지 균형 변화로 나누어 봅니다.`,
+                    `1단계는 기록 품질입니다. 최근 30일 성실도는 ${formatPercent(ctx.quality.recentAdherence, 1)}입니다. 기록이 드문 상태라면 정체가 아니라 데이터 공백일 수 있습니다. 같은 조건의 아침 체중이 충분히 쌓여야 정체와 노이즈를 구분할 수 있습니다.`,
+                    `2단계는 수분과 장 내용물입니다. 탄수화물, 염분, 월경주기, 변비, 운동 후 근육 손상, 음주, 수면 부족은 지방 변화 없이도 체중을 0.5~2kg 흔들 수 있습니다. 이때는 하루 수치보다 7일 평균을 봐야 합니다.`,
+                    `3단계는 실제 행동 변화입니다. 주말 섭취, 음료·간식, 조리유, 외식, 배달 음식, 활동량 감소, 좌식 시간 증가가 누적되면 과거에 통하던 식사량이 현재는 유지 열량에 가까워질 수 있습니다.`,
+                    `4단계는 조정입니다. 조정은 작은 단위로 해야 합니다. 섭취량을 무작정 크게 낮추기보다 단백질과 섬유를 확보하고, 초가공식품과 액상 열량을 줄이며, NEAT와 근력운동을 회복하고, 2주 뒤 7일 평균을 다시 비교하는 방식이 안전합니다.`
+                ],
+                callout: `${plateauActionText}`,
+                calloutType: ctx.plateau.current >= 14 ? 'warning' : '',
+                evidence: ['SELF_MONITOR_2024', 'VUORINEN_2021', 'KSSO_MGMT_2020']
+            },
+            {
+                title: '심혈관·대사 위험 보조 해석: 체중계 밖의 지표가 필요합니다',
+                lead: `현재 BMI는 ${formatNumber(ctx.bmi, 2)}이고 ${ctx.bmiInfo.label} 범위입니다. 다만 BMI만으로 대사 위험을 충분히 판단할 수 없습니다.`,
+                metrics: [
+                    { label: 'BMI 분류', value: ctx.bmiInfo.label },
+                    { label: '허리둘레', value: '앱 입력 없음' },
+                    { label: '혈압·혈당·지질', value: '앱 입력 없음' },
+                    { label: '권장', value: '검사값 병행' }
+                ],
+                paragraphs: [
+                    `체중 감량의 목적은 체중계 숫자 자체가 아니라 대사 건강, 기능, 삶의 질 개선입니다. BMI는 선별 도구로 유용하지만, 근육량과 지방 분포를 구분하지 못합니다. 특히 복부 지방은 같은 BMI에서도 심혈관·대사 위험을 더 잘 설명할 수 있습니다.`,
+                    `현재 앱은 허리둘레, 혈압, 공복혈당, HbA1c, 지질, 간수치, 수면무호흡 증상, 약물 정보를 받지 않습니다. 따라서 이 페이지는 진단이 아니라 “추가로 확인해야 할 지표”를 알려주는 안전장치입니다.`,
+                    `한국 성인 기준 BMI 해석은 아시아인에서 대사 위험이 비교적 낮은 BMI부터 증가할 수 있다는 점을 반영합니다. 하지만 BMI가 정상 범위라도 허리둘레가 크거나 혈압·혈당·지질 이상이 있으면 체중만으로 안심할 수 없습니다.`,
+                    `정기적으로 확인하면 좋은 항목은 허리둘레, 혈압, 공복혈당 또는 HbA1c, 지질검사, 간기능, 필요 시 갑상샘 기능과 수면무호흡 평가입니다. 기존 질환이 있거나 약을 복용 중이면 체중 변화가 약효와 부작용에 영향을 줄 수 있으므로 의료진 확인이 필요합니다.`,
+                    `앱은 향후 허리둘레와 검사값 입력 기능을 추가하면 더 정밀해질 수 있습니다. 현재 버전에서는 BMI와 체중 추세만으로 진단하지 않고, 대사 위험 평가는 의료기관 검사와 연결하도록 안내합니다.`
+                ],
+                callout: `BMI가 비만 범위이거나 허리둘레가 남성 90cm, 여성 85cm 이상에 가까우면 체중 기록만 보지 말고 혈압·혈당·지질·간수치도 함께 확인하십시오.`,
+                evidence: ['KSSO_DIAG_2022', 'WAIST_2020', 'NICE_OBESITY_2025', 'CANADA_CPG_2020']
+            },
+            {
+                title: '감량 중 위험 신호 분석: 멈춰야 할 때를 정해두는 페이지',
+                lead: `현재 자동 플래그는 ${ctx.flags.length}개입니다. ${warningText}`,
+                metrics: [
+                    { label: '자동 경고 수', value: `${ctx.flags.length}개` },
+                    { label: '속도 판정', value: ctx.speedStatus },
+                    { label: 'BMI 안전성', value: ctx.bmiInfo.label },
+                    { label: '위험 대응', value: '증상 시 중단·상담' }
+                ],
+                paragraphs: [
+                    `안전한 체중 관리는 “얼마나 더 뺄 수 있는가”만 묻지 않습니다. 언제 멈추고 확인해야 하는지 미리 정해두어야 합니다. 특히 최근 감량 속도가 빠르거나 BMI가 낮거나, 제지방 감소가 의심되거나, 피로와 어지러움이 동반되면 목표보다 안전이 우선입니다.`,
+                    `현재 앱의 자동 경고는 ${ctx.flags.length ? ctx.flags.join(' ') : '뚜렷하게 감지되지 않았습니다.'} 이 판정은 입력된 체중·체지방률·설정값만 보는 제한적 알고리즘이므로, 증상이 있으면 자동 경고가 없어도 의료 평가가 필요합니다.`,
+                    `주의해야 할 증상은 실신, 흉통, 호흡곤란, 심한 어지러움, 지속적인 심계항진, 저혈당 증상, 반복 구토, 폭식·보상행동, 월경 중단, 급격한 탈모, 심한 변비, 우상복부 통증, 기존 질환 악화입니다.`,
+                    `빠른 체중감량은 일부 사람에서 담석 위험과도 관련될 수 있습니다. 또한 체중관리 과정은 섭식장애 위험을 악화시키지 않도록 설계되어야 합니다. 그래서 이 앱은 극단적 제한, 처벌적 운동, 약물 조정, 검증되지 않은 보충제 사용을 권하지 않습니다.`,
+                    `건강한 리포트는 사용자를 더 불안하게 만드는 도구가 아니라, 위험 신호를 빨리 알아차리고 전문가에게 연결하는 도구여야 합니다. 목표 달성보다 더 중요한 것은 회복 가능하고 지속 가능한 상태를 유지하는 것입니다.`
+                ],
+                callout: `위 증상이 있거나 감량 속도가 현재 체중의 1%/주를 지속적으로 넘으면 체중 목표를 잠시 중단하고 의사 또는 자격 있는 임상영양사와 상의하십시오.`,
+                calloutType: ctx.flags.length ? 'warning' : '',
+                evidence: ['GALLSTONE_2021', 'EATING_DISORDER_2023', 'CANADA_CPG_2020']
+            },
+            {
+                title: '행동 설계와 환경 처방: 의지력보다 반복 구조를 바꾸는 페이지',
+                lead: `다음 행동 실험의 우선 대상은 ${nextExperimentTarget}입니다.`,
+                metrics: [
+                    { label: '기록 루틴', value: ctx.quality.quality },
+                    { label: '취약 요일', value: ctx.weekday.worst ? `${ctx.weekday.worst.name}요일` : '데이터 부족' },
+                    { label: '주말-평일 차이', value: weekendDeltaText },
+                    { label: '실험 대상', value: nextExperimentTarget }
+                ],
+                paragraphs: [
+                    `행동중재 연구와 임상지침은 체중관리에 식사, 신체활동, 자기모니터링, 문제 해결, 사회적 지지, 재발 방지 같은 다요소 접근이 필요하다고 봅니다. 이는 의지력이 약하다는 뜻이 아니라, 체중은 반복 환경의 영향을 크게 받는다는 뜻입니다.`,
+                    `현재 기록 루틴은 ${ctx.quality.quality}이고, 취약 요일은 ${ctx.weekday.worst ? ctx.weekday.worst.name + '요일' : '아직 계산하기 어렵습니다' }입니다. ${adherenceActionText} 주말-평일 평균 변화 차이는 ${weekendDeltaText}입니다.`,
+                    `가장 효과적인 행동 설계는 작은 장치를 반복 가능하게 만드는 것입니다. 예를 들어 아침 체중 측정 위치 고정, 단백질 식품 먼저 준비, 배달 앱 알림 끄기, 회식 전 식사 계획, 식후 10분 산책, 취약 요일의 취침 시각 고정처럼 환경 마찰을 줄이는 전략이 좋습니다.`,
+                    `실패한 날을 “의지 부족”으로 해석하면 다음 행동을 설계하기 어렵습니다. 대신 어느 시간, 어느 장소, 어떤 사람, 어떤 감정, 어떤 음식 접근성이 체중 패턴을 흔들었는지 기록하면 다음 실험을 정할 수 있습니다.`,
+                    `리포트는 다음 2주 동안 한 가지 행동만 바꾸는 방식을 권합니다. 여러 요소를 동시에 바꾸면 무엇이 효과였는지 알기 어렵습니다. 이번 우선 실험은 ${nextExperimentTarget}입니다.`
+                ],
+                callout: `다음 2주 실험은 하나만 고르십시오. “취약 요일 야식 줄이기”, “매일 같은 조건 기록”, “저항운동 2회 고정”처럼 측정 가능한 행동이 좋습니다.`,
+                evidence: ['USPSTF_BEHAVIOR_2018', 'BMJ_PRIMARYCARE_2022', 'SELF_MONITOR_2024']
+            },
+            {
+                title: '감량 유지기 전환 분석: 목표 도달 후가 진짜 장기 관리입니다',
+                lead: `목표 체중까지 남은 거리는 ${formatKg(ctx.remaining, 1)}이며, 유지기 예비 범위는 ${maintenanceBandText}로 설정해 볼 수 있습니다.`,
+                metrics: [
+                    { label: '목표 체중', value: formatKg(ctx.goalWeight, 1) },
+                    { label: '남은 체중', value: formatKg(ctx.remaining, 1) },
+                    { label: '예비 유지 범위', value: maintenanceBandText },
+                    { label: '유지 전략', value: '완충 범위+모니터링' }
+                ],
+                paragraphs: [
+                    `감량의 끝은 체중관리의 끝이 아니라 유지기의 시작입니다. 장기 연구들은 감량 후 체중 재증가가 흔하다는 점을 보여주며, 이는 개인의 실패라기보다 생리적 적응, 식욕 변화, 활동량 변화, 환경 복귀가 함께 만든 결과입니다.`,
+                    `따라서 목표 체중 ${formatKg(ctx.goalWeight, 1)}에 도달하면 숫자 하나를 절대선으로 고정하기보다 허용 범위를 정하는 편이 현실적입니다. 예를 들어 예비 유지 범위를 ${maintenanceBandText}처럼 잡고, 그 안에서는 주간 평균을 보며 과잉반응하지 않는 방식입니다.`,
+                    `유지기에는 감량기보다 에너지 결손을 줄이고, 단백질과 저항운동을 유지하며, 기록 빈도를 완전히 끊지 않는 것이 중요합니다. 매일 측정이 부담되면 주 2~4회로 줄이더라도 7일 평균 또는 주간 평균은 남겨두는 편이 좋습니다.`,
+                    `체중이 허용 범위 위로 올라갈 때는 벌칙처럼 절식하지 말고, 1~2주 단위의 작은 복구 루틴을 사용합니다. 주말 외식 빈도, 액상 열량, 활동량, 수면, 체중 기록 공백을 다시 확인하는 방식입니다.`,
+                    `이 앱의 20페이지 리포트는 감량기뿐 아니라 유지기에도 쓰이도록 설계했습니다. 목표 도달 후에는 “더 빼기”보다 “건강 신호와 생활 지속성 유지”를 중심 지표로 바꾸는 것이 안전합니다.`
+                ],
+                callout: `목표 체중 도달 후 8~12주는 유지기 적응 기간으로 보고, 급격한 추가 감량보다 허용 범위 안에서 안정화하는 것을 우선하십시오.`,
+                evidence: ['MAINTENANCE_2022', 'HALL_MAINTENANCE_2018', 'SELF_MONITOR_2024']
+            },
+            {
                 title: '요일·주말·행동 패턴 분석: 반복되는 환경을 찾는 페이지',
                 lead: `가장 유리한 요일은 ${bestDay}, 가장 주의가 필요한 요일은 ${worstDay}입니다.`,
                 metrics: [
@@ -3386,7 +3729,7 @@
                     `이 기능은 최근 10년 내 임상지침, 무작위시험, 체계적 문헌고찰을 우선 반영해 구성했습니다. BMI 분류는 한국 성인 기준을 사용하고, 체중 감량 목표는 5~10%의 임상적 의미, 자기모니터링의 행동중재 가치, 신체활동과 근력운동의 역할, 단백질과 제지방 보존, 수면과 에너지 섭취, 체중 변동성 해석을 함께 고려합니다.`,
                     `다만 앱에 없는 정보가 많습니다. 허리둘레, 혈압, 혈당, 지질, 간기능, 갑상샘 기능, 약물, 기저질환, 임신·수유, 섭식장애 위험, 수면무호흡, 운동량, 실제 식사 기록이 없기 때문에 이 리포트는 “기록 기반 위험 신호 탐지와 자기 점검”에 초점을 둡니다.`,
                     `체중과 체지방률 기록은 측정 오차를 포함합니다. 가정용 체지방률은 수분 상태에 크게 흔들릴 수 있고, 체중도 염분·탄수화물·운동·수면·배변에 따라 하루 0.5~2kg까지 변할 수 있습니다.`,
-                    `그래서 이 기능은 특정 약물, 극단적 식단, 단식, 보충제, 한방·한약 접근을 권하지 않습니다. 건강 결정은 개인의 병력과 검사 결과를 아는 의료진의 평가가 필요합니다.`,
+                    `그래서 이 기능은 특정 약물, 극단적 식단, 장시간 단식, 보충제 또는 검증되지 않은 접근을 권하지 않습니다. 건강 결정은 개인의 병력과 검사 결과를 아는 의료진의 평가가 필요합니다.`,
                     `가장 실용적인 다음 단계는 기록의 질을 높이고, 7일 평균과 30일 추세를 보며, 감량 속도가 과하지 않은지 확인하고, 지방 감량과 제지방 보존을 함께 추적하는 것입니다.`
                 ],
                 callout: `본 리포트는 교육·기록 보조 기능입니다. 질병 진단, 치료, 약물 조정, 식단 처방은 반드시 의사 또는 자격 있는 임상영양사와 상의하십시오.`,
@@ -3399,13 +3742,13 @@
 
     function buildMedicalNarrativeReport(s) {
         if (!AppState.records || AppState.records.length === 0) {
-            return { pages: [], html: '<div class="narrative-empty">체중 기록을 입력하면 의학 근거 기반 A4 10페이지 서술형 분석 리포트가 생성됩니다.</div>', plainText: '' };
+            return { pages: [], html: '<div class="narrative-empty">체중 기록을 입력하면 의학 근거 기반 A4 20페이지 서술형 분석 리포트가 생성됩니다.</div>', plainText: '' };
         }
         const ctx = calcMedicalNarrativeContext(s || analyzeRecords(AppState.records));
         const pages = buildMedicalNarrativePages(ctx);
         const html = pages.map((page, index) => buildPageHtml(page, index, pages.length)).join('');
         const plainText = [
-            'MothNote 다이어트 챌린지 - 의학 근거 기반 A4 10페이지 서술형 현재 상태 분석',
+            'MothNote 다이어트 챌린지 - 의학 근거 기반 A4 20페이지 서술형 현재 상태 분석',
             `생성일: ${DateUtil.format(new Date())}`,
             `기록 범위: ${ctx.first.date} ~ ${ctx.last.date}`,
             '',
