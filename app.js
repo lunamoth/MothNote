@@ -691,17 +691,24 @@ class Dashboard {
                 return;
             }
 
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia/Seoul`;
+            const params = new URLSearchParams({
+                latitude: String(lat),
+                longitude: String(lon),
+                current: 'temperature_2m,is_day,weather_code',
+                timezone: 'auto',
+                temperature_unit: 'celsius'
+            });
+            const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
             const response = await fetch(url, { signal });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             
             const data = await response.json();
-            if (!data?.current_weather) throw new Error("API 응답에서 current_weather 객체를 찾을 수 없습니다.");
+            if (!data?.current) throw new Error("API 응답에서 current 객체를 찾을 수 없습니다.");
 
-            const { temperature, weathercode, is_day } = data.current_weather;
-            const weather = this._getWeatherInfo(weathercode ?? data.current_weather.weather_code, is_day === 1);
-            const temp = Math.round(temperature);
+            const { temperature_2m, weather_code, is_day } = data.current;
+            const weather = this._getWeatherInfo(weather_code, is_day === 1);
+            const temp = Math.round(temperature_2m);
 
             this.dom.weatherContainer.innerHTML = `<span id="weather-icon">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
             this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;

@@ -117,16 +117,26 @@
         .skeleton-text { height: 1.2em; margin-bottom: calc(var(--spacing-unit) * 0.75); /* 6px */ border-radius: calc(var(--spacing-unit) * 0.5); /* 4px */ }
         .skeleton-icon { width: 5em; height: 5em; border-radius: 50%; margin: 0 auto; }
 
-        .top-info-grid { display: grid; grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */ }
+        .top-info-grid { display: grid; grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ align-items: start; }
+        .weather-side-stack { display: flex; flex-direction: column; gap: calc(var(--spacing-unit) * 3); align-content: start; height: 100%; }
+        .weather-side-stack .weather-briefing-section { flex: 1 1 auto; }
         
         /* [수정] 반응형 그리드 레이아웃 적용 */
         @media (min-width: 992px) {
             .top-info-grid {
-                grid-template-columns: 2fr 1fr;
+                grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
+                align-items: stretch;
+            }
+            .current-weather-section,
+            .weather-side-stack {
+                align-self: stretch;
+            }
+            .current-weather-section .observation-grid {
+                grid-auto-rows: auto;
             }
         }
 
-        .current-weather-section, .aqi-section {
+        .current-weather-section, .weather-briefing-section, .briefing-remainder-section, .aqi-section, .next-24h-section {
             background-color: var(--card-bg-color);
             border: 1px solid var(--border-color);
             border-radius: calc(var(--spacing-unit) * 2); /* 16px */
@@ -134,16 +144,23 @@
             box-shadow: 0 6px 20px var(--shadow-color);
             transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
         }
-        .current-weather-section h2, .aqi-section h2 {
+        .current-weather-section {
+            display: flex;
+            flex-direction: column;
+        }
+        .current-weather-section h2, .weather-briefing-section h2, .briefing-remainder-section h2, .aqi-section h2, .next-24h-section h2 {
             font-size: 1.6em; font-weight: 600; color: var(--primary-text-color);
             margin-top: 0; margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ border-bottom: 1px solid var(--border-color); padding-bottom: calc(var(--spacing-unit) * 1.5); /* 12px */
             display: flex; align-items: center;
             transition: color 0.3s ease, border-color 0.3s ease;
         }
         .current-weather-section h2::before { content: "🌦️"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
+        .weather-briefing-section h2::before { content: "🧭"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
+        .briefing-remainder-section h2::before { content: "📋"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
         .aqi-section h2::before { content: "🌬️"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
+        .next-24h-section h2::before { content: "🕒"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
 
-        .current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ }
+        .current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: 0; }
         .current-weather-main .icon { font-size: 6em; line-height: 1; filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.1));}
         .current-weather-main .icon.sun { animation: gentleRotate 20s linear infinite paused; animation-play-state: running; }
         @keyframes gentleRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -162,7 +179,207 @@
         .current-weather-details div:nth-child(5)::before { content: "☔"; } /* 강수 */
         .current-weather-details div:nth-child(6)::before { content: "⏰"; } /* 시간 */
 
+        .observation-panel {
+            margin-top: calc(var(--spacing-unit) * 3); /* 24px */
+            border-top: 1px solid var(--border-color);
+            padding-top: calc(var(--spacing-unit) * 3); /* 24px */
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .observation-panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+            margin-bottom: calc(var(--spacing-unit) * 2); /* 16px */
+        }
+        .observation-panel-head h3 {
+            margin: 0;
+            font-size: 1.25em;
+            color: var(--primary-text-color);
+            transition: color 0.3s ease;
+        }
+        .observation-panel-head p {
+            margin: 0;
+            color: var(--secondary-text-color);
+            font-size: 0.9em;
+            text-align: right;
+            transition: color 0.3s ease;
+        }
+        .observation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+            flex: 0 0 auto;
+            align-content: start;
+        }
+        .observation-item {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 1.25); /* 10px */
+            padding: calc(var(--spacing-unit) * 1.75); /* 14px */
+            min-height: 92px;
+            display: grid;
+            align-content: start;
+            gap: calc(var(--spacing-unit) * 0.65); /* 5px */
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .observation-item .label {
+            color: var(--secondary-text-color);
+            font-size: 0.86em;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+        .observation-item .value {
+            color: var(--primary-text-color);
+            font-size: 1.45em;
+            font-weight: 700;
+            line-height: 1.15;
+            transition: color 0.3s ease;
+        }
+        .observation-item .hint {
+            color: var(--secondary-text-color);
+            font-size: 0.82em;
+            line-height: 1.45;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+
+        .briefing-list {
+            display: grid;
+            gap: calc(var(--spacing-unit) * 1.5); /* 12px */
+        }
+        .briefing-remainder-section {
+            margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */
+        }
+        .briefing-remainder-section .briefing-list {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            align-items: stretch;
+            gap: calc(var(--spacing-unit) * 2.5) !important; /* 20px: 브리핑 카드 사이 여백 */
+            row-gap: calc(var(--spacing-unit) * 2.5) !important;
+            column-gap: calc(var(--spacing-unit) * 2.5) !important;
+        }
+        .briefing-remainder-section .briefing-item {
+            height: auto;
+            min-height: 128px;
+            padding: calc(var(--spacing-unit) * 2); /* 16px: 카드 내부 여백 */
+            border-radius: calc(var(--spacing-unit) * 1.75); /* 14px */
+        }
+        @media (max-width: 1180px) {
+            .briefing-remainder-section .briefing-list {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (max-width: 720px) {
+            .briefing-remainder-section .briefing-list {
+                grid-template-columns: 1fr;
+            }
+        }
+        .briefing-item {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: calc(var(--spacing-unit) * 1.5); /* 12px */
+            align-items: start;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 1.5); /* 12px */
+            padding: calc(var(--spacing-unit) * 1.5); /* 12px */
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .briefing-item .briefing-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: calc(var(--spacing-unit) * 1.25); /* 10px */
+            display: grid;
+            place-items: center;
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            font-size: 1.35em;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .briefing-item strong {
+            display: block;
+            color: var(--primary-text-color);
+            margin-bottom: calc(var(--spacing-unit) * 0.35); /* 3px */
+            transition: color 0.3s ease;
+        }
+        .briefing-title-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: calc(var(--spacing-unit) * 0.75); /* 6px */
+            margin-bottom: calc(var(--spacing-unit) * 0.35); /* 3px */
+        }
+        .briefing-title-row strong {
+            margin-bottom: 0;
+        }
+        .briefing-tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 0 calc(var(--spacing-unit) * 0.9);
+            border-radius: 999px;
+            font-size: 0.75em;
+            line-height: 1;
+            font-style: normal;
+            font-weight: 700;
+            color: #fff;
+            background-color: var(--accent-color);
+            white-space: nowrap;
+        }
+        .briefing-tag.good { background-color: #2ecc71; }
+        .briefing-tag.warn { background-color: #f39c12; color: #2c3e50; }
+        .briefing-tag.danger { background-color: #e74c3c; }
+        .briefing-tag.info { background-color: var(--accent-color); }
+
+        .briefing-item span:last-child {
+            color: var(--secondary-text-color);
+            line-height: 1.5;
+            font-size: 0.92em;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+
+        @media (max-width: 520px) {
+            .briefing-title-row {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: calc(var(--spacing-unit) * 0.5);
+            }
+        }
+
+        .weather-briefing-section .briefing-list {
+            align-content: start;
+        }
+
         .aqi-section { display: none; } /* AQI 섹션은 필요시 표시 */
+
+        /* 현재 날씨 카드 안에 들어간 대기질·자외선 하위 섹션 */
+        .current-weather-section .aqi-section {
+            margin-top: calc(var(--spacing-unit) * 3); /* 24px */
+            padding: calc(var(--spacing-unit) * 3) 0 0; /* 24px 0 0 */
+            border: 0;
+            border-top: 1px solid var(--border-color);
+            border-radius: 0;
+            background: transparent;
+            box-shadow: none;
+        }
+        .current-weather-section .aqi-section h2 {
+            font-size: 1.25em;
+            margin-bottom: calc(var(--spacing-unit) * 2); /* 16px */
+        }
+        .current-weather-section .aqi-details-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .current-weather-section .aqi-item {
+            min-height: 104px;
+            justify-content: center;
+        }
+        .current-weather-section .aqi-standard-info {
+            text-align: right;
+        }
+
 
         /* [추가] AQI 섹션 스타일 */
         .aqi-details-grid {
@@ -218,6 +435,84 @@
         .level-very-unhealthy { background-color: #e74c3c; } /* 매우 나쁨 */
         .level-default { background-color: var(--secondary-text-color); }
 
+
+        .aqi-item .aqi-note {
+            font-size: 0.82em;
+            color: var(--secondary-text-color);
+            line-height: 1.35;
+            transition: color 0.3s ease;
+        }
+        .aqi-item .aqi-level.level-uv-low { background-color: #2ecc71; }
+        .aqi-item .aqi-level.level-uv-moderate { background-color: #f1c40f; color: #2c3e50; }
+        .aqi-item .aqi-level.level-uv-high { background-color: #e67e22; }
+        .aqi-item .aqi-level.level-uv-very-high { background-color: #e74c3c; }
+        .aqi-item .aqi-level.level-uv-extreme { background-color: #8e44ad; }
+
+        .next-24h-section {
+            margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */
+        }
+        .next-24h-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+            margin-bottom: calc(var(--spacing-unit) * 2); /* 16px */
+        }
+        .next-24h-header-row h2 {
+            margin-bottom: 0;
+            flex: 1 1 auto;
+        }
+        .next-24h-header-row p {
+            margin: 0 0 calc(var(--spacing-unit) * 1.5); /* 12px */
+            color: var(--secondary-text-color);
+            font-size: 0.92em;
+            text-align: right;
+            transition: color 0.3s ease;
+        }
+        .next-24h-scroll {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(148px, 1fr);
+            gap: calc(var(--spacing-unit) * 1.5); /* 12px */
+            overflow-x: auto;
+            padding: 2px 2px calc(var(--spacing-unit) * 1.5); /* 12px */
+            scrollbar-color: var(--secondary-text-color) transparent;
+        }
+        .next-24h-card {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 1.75); /* 14px */
+            padding: calc(var(--spacing-unit) * 2); /* 16px */
+            min-height: 182px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: calc(var(--spacing-unit) * 1); /* 8px */
+            transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.2s ease-out;
+        }
+        .next-24h-card:hover { transform: translateY(-2px); }
+        .next-24h-card .time {
+            color: var(--secondary-text-color);
+            font-size: 0.88em;
+            font-weight: 700;
+            transition: color 0.3s ease;
+        }
+        .next-24h-card .icon {
+            display: block;
+            font-size: 2.35em;
+            line-height: 1;
+        }
+        .next-24h-card .temp {
+            color: var(--primary-text-color);
+            font-size: 1.55em;
+            font-weight: 800;
+            transition: color 0.3s ease;
+        }
+        .next-24h-card small {
+            color: var(--secondary-text-color);
+            line-height: 1.45;
+            transition: color 0.3s ease;
+        }
 
         .weekly-temp-chart-container {
              background-color: var(--card-bg-color); border: 1px solid var(--border-color);
@@ -406,7 +701,28 @@
 
         /* 로딩 스켈레톤 */
         #loadingSkeleton { width: 100%; max-width: 1500px; }
-        .skeleton-current-weather-section, .skeleton-aqi-section { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3.5); /* 28px */ box-shadow: 0 6px 20px var(--shadow-color); transition: background-color 0.3s ease, border-color 0.3s ease; }
+        .skeleton-current-weather-section, .skeleton-briefing-section, .skeleton-briefing-remainder-section, .skeleton-aqi-section, .skeleton-next-24h-section { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3.5); /* 28px */ box-shadow: 0 6px 20px var(--shadow-color); transition: background-color 0.3s ease, border-color 0.3s ease; }
+
+        .skeleton-current-weather-section .skeleton-aqi-section {
+            margin-top: calc(var(--spacing-unit) * 3);
+            padding: calc(var(--spacing-unit) * 3) 0 0;
+            border: 0;
+            border-top: 1px solid var(--border-color);
+            border-radius: 0;
+            background: transparent;
+            box-shadow: none;
+        }
+
+        .skeleton-briefing-remainder-section {
+            margin-bottom: calc(var(--spacing-unit) * 4);
+        }
+        .skeleton-briefing-remainder-section .briefing-list {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: calc(var(--spacing-unit) * 2.5) !important;
+            row-gap: calc(var(--spacing-unit) * 2.5) !important;
+            column-gap: calc(var(--spacing-unit) * 2.5) !important;
+        }
+
         .skeleton-current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ }
         .skeleton-current-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: calc(var(--spacing-unit) * 2); /* 16px */ }
         .skeleton-forecast-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: calc(var(--spacing-unit) * 3.5); /* 28px */ }
@@ -450,12 +766,18 @@
 
 
         @media (max-width: 768px) {
+
+            .current-weather-section .aqi-details-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+            .skeleton-briefing-remainder-section .briefing-list { grid-template-columns: 1fr; }
             body { padding: calc(var(--spacing-unit) * 2); /* 16px */ padding-top: calc(var(--spacing-unit) * 8.5); /* 68px 테마 토글 버튼 공간 확보 */}
             .theme-toggle-button { top: calc(var(--spacing-unit) * 2); /* 16px */ right: calc(var(--spacing-unit) * 2); /* 16px */ padding: var(--spacing-unit) calc(var(--spacing-unit) * 1.5); /* 8px 12px */ }
             header h1 { font-size: 2.4em; }
             header p { font-size: 1.1em; }
             .current-weather-main .icon { font-size: 5em; }
             .current-weather-main .temp-desc .temp { font-size: 3.5em; }
+            .observation-panel-head, .next-24h-header-row { display: block; }
+            .observation-panel-head p, .next-24h-header-row p { text-align: left; margin-top: calc(var(--spacing-unit) * 0.75); }
+            .next-24h-scroll { grid-auto-columns: minmax(136px, 58vw); }
             .forecast-container, .skeleton-forecast-container { grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ }
             .weather-card { padding: calc(var(--spacing-unit) * 2.5); /* 20px */ gap: calc(var(--spacing-unit) * 1.5); /* 12px */ }
             
@@ -520,20 +842,56 @@
                         <div class="skeleton skeleton-text" style="width: 150px; height: 1.3em; margin-top: calc(var(--spacing-unit) * 0.5);"></div>
                     </div>
                 </div>
-                <div class="skeleton-current-details">
-                    <div class="skeleton skeleton-text" style="height: 2.5em;"></div> <div class="skeleton skeleton-text" style="height: 2.5em;"></div>
-                    <div class="skeleton skeleton-text" style="height: 2.5em;"></div> <div class="skeleton skeleton-text" style="height: 2.5em;"></div>
+                <div class="observation-panel">
+                    <div class="skeleton skeleton-text" style="width: 35%; height: 1.2em; margin-bottom: calc(var(--spacing-unit) * 2);"></div>
+                    <div class="observation-grid">
+                        <div class="skeleton skeleton-text" style="height: 5.6em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5.6em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5.6em;"></div>
+                    </div>
                 </div>
+                <!-- [수정] AQI 스켈레톤 확장 -->
+                <section class="skeleton-aqi-section">
+                    <div class="skeleton skeleton-text" style="width: 60%; height: 1.4em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
+                    <div class="aqi-details-grid">
+                        <div class="skeleton skeleton-text" style="height: 5em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5em;"></div>
+                    </div>
+                </section>
             </section>
-            <!-- [수정] AQI 스켈레톤 추가 -->
-            <section class="skeleton-aqi-section">
-                <div class="skeleton skeleton-text" style="width: 40%; height: 1.4em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
-                <div class="aqi-details-grid">
-                    <div class="skeleton skeleton-text" style="height: 5em;"></div>
-                    <div class="skeleton skeleton-text" style="height: 5em;"></div>
-                </div>
-            </section>
+            <div class="weather-side-stack">
+                <section class="skeleton-briefing-section">
+                    <div class="skeleton skeleton-text" style="width: 55%; height: 1.4em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
+                    <div class="briefing-list">
+                        <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                    </div>
+                </section>
+            </div>
         </div>
+        <section class="skeleton-briefing-remainder-section">
+            <div class="skeleton skeleton-text" style="width: 34%; height: 1.4em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
+            <div class="briefing-list">
+                <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+                <div class="skeleton skeleton-text" style="height: 4.7em;"></div>
+            </div>
+        </section>
+        <section class="skeleton-next-24h-section" style="margin-bottom: calc(var(--spacing-unit) * 4);">
+            <div class="skeleton skeleton-text" style="width: 35%; height: 1.5em; margin-bottom: calc(var(--spacing-unit) * 2.5);"></div>
+            <div class="next-24h-scroll">
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+            </div>
+        </section>
         <div class="weekly-temp-chart-container skeleton" style="height: 380px; margin-bottom: calc(var(--spacing-unit) * 4);">
              <div class="skeleton skeleton-text" style="width: 50%; height: 1.6em; margin: 0 auto calc(var(--spacing-unit) * 2.5);"></div>
         </div>
@@ -558,33 +916,83 @@
                         <span class="desc" id="currentWeatherDesc"></span>
                     </div>
                 </div>
-                <div class="current-weather-details">
-                    <div>체감: <strong id="currentApparentTemp"></strong></div>
-                    <div>습도: <strong id="currentHumidity"></strong></div>
-                    <div>풍속: <strong id="currentWindSpeed"></strong></div>
-                    <div>풍향: <strong id="currentWindDir"></strong></div>
-                    <div>강수(1h): <strong id="currentPrecipitation"></strong></div>
-                    <div>시간: <strong id="currentTime"></strong></div>
-                </div>
-            </section>
-            <!-- [수정] AQI 섹션 구조 변경 -->
-            <section class="aqi-section" id="aqiSection">
-                <h2>대기질 정보</h2>
-                <div class="aqi-details-grid">
-                    <div class="aqi-item">
-                        <span class="aqi-pollutant-label">미세먼지 (PM10)</span>
-                        <span class="aqi-value" id="currentPm10Value">--</span>
-                        <span class="aqi-level level-default" id="currentPm10Level">정보 없음</span>
+                <div class="observation-panel" aria-label="세부 관측값 패널">
+                    <div class="observation-panel-head">
+                        <h3>📊 세부 관측값</h3>
+                        <p>현재 시각과 가장 가까운 시간별 관측·예보값 기준입니다.</p>
                     </div>
-                    <div class="aqi-item">
-                        <span class="aqi-pollutant-label">초미세먼지 (PM2.5)</span>
-                        <span class="aqi-value" id="currentPm25Value">--</span>
-                        <span class="aqi-level level-default" id="currentPm25Level">정보 없음</span>
+                    <div class="observation-grid" id="detailedObservationGrid">
+                        <div class="skeleton skeleton-text" style="height: 5.6em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5.6em;"></div>
+                        <div class="skeleton skeleton-text" style="height: 5.6em;"></div>
                     </div>
                 </div>
-                <p class="aqi-standard-info">WHO 24시간 권고 기준</p>
+                <!-- [수정] AQI 섹션을 자외선 정보와 통합 -->
+                <section class="aqi-section" id="aqiSection">
+                    <h2>대기질 · 자외선</h2>
+                    <div class="aqi-details-grid">
+                        <div class="aqi-item">
+                            <span class="aqi-pollutant-label">미세먼지 (PM10)</span>
+                            <span class="aqi-value" id="currentPm10Value">--</span>
+                            <span class="aqi-level level-default" id="currentPm10Level">정보 없음</span>
+                        </div>
+                        <div class="aqi-item">
+                            <span class="aqi-pollutant-label">초미세먼지 (PM2.5)</span>
+                            <span class="aqi-value" id="currentPm25Value">--</span>
+                            <span class="aqi-level level-default" id="currentPm25Level">정보 없음</span>
+                        </div>
+                        <div class="aqi-item">
+                            <span class="aqi-pollutant-label">미국식 AQI</span>
+                            <span class="aqi-value" id="currentUsAqiValue">--</span>
+                            <span class="aqi-level level-default" id="currentUsAqiLevel">정보 없음</span>
+                        </div>
+                        <div class="aqi-item">
+                            <span class="aqi-pollutant-label" id="currentUvLabel">자외선 지수</span>
+                            <span class="aqi-value" id="currentUvValue">--</span>
+                            <span class="aqi-level level-default" id="currentUvLevel">정보 없음</span>
+                        </div>
+                        <div class="aqi-item">
+                            <span class="aqi-pollutant-label">이산화질소</span>
+                            <span class="aqi-value" id="currentNo2Value">--</span>
+                            <span class="aqi-note" id="currentNo2Note">교통·연소 영향 참고 지표</span>
+                        </div>
+                        <div class="aqi-item">
+                            <span class="aqi-pollutant-label">오존</span>
+                            <span class="aqi-value" id="currentOzoneValue">--</span>
+                            <span class="aqi-note" id="currentOzoneNote">햇빛이 강할 때 높아질 수 있습니다</span>
+                        </div>
+                    </div>
+                    <p class="aqi-standard-info">PM10·PM2.5 값은 현재값을 표시하고, 등급은 최근 24시간 평균을 우선 적용합니다.</p>
+                </section>
             </section>
+            <div class="weather-side-stack">
+                <section class="weather-briefing-section" aria-label="오늘의 기상 브리핑">
+                    <h2>오늘의 기상 브리핑</h2>
+                    <div class="briefing-list" id="weatherBriefingList">
+                        <div class="briefing-item"><span class="briefing-icon">🌦️</span><span><strong>분석 중입니다</strong><span>비, 바람, 기온, 자외선, 대기질을 함께 살펴보고 있습니다.</span></span></div>
+                    </div>
+                </section>
+            </div>
         </div>
+
+        <section class="briefing-remainder-section" id="weatherBriefingMoreSection" aria-label="오늘의 기상 브리핑 나머지" style="display:none;">
+            <h2>브리핑 나머지</h2>
+            <div class="briefing-list" id="weatherBriefingMoreList">
+                <div class="briefing-item"><span class="briefing-icon">🌦️</span><span><strong>추가 분석 대기 중입니다</strong><span>주요 브리핑을 먼저 정리한 뒤 생활 판단을 이어서 보여드립니다.</span></span></div>
+            </div>
+        </section>
+
+        <section class="next-24h-section" aria-label="앞으로 24시간 시간별 예보">
+            <div class="next-24h-header-row">
+                <h2>앞으로 24시간</h2>
+                <p>기온 · 날씨 · 강수확률 · 바람을 시간별로 확인합니다.</p>
+            </div>
+            <div class="next-24h-scroll" id="next24HoursList" tabindex="0" aria-label="앞으로 24시간 예보 가로 스크롤">
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+                <div class="skeleton skeleton-text" style="height: 10em;"></div>
+            </div>
+        </section>
 
         <section class="weekly-temp-chart-container">
             <h2>주간 최고/최저 기온</h2>
