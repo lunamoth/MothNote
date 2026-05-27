@@ -10,8 +10,8 @@
         MAX_PARTICLES: 250,
         MODAL_ACTIVE_CLASS: 'active',
         REFRESH_INTERVAL_MINUTES: 60,
-        WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v3',
-        AIR_QUALITY_CACHE_KEY: 'air_quality_cache_v3',
+        WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v8_trend_precip_priority_notice_fit',
+        AIR_QUALITY_CACHE_KEY: 'air_quality_cache_v4',
         WMO_MAP: {0:{description:"맑음",icon:"☀️",effect:null},1:{description:"대체로 맑음",icon:"🌤️",effect:null},2:{description:"부분적 흐림",icon:"🌥️",effect:null},3:{description:"흐림",icon:"☁️",effect:null},45:{description:"안개",icon:"🌫️",effect:null},48:{description:"서리 안개",icon:"🌫️❄️",effect:null},51:{description:"가벼운 가랑비",icon:"💧",effect:"rain"},53:{description:"보통 가랑비",icon:"💧",effect:"rain"},55:{description:"강한 가랑비",icon:"💧",effect:"rain"},56:{description:"가벼운 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},57:{description:"강한 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},61:{description:"가벼운 비",icon:"🌧️",effect:"rain"},63:{description:"보통 비",icon:"🌧️",effect:"rain"},65:{description:"강한 비",icon:"🌧️",effect:"rain"},66:{description:"가벼운 어는 비",icon:"🥶🌧️",effect:"rain_snow"},67:{description:"강한 어는 비",icon:"🥶🌧️",effect:"rain_snow"},71:{description:"가벼운 눈",icon:"❄️",effect:"snow"},73:{description:"보통 눈",icon:"❄️",effect:"snow"},75:{description:"강한 눈",icon:"❄️",effect:"snow"},77:{description:"싸락눈",icon:"❄️",effect:"snow"},80:{description:"가벼운 소나기",icon:"🌦️",effect:"rain"},81:{description:"보통 소나기",icon:"🌦️",effect:"rain"},82:{description:"강한 소나기",icon:"⛈️",effect:"rain"},85:{description:"가벼운 소낙눈",icon:"🌨️",effect:"snow"},86:{description:"강한 소낙눈",icon:"🌨️",effect:"snow"},95:{description:"뇌우",icon:"⛈️",effect:"rain"},96:{description:"가벼운 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"},99:{description:"강한 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"}},
         // [수정] WHO 기준으로 미세먼지 등급 기준을 변경합니다.
         AQI_WHO_STANDARDS: {
@@ -54,6 +54,9 @@
         appContainer: document.getElementById('appContainer'),
         loadingSkeleton: document.getElementById('loadingSkeleton'),
         forecastContainer: document.getElementById('forecastContainer'),
+        forecastTrendNotice: document.getElementById('forecastTrendNotice'),
+        twoWeekTrendSection: document.getElementById('twoWeekTrendSection'),
+        twoWeekTrendList: document.getElementById('twoWeekTrendList'),
         errorMessage: document.getElementById('error'),
         weatherEffectsCanvas: document.getElementById('weather-effects-canvas'),
         hourlyModal: document.getElementById('hourlyModal'),
@@ -1074,7 +1077,10 @@
 
     function renderWeeklyTempChart(dailyData) {
         if (!dailyData?.time?.length) return;
-        const labels = dailyData.time.map(dateStr => new Date(dateStr).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+        const limit = Math.min(7, dailyData.time.length);
+        const labels = dailyData.time.slice(0, limit).map(dateStr => new Date(dateStr).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+        const maxTemps = Array.isArray(dailyData.temperature_2m_max) ? dailyData.temperature_2m_max.slice(0, limit) : [];
+        const minTemps = Array.isArray(dailyData.temperature_2m_min) ? dailyData.temperature_2m_min.slice(0, limit) : [];
         const chartColors = getChartColors();
         const baseOptions = getBaseChartOptions();
         const ctx = DOM.weeklyTempChartCanvas.getContext('2d');
@@ -1089,15 +1095,16 @@
             data: {
                 labels,
                 datasets: [
-                    createChartDatasetOptions('weeklyMax', chartColors, ctx, '최고 기온', dailyData.temperature_2m_max),
-                    createChartDatasetOptions('weeklyMin', chartColors, ctx, '최저 기온', dailyData.temperature_2m_min)
+                    createChartDatasetOptions('weeklyMax', chartColors, ctx, '최고 기온', maxTemps),
+                    createChartDatasetOptions('weeklyMin', chartColors, ctx, '최저 기온', minTemps)
                 ]
             },
             options: { ...baseOptions, scales: { y: { ...baseOptions.scales.y, beginAtZero: false, ticks: { ...baseOptions.scales.y.ticks, callback: value => `${value}°C` }}, x: { ...baseOptions.scales.x, ticks: { ...baseOptions.scales.x.ticks, font: { size: 14 }}} }, plugins: { ...baseOptions.plugins, tooltip: { ...baseOptions.plugins.tooltip, padding: 12, cornerRadius: 8, titleFont: { ...baseOptions.plugins.tooltip.titleFont, size: 15 }, callbacks: { label: context => `${context.dataset.label}: ${context.parsed.y}°C`}}} }
         });
     }
 
-    function createForecastCardHTML(dayData, index, hourlyAqiData) {
+    function createForecastCardHTML(dayData, index, hourlyAqiData, options = {}) {
+        const isTrendCard = Boolean(options.isTrendCard);
         const dateObj = new Date(`${dayData.time[index]}T00:00:00`);
         
         const dayNameOriginal = dateObj.toLocaleDateString('ko-KR', { weekday: 'long' });
@@ -1149,11 +1156,17 @@
             }
         }
 
+        const trendAssessment = isTrendCard ? getTwoWeekTrendAssessment(dayData, index) : null;
+        const trendDetailHTML = trendAssessment
+            ? `<div class="detail-item trend-indicator"><span class="label">경향 관련 표시</span><span class="value"><span class="trend-inline-badge ${escapeHTML(trendAssessment.tone)}">${escapeHTML(trendAssessment.tag)}</span></span></div>`
+            : '';
+
         const card = document.createElement('div');
-        card.className = 'weather-card';
+        card.className = `weather-card${isTrendCard ? ' trend-forecast-card' : ''}`;
         card.dataset.dateStr = dayData.time[index];
         card.dataset.dayName = dayNameOriginal; 
         card.dataset.monthDay = monthDay;
+        if (isTrendCard) card.dataset.forecastType = 'trend';
         
         card.innerHTML = `
             <div class="card-header">
@@ -1174,6 +1187,7 @@
             <div class="card-details-grid">
                 <div class="detail-item feels-like"><span class="label">체감</span><span class="value">${apparentMin}&deg; / ${apparentMax}&deg;</span></div>
                 ${dailyAqiHTML}
+                ${trendDetailHTML}
                 <div class="detail-item precipitation"><span class="label">강수 (${precipType})</span><span class="value">${precipSum}<span class="unit">mm</span> (${precipProbMax}%)</span></div>
                 <div class="detail-item precipitation-hours"><span class="label">강수 시간</span><span class="value">${precipHours}<span class="unit">시간</span></span></div>
                 <div class="detail-item wind"><span class="label">바람</span><span class="value">${windMax}<span class="unit">km/h</span> (${windDir})</span></div>
@@ -1190,17 +1204,122 @@
         DOM.forecastContainer.innerHTML = '';
         if (!dailyData?.time?.length) {
             console.warn("Daily forecast data is missing.");
+            if (DOM.forecastTrendNotice) DOM.forecastTrendNotice.style.display = 'none';
             return;
         }
+
+        const limit = Math.min(16, dailyData.time.length);
+        if (DOM.forecastTrendNotice) DOM.forecastTrendNotice.style.display = limit > 7 ? '' : 'none';
+
         const fragment = document.createDocumentFragment();
-        dailyData.time.forEach((_, i) => {
+        for (let i = 0; i < limit; i += 1) {
             try {
-                fragment.appendChild(createForecastCardHTML(dailyData, i, hourlyAqiData));
+                fragment.appendChild(createForecastCardHTML(dailyData, i, hourlyAqiData, { isTrendCard: i >= 7 }));
             } catch (error) {
                 console.error("Error creating forecast card for index:", i, error);
             }
-        });
+        }
         DOM.forecastContainer.appendChild(fragment);
+    }
+
+
+    function getTwoWeekTrendAssessment(dailyData, index) {
+        const code = Number(dailyData?.weather_code?.[index]);
+        const maxTemp = toFiniteNumber(dailyData?.temperature_2m_max?.[index]);
+        const minTemp = toFiniteNumber(dailyData?.temperature_2m_min?.[index]);
+        const rainProbability = toFiniteNumber(dailyData?.precipitation_probability_max?.[index]);
+        const precipitation = toFiniteNumber(dailyData?.precipitation_sum?.[index]);
+        const rainSum = toFiniteNumber(dailyData?.rain_sum?.[index]);
+        const showersSum = toFiniteNumber(dailyData?.showers_sum?.[index]);
+        const precipHours = toFiniteNumber(dailyData?.precipitation_hours?.[index]);
+        const snowfallSum = toFiniteNumber(dailyData?.snowfall_sum?.[index]);
+        const gust = toFiniteNumber(dailyData?.wind_gusts_10m_max?.[index]);
+        const uv = toFiniteNumber(dailyData?.uv_index_max?.[index]);
+
+        const drizzleCodes = [51, 53, 55, 56, 57];
+        const rainCodes = [61, 63, 65, 66, 67];
+        const showerCodes = [80, 81, 82];
+        const snowCodes = [71, 73, 75, 77, 85, 86];
+        const stormCodes = [95, 96, 99];
+        const freezingRainCodes = [56, 57, 66, 67];
+
+        const drizzleLike = drizzleCodes.includes(code);
+        const rainLike = rainCodes.includes(code) || showerCodes.includes(code) || drizzleLike;
+        const snowy = snowCodes.includes(code) || (snowfallSum ?? 0) > 0;
+        const stormy = stormCodes.includes(code) || code === 82;
+        const freezing = freezingRainCodes.includes(code);
+        const hasPrecipAmount = (precipitation ?? 0) > 0 || (rainSum ?? 0) > 0 || (showersSum ?? 0) > 0 || (precipHours ?? 0) > 0;
+        const hasPrecipSignal = rainLike || hasPrecipAmount;
+        const hasPrecipProbabilitySignal = (rainProbability ?? 0) >= 40;
+        const hasStrongPrecipSignal = (rainProbability ?? 0) >= 70 || (precipitation ?? 0) >= 10 || [63, 65, 66, 67, 80, 81, 82].includes(code);
+        const hasUvSignal = (uv ?? 0) >= 6;
+
+        if (stormy) return { tag: '대류 주의', tone: 'danger', note: '소나기·뇌우 계열 신호가 있어 변동성이 큽니다.' };
+        if (freezing) return { tag: '어는비 주의', tone: 'danger', note: '어는비 계열 신호가 있어 도로·보행 안전을 최신 예보로 확인해 주세요.' };
+        if (snowy) return { tag: '눈 가능', tone: 'warn', note: '눈 계열 예보가 있어 기온 변화와 함께 보셔야 합니다.' };
+
+        // 8~16일 장기 구간에서는 대표 날씨가 이슬비·비·소나기 계열이면
+        // UV가 높더라도 단독 “햇빛 경향”으로 보내지 않고 강수 신호를 우선합니다.
+        if (hasStrongPrecipSignal) {
+            return { tag: '강수 경향', tone: 'warn', note: '강수 신호가 비교적 뚜렷하지만, 8일 이후는 경향으로만 참고해 주세요.' };
+        }
+        if (hasPrecipSignal) {
+            if (hasUvSignal && drizzleLike) {
+                return { tag: '가랑비·햇빛 변동', tone: 'warn', note: '약한 이슬비와 낮 시간대 햇빛·자외선 신호가 함께 있어 시간대별 변동을 참고해 주세요.' };
+            }
+            if (hasUvSignal) {
+                return { tag: '약한 강수·햇빛 변동', tone: 'warn', note: '약한 강수 신호와 햇빛·자외선 신호가 함께 있어 최신 시간별 예보를 다시 확인해 주세요.' };
+            }
+            return { tag: drizzleLike ? '약한 가랑비 경향' : '약한 강수 경향', tone: 'warn', note: '약한 비나 이슬비 신호가 있어 장기 구간에서는 강수 쪽으로 보수적으로 해석합니다.' };
+        }
+        if (hasPrecipProbabilitySignal) return { tag: '강수 가능 경향', tone: 'warn', note: '강수확률 신호가 있어 외출 전 최신 예보를 한 번 더 확인해 주세요.' };
+        if ((gust ?? 0) >= 45) return { tag: '바람 경향', tone: 'warn', note: '바람 또는 돌풍 신호가 있어 야외 일정은 최신 예보로 다시 확인해 주세요.' };
+        if ((maxTemp ?? -Infinity) >= 30) return { tag: '더위 경향', tone: 'warn', note: '낮 기온이 높게 예보되어 더위 흐름을 참고하시면 좋습니다.' };
+        if ((minTemp ?? Infinity) <= 0) return { tag: '추위 경향', tone: 'warn', note: '아침 최저기온이 낮아질 수 있어 보온 흐름을 참고해 주세요.' };
+        if (hasUvSignal) return { tag: '햇빛 경향', tone: 'info', note: '뚜렷한 강수 신호가 없고 낮 시간대 햇빛·자외선 흐름이 두드러집니다.' };
+        return { tag: '무난 경향', tone: 'good', note: '현재 자료상 큰 위험 신호는 약하지만, 장기 예보는 변동될 수 있습니다.' };
+    }
+
+    function createTwoWeekTrendCardHTML(dailyData, index) {
+        const dateObj = new Date(`${dailyData.time[index]}T00:00:00`);
+        const weekday = dateObj.toLocaleDateString('ko-KR', { weekday: 'short' });
+        const monthDay = dateObj.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+        const weatherDetails = getWeatherDetails(dailyData.weather_code?.[index], true);
+        const assessment = getTwoWeekTrendAssessment(dailyData, index);
+        const minTemp = formatWithUnit(dailyData.temperature_2m_min?.[index], 0, '°');
+        const maxTemp = formatWithUnit(dailyData.temperature_2m_max?.[index], 0, '°');
+        const rainProbability = formatWithUnit(dailyData.precipitation_probability_max?.[index], 0, '%');
+        const rainAmount = formatWithUnit(dailyData.precipitation_sum?.[index], 1, 'mm');
+        const gust = formatWithUnit(dailyData.wind_gusts_10m_max?.[index], 0, 'km/h');
+        const uv = formatWithUnit(dailyData.uv_index_max?.[index], 1, '');
+        const dayNumber = index + 1;
+
+        return `
+            <article class="two-week-card" aria-label="${escapeHTML(monthDay)} ${escapeHTML(weekday)} 2주 경향">
+                <div class="two-week-card-head">
+                    <div>
+                        <span class="two-week-date-main">${escapeHTML(monthDay)} ${escapeHTML(weekday)}</span>
+                        <span class="two-week-date-sub">${dayNumber}일차 · 경향 예보</span>
+                    </div>
+                    <span class="two-week-trend-tag ${assessment.tone}">${escapeHTML(assessment.tag)}</span>
+                </div>
+                <div class="two-week-trend-weather">
+                    <span class="icon" aria-hidden="true">${weatherDetails.icon}</span>
+                    <span class="desc">${escapeHTML(weatherDetails.description)}</span>
+                </div>
+                <div class="two-week-temp-range"><span class="min">${escapeHTML(minTemp)}</span> / <span class="max">${escapeHTML(maxTemp)}</span></div>
+                <div class="two-week-meta">
+                    <span>☔ ${escapeHTML(rainProbability)} · ${escapeHTML(rainAmount)}</span>
+                    <span>💨 최대 돌풍 ${escapeHTML(gust)} · ☀️ UV ${escapeHTML(uv)}</span>
+                </div>
+                <p class="two-week-note">${escapeHTML(assessment.note)}</p>
+            </article>
+        `;
+    }
+
+    function renderTwoWeekTrend(dailyData) {
+        if (DOM.twoWeekTrendSection) DOM.twoWeekTrendSection.style.display = 'none';
+        if (DOM.twoWeekTrendList) DOM.twoWeekTrendList.innerHTML = '';
     }
 
     function createHourlyForecastItemHTML(hourlyData, index) {
@@ -1294,7 +1413,7 @@
             daily: dailyP,
             hourly: hourlyP,
             timezone: 'auto',
-            forecast_days: '7',
+            forecast_days: '16',
             temperature_unit: 'celsius',
             wind_speed_unit: 'kmh',
             precipitation_unit: 'mm'

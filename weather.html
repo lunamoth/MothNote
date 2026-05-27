@@ -136,7 +136,7 @@
             }
         }
 
-        .current-weather-section, .weather-briefing-section, .briefing-remainder-section, .aqi-section, .next-24h-section {
+        .current-weather-section, .weather-briefing-section, .briefing-remainder-section, .aqi-section, .next-24h-section, .two-week-trend-section {
             background-color: var(--card-bg-color);
             border: 1px solid var(--border-color);
             border-radius: calc(var(--spacing-unit) * 2); /* 16px */
@@ -148,7 +148,7 @@
             display: flex;
             flex-direction: column;
         }
-        .current-weather-section h2, .weather-briefing-section h2, .briefing-remainder-section h2, .aqi-section h2, .next-24h-section h2 {
+        .current-weather-section h2, .weather-briefing-section h2, .briefing-remainder-section h2, .aqi-section h2, .next-24h-section h2, .two-week-trend-section h2 {
             font-size: 1.6em; font-weight: 600; color: var(--primary-text-color);
             margin-top: 0; margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ border-bottom: 1px solid var(--border-color); padding-bottom: calc(var(--spacing-unit) * 1.5); /* 12px */
             display: flex; align-items: center;
@@ -159,6 +159,7 @@
         .briefing-remainder-section h2::before { content: "📋"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
         .aqi-section h2::before { content: "🌬️"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
         .next-24h-section h2::before { content: "🕒"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
+        .two-week-trend-section h2::before { content: "🗓️"; margin-right: var(--spacing-unit); font-size: 1.2em;} /* 8px */
 
         .current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: 0; }
         .current-weather-main .icon { font-size: 6em; line-height: 1; filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.1));}
@@ -538,6 +539,188 @@
             width: 100%;
         }
 
+        .two-week-trend-section {
+            margin-top: calc(var(--spacing-unit) * 4); /* 32px */
+            margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */
+        }
+        .two-week-trend-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: calc(var(--spacing-unit) * 1.5); /* 12px */
+            margin-bottom: calc(var(--spacing-unit) * 2.5); /* 20px */
+            transition: border-color 0.3s ease;
+        }
+        .two-week-trend-header-row h2 {
+            margin-bottom: 0;
+            border-bottom: 0;
+            padding-bottom: 0;
+            flex: 1 1 auto;
+        }
+        .two-week-trend-header-row p {
+            margin: calc(var(--spacing-unit) * 0.5) 0 0;
+            color: var(--secondary-text-color);
+            font-size: 0.92em;
+            text-align: right;
+            max-width: 520px;
+            line-height: 1.45;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+        .two-week-trend-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+        }
+        .two-week-card {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 1.75); /* 14px */
+            padding: calc(var(--spacing-unit) * 2); /* 16px */
+            display: flex;
+            flex-direction: column;
+            gap: calc(var(--spacing-unit) * 1.25); /* 10px */
+            min-height: 184px;
+            transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .two-week-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 18px var(--shadow-color);
+        }
+        .two-week-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: calc(var(--spacing-unit) * 1.25); /* 10px */
+        }
+        .two-week-date-main {
+            display: block;
+            color: var(--primary-text-color);
+            font-weight: 700;
+            font-size: 1.05em;
+            transition: color 0.3s ease;
+        }
+        .two-week-date-sub {
+            display: block;
+            margin-top: calc(var(--spacing-unit) * 0.25); /* 2px */
+            color: var(--secondary-text-color);
+            font-size: 0.82em;
+            transition: color 0.3s ease;
+        }
+        .two-week-trend-tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            border-radius: 999px;
+            padding: 0 calc(var(--spacing-unit) * 1); /* 8px */
+            font-size: 0.75em;
+            font-weight: 700;
+            color: #fff;
+            background: var(--accent-color);
+            white-space: nowrap;
+        }
+        .two-week-trend-tag.good { background-color: #2ecc71; }
+        .two-week-trend-tag.warn { background-color: #f39c12; color: #2c3e50; }
+        .two-week-trend-tag.danger { background-color: #e74c3c; }
+        .two-week-trend-weather {
+            display: flex;
+            align-items: center;
+            gap: calc(var(--spacing-unit) * 1.25); /* 10px */
+        }
+        .two-week-trend-weather .icon {
+            font-size: 2.25em;
+            line-height: 1;
+        }
+        .two-week-trend-weather .desc {
+            color: var(--primary-text-color);
+            font-weight: 700;
+            transition: color 0.3s ease;
+        }
+        .two-week-temp-range {
+            font-size: 1.28em;
+            font-weight: 700;
+            color: var(--primary-text-color);
+            transition: color 0.3s ease;
+        }
+        .two-week-temp-range .min {
+            color: var(--accent-color-cold);
+        }
+        .two-week-temp-range .max {
+            color: var(--accent-color-warm);
+        }
+        .two-week-meta {
+            display: grid;
+            gap: calc(var(--spacing-unit) * 0.5); /* 4px */
+            color: var(--secondary-text-color);
+            font-size: 0.88em;
+            line-height: 1.45;
+            transition: color 0.3s ease;
+        }
+        .two-week-note {
+            margin-top: auto;
+            color: var(--secondary-text-color);
+            font-size: 0.84em;
+            line-height: 1.45;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+
+        .forecast-trend-notice {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin: calc(var(--spacing-unit) * 2.5) 0 0; /* 20px */
+            padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 2.25); /* 16px 18px */
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 2); /* 16px */
+            box-shadow: 0 4px 14px var(--shadow-color);
+            color: var(--secondary-text-color);
+            font-size: 0.98em;
+            line-height: 1.55;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: calc(var(--spacing-unit) * 0.75) calc(var(--spacing-unit) * 1);
+            overflow-wrap: anywhere;
+            word-break: keep-all;
+            transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .forecast-trend-notice strong {
+            color: var(--primary-text-color);
+            margin-right: 0;
+            min-width: 0;
+            transition: color 0.3s ease;
+        }
+        .forecast-trend-notice .notice-pill,
+        .trend-inline-badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            border-radius: 999px;
+            padding: 0 calc(var(--spacing-unit) * 1); /* 8px */
+            color: #fff;
+            background-color: var(--accent-color);
+            font-size: 0.78em;
+            font-style: normal;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            line-height: 1;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        .forecast-trend-notice .notice-pill { margin-right: 0; flex: 0 0 auto; }
+        .trend-inline-badge.good { background-color: #2ecc71; }
+        .trend-inline-badge.warn { background-color: #f39c12; color: #2c3e50; }
+        .trend-inline-badge.danger { background-color: #e74c3c; }
+        .trend-inline-badge.info { background-color: var(--accent-color); }
+        .weather-card.trend-forecast-card .card-header {
+            gap: calc(var(--spacing-unit) * 1); /* 8px */
+        }
+        .detail-item.trend-indicator::before { content: "🗓️"; margin-right: calc(var(--spacing-unit) * 0.75); /* 6px */ font-size: 0.9em; align-self: flex-start; }
+
         .weather-card {
             background-color: var(--card-bg-color);
             border: 1px solid var(--border-color);
@@ -701,7 +884,7 @@
 
         /* 로딩 스켈레톤 */
         #loadingSkeleton { width: 100%; max-width: 1500px; }
-        .skeleton-current-weather-section, .skeleton-briefing-section, .skeleton-briefing-remainder-section, .skeleton-aqi-section, .skeleton-next-24h-section { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3.5); /* 28px */ box-shadow: 0 6px 20px var(--shadow-color); transition: background-color 0.3s ease, border-color 0.3s ease; }
+        .skeleton-current-weather-section, .skeleton-briefing-section, .skeleton-briefing-remainder-section, .skeleton-aqi-section, .skeleton-next-24h-section, .skeleton-two-week-trend-section { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3.5); /* 28px */ box-shadow: 0 6px 20px var(--shadow-color); transition: background-color 0.3s ease, border-color 0.3s ease; }
 
         .skeleton-current-weather-section .skeleton-aqi-section {
             margin-top: calc(var(--spacing-unit) * 3);
@@ -726,6 +909,7 @@
         .skeleton-current-weather-main { display: flex; align-items: center; gap: calc(var(--spacing-unit) * 3.5); /* 28px */ margin-bottom: calc(var(--spacing-unit) * 3); /* 24px */ }
         .skeleton-current-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: calc(var(--spacing-unit) * 2); /* 16px */ }
         .skeleton-forecast-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: calc(var(--spacing-unit) * 3.5); /* 28px */ }
+        .skeleton-two-week-trend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: calc(var(--spacing-unit) * 2); }
         .skeleton-card { background-color: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: calc(var(--spacing-unit) * 2); /* 16px */ padding: calc(var(--spacing-unit) * 3); /* 24px */ transition: background-color 0.3s ease, border-color 0.3s ease;}
 
         .last-updated-timestamp {
@@ -779,6 +963,12 @@
             .observation-panel-head p, .next-24h-header-row p { text-align: left; margin-top: calc(var(--spacing-unit) * 0.75); }
             .next-24h-scroll { grid-auto-columns: minmax(136px, 58vw); }
             .forecast-container, .skeleton-forecast-container { grid-template-columns: 1fr; gap: calc(var(--spacing-unit) * 3); /* 24px */ }
+            .forecast-trend-notice { padding: calc(var(--spacing-unit) * 1.75) calc(var(--spacing-unit) * 2); font-size: 0.92em; }
+            .forecast-trend-notice strong { display: inline; }
+            .forecast-trend-notice .notice-pill { margin-bottom: calc(var(--spacing-unit) * 0.5); }
+            .two-week-trend-header-row { display: block; }
+            .two-week-trend-header-row p { text-align: left; margin-top: calc(var(--spacing-unit) * 1); }
+            .two-week-trend-list { grid-template-columns: 1fr; }
             .weather-card { padding: calc(var(--spacing-unit) * 2.5); /* 20px */ gap: calc(var(--spacing-unit) * 1.5); /* 12px */ }
             
             .card-header .month-day { font-size: 1.3em; } /* 모바일에서 날짜 크기 조정 */
@@ -1000,8 +1190,15 @@
         </section>
 
         <main class="forecast-container" id="forecastContainer">
-            <!-- 날씨 카드가 여기에 동적으로 추가됩니다. -->
+            <!-- 1~16일 날씨 카드가 기존 7일 카드 디자인으로 끊기지 않고 이어집니다. -->
         </main>
+
+        <!-- 장기예보 안내문은 예보 카드 목록의 최하단에 표시합니다. -->
+        <div class="forecast-trend-notice forecast-trend-notice-bottom" id="forecastTrendNotice" style="display:none;" role="note">
+            <span class="notice-pill">2주 경향</span>
+            <strong>8~16일 구간은 변동성이 커서 정밀 예보보다 경향으로 참고해 주세요.</strong>
+            8일차 이후 카드에는 경향 관련 표시가 함께 붙습니다.
+        </div>
     </div>
 
     <div id="hourlyModal" class="modal">
