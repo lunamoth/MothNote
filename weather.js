@@ -97,6 +97,22 @@
         currentNo2Note: document.getElementById('currentNo2Note'),
         currentOzoneValue: document.getElementById('currentOzoneValue'),
         currentOzoneNote: document.getElementById('currentOzoneNote'),
+        outfitWeatherSection: document.getElementById('outfitWeatherSection'),
+        outfitClosetGrid: document.getElementById('outfitClosetGrid'),
+        outfitPieceCount: document.getElementById('outfitPieceCount'),
+        outfitBasisPill: document.getElementById('outfitBasisPill'),
+        outfitEmoji: document.getElementById('outfitEmoji'),
+        outfitTitle: document.getElementById('outfitTitle'),
+        outfitSummary: document.getElementById('outfitSummary'),
+        outfitAdviceList: document.getElementById('outfitAdviceList'),
+        outfitTipsList: document.getElementById('outfitTipsList'),
+        outfitTagChips: document.getElementById('outfitTagChips'),
+        outfitColdBar: document.getElementById('outfitColdBar'),
+        outfitHeatBar: document.getElementById('outfitHeatBar'),
+        outfitWeatherBar: document.getElementById('outfitWeatherBar'),
+        outfitColdScore: document.getElementById('outfitColdScore'),
+        outfitHeatScore: document.getElementById('outfitHeatScore'),
+        outfitWeatherScore: document.getElementById('outfitWeatherScore'),
     };
     const weatherEffectsCtx = DOM.weatherEffectsCanvas.getContext('2d');
 
@@ -112,6 +128,149 @@
             currentEffectType: null
         }
     };
+
+
+    const OUTFIT_GARMENTS = Object.freeze({
+        heattech: { label: '히트텍/내의', note: '속부터 보온 🔥', art: 'heattech', emoji: '🔥' },
+        tshirt: { label: '반팔 티셔츠', note: '가볍게 통풍 👕', art: 'tshirt', emoji: '👕' },
+        longSleeve: { label: '긴팔 티셔츠', note: '기본 레이어 👚', art: 'longsleeve', emoji: '👚' },
+        shirt: { label: '얇은 셔츠', note: '일교차 대응 🧺', art: 'shirt', emoji: '👔' },
+        sweater: { label: '니트/맨투맨', note: '포근한 중간층 🧶', art: 'sweater', emoji: '🧶' },
+        cardigan: { label: '가디건', note: '입고 벗기 쉬움 🌿', art: 'cardigan', emoji: '🧥' },
+        jacket: { label: '자켓/바람막이', note: '바람 차단 🌬️', art: 'jacket', emoji: '🧥' },
+        coat: { label: '코트', note: '쌀쌀한 날씨용 🧥', art: 'coat', emoji: '🧥' },
+        padding: { label: '패딩/롱패딩', note: '강력 방한 🧊', art: 'padding', emoji: '🧥' },
+        raincoat: { label: '방수 겉옷', note: '비바람 대비 ☔', art: 'raincoat', emoji: '🧥' },
+        pants: { label: '긴바지', note: '무난한 하의 👖', art: 'pants', emoji: '👖' },
+        linen: { label: '얇은 긴바지', note: '린넨/면 추천 🌬️', art: 'linen', emoji: '👖' },
+        shorts: { label: '반바지', note: '더운 날 시원하게 🩳', art: 'shorts', emoji: '🩳' },
+        scarf: { label: '목도리', note: '목 보온 🧣', art: 'scarf', emoji: '🧣' },
+        gloves: { label: '장갑', note: '손끝 방한 🧤', art: 'gloves', emoji: '🧤' },
+        cap: { label: '모자', note: '햇빛/보온 🧢', art: 'cap', emoji: '🧢' },
+        umbrella: { label: '우산', note: '비·눈 대비 ☂️', art: 'umbrella', emoji: '☂️' },
+        shoes: { label: '운동화', note: '걷기 편하게 👟', art: 'shoes', emoji: '👟' },
+        boots: { label: '방수 신발/부츠', note: '눈·비·추위 대응 🥾', art: 'boots', emoji: '🥾' },
+        sunglasses: { label: '선글라스', note: '햇빛 강할 때 😎', art: 'sunglasses', emoji: '😎' },
+        socks: { label: '도톰한 양말', note: '발 보온 🧦', art: 'socks', emoji: '🧦' }
+    });
+
+    const OUTFIT_BANDS = Object.freeze([
+        {
+            max: -5,
+            emoji: '🧊',
+            title: '강력 방한 모드',
+            summary: '체감 온도가 매우 낮습니다. 롱패딩급 겉옷과 보온 소품을 모두 챙기시는 편이 좋습니다.',
+            pieces: ['heattech', 'sweater', 'padding', 'pants', 'socks', 'scarf', 'gloves', 'boots', 'cap'],
+            advice: ['롱패딩 또는 두꺼운 패딩을 가장 바깥에 입어 주세요.', '상의는 내의 + 니트/맨투맨처럼 2겹 이상이 좋습니다.', '목도리·장갑·도톰한 양말로 노출 부위를 줄이면 체감 추위가 크게 줄어듭니다.'],
+            tips: ['실외 대기 시간이 길다면 핫팩 🔥도 유용합니다.', '빙판 가능성이 있으면 미끄럼 적은 신발을 고르세요.'],
+            cold: 96,
+            heat: 4
+        },
+        {
+            max: 0,
+            emoji: '🥶',
+            title: '두꺼운 겨울 외투 추천',
+            summary: '매우 춥게 느껴질 수 있어 패딩이나 두꺼운 코트가 어울립니다.',
+            pieces: ['heattech', 'sweater', 'padding', 'pants', 'socks', 'scarf', 'gloves', 'boots'],
+            advice: ['패딩, 두꺼운 코트, 누빔 점퍼 중 하나는 꼭 입어 주세요.', '속에는 긴팔 이너와 니트류를 겹쳐 입으면 안정적입니다.', '바람이 있으면 목 주변 보온이 특히 중요합니다.'],
+            tips: ['실내가 더울 수 있으니 안쪽은 벗기 쉬운 레이어로 구성하세요.', '손이 자주 시리면 장갑 🧤을 챙기시는 편이 좋습니다.'],
+            cold: 88,
+            heat: 8
+        },
+        {
+            max: 5,
+            emoji: '🧥',
+            title: '코트·패딩이 편한 쌀쌀함',
+            summary: '체감상 겨울 느낌이 남아 있습니다. 두꺼운 겉옷을 중심으로 입으시면 무난합니다.',
+            pieces: ['longSleeve', 'sweater', 'coat', 'pants', 'socks', 'scarf', 'shoes'],
+            advice: ['울코트, 두꺼운 자켓, 가벼운 패딩이 잘 맞습니다.', '니트나 맨투맨을 안에 입어 체온을 유지하세요.', '오래 걷는 일정이면 발목이 드러나지 않는 양말을 추천합니다.'],
+            tips: ['아침·밤 외출이라면 목도리 🧣를 추가하세요.', '추위를 많이 타시면 히트텍을 한 겹 더하세요.'],
+            cold: 78,
+            heat: 14
+        },
+        {
+            max: 10,
+            emoji: '🍂',
+            title: '가벼운 겨울/초봄 레이어',
+            summary: '꽤 쌀쌀합니다. 자켓이나 트렌치, 도톰한 니트를 조합해 주세요.',
+            pieces: ['longSleeve', 'sweater', 'jacket', 'pants', 'socks', 'shoes'],
+            advice: ['자켓·트렌치·가벼운 코트 같은 겉옷이 필요합니다.', '상의는 긴팔 + 니트/맨투맨 조합이 안정적입니다.', '바람이 강하면 얇은 바람막이를 추가하면 좋습니다.'],
+            tips: ['실내 활동이 많다면 겉옷을 벗기 쉬운 조합으로 입으세요.', '손발이 찬 편이면 양말을 조금 두껍게 신으세요.'],
+            cold: 64,
+            heat: 24
+        },
+        {
+            max: 15,
+            emoji: '🌼',
+            title: '가디건·자켓이 딱 좋은 날',
+            summary: '선선한 편입니다. 얇은 겉옷을 챙기면 하루 종일 편합니다.',
+            pieces: ['longSleeve', 'shirt', 'cardigan', 'pants', 'shoes'],
+            advice: ['긴팔 티셔츠나 셔츠 위에 가디건·자켓을 걸치세요.', '하의는 긴바지나 슬랙스가 무난합니다.', '해가 지면 서늘해질 수 있어 겉옷을 챙기는 편이 좋습니다.'],
+            tips: ['카페·지하철처럼 실내외 온도차가 있으면 레이어가 유리합니다.', '가방에 넣기 쉬운 얇은 겉옷을 추천합니다.'],
+            cold: 48,
+            heat: 36
+        },
+        {
+            max: 20,
+            emoji: '🌤️',
+            title: '얇은 겉옷 또는 긴팔 단독',
+            summary: '대체로 쾌적합니다. 긴팔 단독도 가능하지만 바람이 있으면 얇은 겉옷이 좋습니다.',
+            pieces: ['longSleeve', 'shirt', 'cardigan', 'linen', 'shoes'],
+            advice: ['긴팔 티셔츠, 셔츠, 얇은 니트가 잘 맞습니다.', '얇은 가디건이나 셔츠형 아우터를 챙기면 온도 변화에 대응하기 쉽습니다.', '두꺼운 외투는 실내에서 덥게 느껴질 수 있습니다.'],
+            tips: ['걷는 시간이 길면 땀이 차지 않는 면·린넨 소재가 좋습니다.', '밤늦게 귀가하면 얇은 겉옷을 챙기세요.'],
+            cold: 30,
+            heat: 50
+        },
+        {
+            max: 24,
+            emoji: '😊',
+            title: '가벼운 옷차림 추천',
+            summary: '따뜻하고 활동하기 좋은 날씨입니다. 반팔 위에 얇은 셔츠를 걸쳐도 좋습니다.',
+            pieces: ['tshirt', 'shirt', 'linen', 'shoes'],
+            advice: ['반팔 또는 얇은 긴팔이 적당합니다.', '실내 냉방이 걱정되면 얇은 셔츠나 가디건을 하나 챙기세요.', '하의는 얇은 면바지나 린넨 바지가 편합니다.'],
+            tips: ['햇빛이 강하면 모자 🧢가 유용합니다.', '많이 걷는다면 통풍 좋은 신발을 추천합니다.'],
+            cold: 18,
+            heat: 62
+        },
+        {
+            max: 28,
+            emoji: '☀️',
+            title: '초여름처럼 가볍게',
+            summary: '따뜻하거나 약간 덥게 느껴질 수 있습니다. 통풍 좋은 상의와 얇은 하의를 추천합니다.',
+            pieces: ['tshirt', 'linen', 'cap', 'shoes'],
+            advice: ['반팔, 얇은 셔츠, 린넨 소재가 잘 맞습니다.', '두꺼운 데님이나 니트는 답답할 수 있습니다.', '햇빛이 강하면 모자나 선글라스를 챙기세요.'],
+            tips: ['습도가 높으면 몸에 붙지 않는 여유 있는 핏이 좋습니다.', '물병 💧을 챙기면 장시간 외출에 도움이 됩니다.'],
+            cold: 8,
+            heat: 76
+        },
+        {
+            max: 32,
+            emoji: '🌴',
+            title: '더운 날씨 · 통풍 우선',
+            summary: '덥습니다. 반팔, 반바지, 린넨처럼 가볍고 잘 마르는 소재를 추천합니다.',
+            pieces: ['tshirt', 'shorts', 'cap', 'sunglasses', 'shoes'],
+            advice: ['반팔과 반바지 또는 얇은 린넨 하의를 추천합니다.', '몸에 달라붙는 두꺼운 소재는 피하는 편이 좋습니다.', '모자·선글라스 등 햇빛 차단 아이템을 챙기세요.'],
+            tips: ['땀이 많다면 여벌 티셔츠 👕도 좋습니다.', '뜨거운 시간대에는 그늘 위주로 이동하세요.'],
+            cold: 3,
+            heat: 90
+        },
+        {
+            max: Infinity,
+            emoji: '🔥',
+            title: '폭염 대비 가벼운 차림',
+            summary: '매우 덥게 느껴질 수 있습니다. 최대한 가볍고 통풍·흡습이 좋은 옷차림이 좋습니다.',
+            pieces: ['tshirt', 'shorts', 'cap', 'sunglasses', 'shoes'],
+            advice: ['통풍 좋은 반팔과 반바지를 추천합니다.', '검고 두꺼운 옷보다는 밝고 얇은 소재가 편합니다.', '모자, 선글라스, 물을 꼭 챙기세요.'],
+            tips: ['장시간 야외 활동은 무리하지 마시고 휴식 시간을 자주 두세요.', '냉방 실내를 오래 이용한다면 아주 얇은 셔츠를 추가해도 좋습니다.'],
+            cold: 0,
+            heat: 100
+        }
+    ]);
+
+    const OUTFIT_WET_CODES = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]);
+    const OUTFIT_SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
+    const OUTFIT_STORM_CODES = new Set([95, 96, 99]);
+    const OUTFIT_SUNNY_CODES = new Set([0, 1]);
 
     // --- UTILITY FUNCTIONS ---
     function getWeatherDetails(wmoCode, isDay = true) {
@@ -236,6 +395,238 @@
         if (value <= 27) return { tag: '쾌적', tone: 'good', text: '대체로 가벼운 옷차림이 좋고, 활동량이 많다면 통풍을 고려하세요. 👕' };
         if (value <= 32) return { tag: '더움', tone: 'warn', text: '통풍이 좋은 옷, 물, 모자 준비를 권합니다. 야외 장시간 활동은 쉬어가세요. 🧃' };
         return { tag: '폭염 체감', tone: 'danger', text: '그늘, 수분, 휴식이 중요합니다. 낮 시간대 무리한 야외활동은 피하는 편이 안전합니다. 🥵' };
+    }
+
+
+    function clampOutfitScore(value, min = 0, max = 100) {
+        const number = toFiniteNumber(value);
+        if (number === null) return min;
+        return Math.max(min, Math.min(max, number));
+    }
+
+    function roundOutfitNumber(value, digits = 1) {
+        const number = toFiniteNumber(value);
+        if (number === null) return null;
+        const scale = 10 ** digits;
+        return Math.round(number * scale) / scale;
+    }
+
+    function getOutfitBaseBand(temp, feels) {
+        const safeTemp = toFiniteNumber(temp) ?? toFiniteNumber(feels) ?? 18;
+        const safeFeels = toFiniteNumber(feels) ?? safeTemp;
+        const comfortTemp = roundOutfitNumber((safeFeels * 0.72) + (safeTemp * 0.28), 1);
+        const band = OUTFIT_BANDS.find((item) => comfortTemp <= item.max) || OUTFIT_BANDS[OUTFIT_BANDS.length - 1];
+        return { band, comfortTemp };
+    }
+
+    function dedupeOutfitPieces(pieces) {
+        return [...new Set(pieces)].filter((key) => OUTFIT_GARMENTS[key]);
+    }
+
+    function scoreOutfitWeatherProtection({ code, precipitation, precipitationProbability, wind, gust, snowfall }) {
+        let score = 10;
+        if (OUTFIT_WET_CODES.has(Number(code)) || (toFiniteNumber(precipitation) ?? 0) > 0 || (toFiniteNumber(precipitationProbability) ?? 0) >= 60) score += 45;
+        if (OUTFIT_SNOW_CODES.has(Number(code)) || (toFiniteNumber(snowfall) ?? 0) > 0) score += 22;
+        if (OUTFIT_STORM_CODES.has(Number(code))) score += 25;
+        if ((toFiniteNumber(wind) ?? 0) >= 18) score += 18;
+        if ((toFiniteNumber(gust) ?? 0) >= 30) score += 18;
+        return clampOutfitScore(score);
+    }
+
+    function buildOutfitWeatherSnapshot(current, hourly, dailyData, aqiData) {
+        if (!current) return null;
+        const closestIndex = getClosestHourlyIndex(current.time, hourly);
+        const startIndex = getHourlyStartIndex(hourly, current.time);
+        const air = getAirQualityMetrics(aqiData, dailyData, current.time);
+        const temperature = current.temperature_2m ?? current.temperature ?? getHourlyValue(hourly, 'temperature_2m', closestIndex);
+        const apparent = current.apparent_temperature ?? getHourlyValue(hourly, 'apparent_temperature', closestIndex) ?? temperature;
+        const precipitation = current.precipitation ?? getHourlyValue(hourly, 'precipitation', closestIndex) ?? 0;
+        const precipitationProbability = getHourlyValue(hourly, 'precipitation_probability', closestIndex) ?? maxNextHourly(hourly, 'precipitation_probability', startIndex, 6) ?? 0;
+        return {
+            temperature_2m: temperature,
+            apparent_temperature: apparent,
+            relative_humidity_2m: current.relative_humidity_2m ?? getHourlyValue(hourly, 'relative_humidity_2m', closestIndex),
+            precipitation,
+            precipitation_probability: precipitationProbability,
+            precipitation_probability_24h: maxNextHourly(hourly, 'precipitation_probability', startIndex, 24),
+            snowfall: current.snowfall ?? getHourlyValue(hourly, 'snowfall', closestIndex) ?? dailyData?.snowfall_sum?.[0] ?? 0,
+            weather_code: current.weather_code ?? current.weathercode ?? getHourlyValue(hourly, 'weather_code', closestIndex),
+            cloud_cover: current.cloud_cover ?? getHourlyValue(hourly, 'cloud_cover', closestIndex),
+            wind_speed_10m: current.wind_speed_10m ?? current.windspeed ?? getHourlyValue(hourly, 'wind_speed_10m', closestIndex),
+            wind_gusts_10m: current.wind_gusts_10m ?? getHourlyValue(hourly, 'wind_gusts_10m', closestIndex) ?? maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 6),
+            max_wind_gust_24h: Math.max(
+                toFiniteNumber(maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 24)) ?? 0,
+                toFiniteNumber(dailyData?.wind_gusts_10m_max?.[0]) ?? 0,
+                toFiniteNumber(current.wind_gusts_10m) ?? 0
+            ),
+            is_day: current.is_day ?? getHourlyValue(hourly, 'is_day', closestIndex) ?? 1,
+            uv_index: air.uvValue ?? getHourlyValue(hourly, 'uv_index', closestIndex) ?? dailyData?.uv_index_max?.[0] ?? null,
+            daily_high: dailyData?.temperature_2m_max?.[0] ?? null,
+            daily_low: dailyData?.temperature_2m_min?.[0] ?? null,
+            time: current.time
+        };
+    }
+
+    function makeOutfitRecommendation(weather) {
+        const temp = toFiniteNumber(weather.temperature_2m);
+        const feels = toFiniteNumber(weather.apparent_temperature) ?? temp;
+        const humidity = toFiniteNumber(weather.relative_humidity_2m) ?? 0;
+        const precipitation = toFiniteNumber(weather.precipitation) ?? 0;
+        const precipitationProbability = toFiniteNumber(weather.precipitation_probability_24h ?? weather.precipitation_probability) ?? 0;
+        const snowfall = toFiniteNumber(weather.snowfall) ?? 0;
+        const wind = toFiniteNumber(weather.wind_speed_10m) ?? 0;
+        const gust = toFiniteNumber(weather.max_wind_gust_24h ?? weather.wind_gusts_10m) ?? wind;
+        const code = Number(weather.weather_code);
+        const cloud = toFiniteNumber(weather.cloud_cover) ?? 0;
+        const uv = toFiniteNumber(weather.uv_index);
+        const isDay = Number(weather.is_day ?? 1);
+        const { band, comfortTemp } = getOutfitBaseBand(temp, feels);
+        const dailyHigh = toFiniteNumber(weather.daily_high);
+        const dailyLow = toFiniteNumber(weather.daily_low);
+        const dailyRange = dailyHigh !== null && dailyLow !== null ? dailyHigh - dailyLow : null;
+
+        const pieces = [...band.pieces];
+        const advice = [...band.advice];
+        const tips = [...band.tips];
+        const tags = [`🌡️ 체감 ${formatNumber(feels, 1, '--')}°C`, `🧮 추천 기준 ${formatNumber(comfortTemp, 1, '--')}°C`];
+
+        const hasWetSignal = OUTFIT_WET_CODES.has(code) || precipitation > 0 || precipitationProbability >= 55;
+        if (hasWetSignal) {
+            pieces.push('umbrella', feels <= 20 ? 'raincoat' : 'cap');
+            const probabilityText = precipitationProbability > 0 ? `앞으로 24시간 최대 강수확률이 ${formatWithUnit(precipitationProbability, 0, '%')} 수준입니다.` : '강수 신호가 잡혀 있습니다.';
+            advice.push(`${probabilityText} 우산 또는 방수 겉옷을 챙기시는 편이 좋습니다.`);
+            tips.push('젖으면 체감 온도가 더 낮아질 수 있으니 신발과 양말도 신경 써 주세요.');
+            tags.push('☔ 강수 대비');
+        }
+
+        if (OUTFIT_SNOW_CODES.has(code) || snowfall > 0) {
+            pieces.push('boots', 'gloves', 'scarf');
+            advice.push('눈 신호가 있어 미끄럼 적고 물이 덜 스며드는 신발을 추천합니다.');
+            tips.push('눈이 녹은 길에서는 발이 젖기 쉬우니 방수 신발이나 여분 양말을 고려하세요.');
+            tags.push('❄️ 눈 대비');
+        }
+
+        if (OUTFIT_STORM_CODES.has(code)) {
+            advice.push('뇌우가 잡힌 상태라면 우산만 믿기보다 가능한 실내 이동 동선을 우선해 주세요.');
+            tips.push('강풍과 낙뢰 가능성이 있으면 넓게 열린 공간은 피하는 편이 안전합니다.');
+            tags.push('⛈️ 뇌우 주의');
+        }
+
+        if ((wind >= 18 || gust >= 30) && feels <= 22) {
+            pieces.push('jacket');
+            advice.push('바람이 체감 추위를 키울 수 있어 바람막이 성격의 겉옷이 유리합니다.');
+            tags.push('🌬️ 바람 조정');
+        }
+
+        if (humidity >= 80 && feels >= 23) {
+            advice.push('습도가 높아 끈적하게 느껴질 수 있으니 몸에 붙지 않는 통풍 좋은 옷을 고르세요.');
+            tips.push('땀이 잘 마르는 소재와 여유 있는 핏이 쾌적합니다.');
+            tags.push('💧 습도 높음');
+        }
+
+        if (isDay && (OUTFIT_SUNNY_CODES.has(code) || (uv !== null && uv >= 6)) && (cloud <= 55 || uv >= 6) && feels >= 20) {
+            pieces.push('cap', 'sunglasses');
+            advice.push('햇빛이나 자외선이 강하게 느껴질 수 있어 모자나 선글라스를 챙기면 좋습니다.');
+            tips.push('낮 시간대 야외 이동이 길면 그늘 휴식과 물을 함께 챙기세요.');
+            tags.push('😎 햇빛 대비');
+        }
+
+        if (temp !== null && feels !== null && feels - temp <= -3 && feels <= 18) {
+            advice.push('실제 기온보다 체감이 낮습니다. 얇은 겉옷 한 겹을 추가하면 안정적입니다.');
+            tags.push('🧊 체감 낮음');
+        }
+
+        if (dailyRange !== null && dailyRange >= 10) {
+            pieces.push(feels >= 20 ? 'shirt' : 'cardigan');
+            tips.push(`오늘 일교차가 약 ${formatWithUnit(dailyRange, 1, '°C')}입니다. 낮과 밤에 벗고 입기 쉬운 레이어가 유리합니다.`);
+            tags.push('🌗 일교차 큼');
+        }
+
+        const protection = scoreOutfitWeatherProtection({ code, precipitation, precipitationProbability, wind, gust, snowfall });
+        const cleanPieces = dedupeOutfitPieces(pieces).slice(0, 9);
+        const coldScore = clampOutfitScore(Math.round(band.cold + Math.max(0, 12 - (feels ?? 12)) * 1.4 + (wind >= 18 ? 8 : 0)));
+        const heatScore = clampOutfitScore(Math.round(band.heat + Math.max(0, (feels ?? 18) - 24) * 2 + (humidity >= 80 && (feels ?? 0) >= 23 ? 8 : 0)));
+
+        return {
+            title: band.title,
+            emoji: band.emoji,
+            summary: band.summary,
+            pieces: cleanPieces,
+            advice: advice.slice(0, 6),
+            tips: tips.slice(0, 5),
+            tags: [...new Set(tags)].slice(0, 7),
+            comfortTemp,
+            coldScore,
+            heatScore,
+            weatherScore: protection
+        };
+    }
+
+    function renderOutfitList(list, target) {
+        if (!target) return;
+        const emojis = ['✅', '🧥', '🌡️', '🌬️', '☔', '✨'];
+        target.innerHTML = list.map((text, index) => `<li><span class="bullet">${emojis[index % emojis.length]}</span><span>${escapeHTML(text)}</span></li>`).join('');
+    }
+
+    function renderOutfitTags(tags) {
+        if (!DOM.outfitTagChips) return;
+        DOM.outfitTagChips.innerHTML = tags.map((tag) => `<span class="outfit-chip">${escapeHTML(tag)}</span>`).join('');
+    }
+
+    function renderOutfitCloset(pieceKeys) {
+        if (!DOM.outfitClosetGrid) return;
+        if (!pieceKeys.length) {
+            DOM.outfitClosetGrid.innerHTML = '<div class="empty-closet">추천 의류가 없습니다. 🧦</div>';
+            if (DOM.outfitPieceCount) DOM.outfitPieceCount.textContent = '👚 0개';
+            return;
+        }
+
+        DOM.outfitClosetGrid.innerHTML = pieceKeys.map((key) => {
+            const item = OUTFIT_GARMENTS[key];
+            return `
+                <article class="clothing-card" aria-label="${escapeHTML(item.label)}">
+                    <div class="garment ${escapeHTML(item.art)}" aria-hidden="true">
+                        <span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span>
+                    </div>
+                    <div><strong>${item.emoji} ${escapeHTML(item.label)}</strong><span class="note">${escapeHTML(item.note)}</span></div>
+                </article>
+            `;
+        }).join('');
+        if (DOM.outfitPieceCount) DOM.outfitPieceCount.textContent = `👚 ${pieceKeys.length}개`;
+    }
+
+    function renderOutfitScores(rec) {
+        if (DOM.outfitColdBar) DOM.outfitColdBar.style.setProperty('--value', `${rec.coldScore}%`);
+        if (DOM.outfitHeatBar) DOM.outfitHeatBar.style.setProperty('--value', `${rec.heatScore}%`);
+        if (DOM.outfitWeatherBar) DOM.outfitWeatherBar.style.setProperty('--value', `${rec.weatherScore}%`);
+        if (DOM.outfitColdScore) DOM.outfitColdScore.textContent = String(rec.coldScore);
+        if (DOM.outfitHeatScore) DOM.outfitHeatScore.textContent = String(rec.heatScore);
+        if (DOM.outfitWeatherScore) DOM.outfitWeatherScore.textContent = String(rec.weatherScore);
+    }
+
+    function renderOutfitFeature(current, hourly, dailyData, aqiData) {
+        if (!DOM.outfitWeatherSection) return;
+        const snapshot = buildOutfitWeatherSnapshot(current, hourly, dailyData, aqiData);
+        if (!snapshot) {
+            if (DOM.outfitTitle) DOM.outfitTitle.textContent = '추천을 만들 수 없습니다';
+            if (DOM.outfitSummary) DOM.outfitSummary.textContent = '현재 날씨 데이터가 부족해 옷차림 추천을 표시하지 못했습니다.';
+            renderOutfitList(['현재 날씨 데이터를 불러온 뒤 다시 확인해 주세요.'], DOM.outfitAdviceList);
+            renderOutfitList(['기온·바람·강수 정보를 확인할 수 없습니다.'], DOM.outfitTipsList);
+            renderOutfitTags([]);
+            renderOutfitCloset([]);
+            return;
+        }
+
+        const rec = makeOutfitRecommendation(snapshot);
+        if (DOM.outfitBasisPill) DOM.outfitBasisPill.textContent = `🌡️ 기준 ${formatNumber(rec.comfortTemp, 1, '--')}°C`;
+        if (DOM.outfitEmoji) DOM.outfitEmoji.textContent = rec.emoji;
+        if (DOM.outfitTitle) DOM.outfitTitle.textContent = rec.title;
+        if (DOM.outfitSummary) DOM.outfitSummary.textContent = rec.summary;
+        renderOutfitList(rec.advice, DOM.outfitAdviceList);
+        renderOutfitList(rec.tips, DOM.outfitTipsList);
+        renderOutfitTags(rec.tags);
+        renderOutfitCloset(rec.pieces);
+        renderOutfitScores(rec);
     }
 
     function getOutdoorActivityAdvice(uv, gust, weatherCode) {
@@ -1473,11 +1864,15 @@
         _appState.airQualityFullData = aqiData ? aqiData.hourly : null;
         _appState.latestWeatherCurrentTime = current?.time || weatherData.current?.time || null;
         DOM.mainTitle.textContent = `오늘과 주간 날씨`;
-        DOM.subTitle.textContent = `현재 위치의 상세한 날씨 정보를 확인하세요.`;
+        if (DOM.subTitle) {
+            DOM.subTitle.textContent = '';
+            DOM.subTitle.style.display = 'none';
+        }
         renderCurrentWeather(current, weatherData.hourly, weatherData.timezone_abbreviation || weatherData.timezone);
         renderDetailedObservations(current, weatherData.hourly);
         renderAirQuality(aqiData, weatherData.daily);
         renderWeatherBriefing(current, weatherData.hourly, weatherData.daily, aqiData);
+        renderOutfitFeature(current, weatherData.hourly, weatherData.daily, aqiData);
         renderNext24Hours(current, weatherData.hourly);
         renderWeeklyTempChart(weatherData.daily);
         renderDailyForecasts(weatherData.daily, aqiData ? aqiData.hourly : null);

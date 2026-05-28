@@ -104,11 +104,21 @@
             0% { transform: translateX(0); }
             100% { transform: translateX(-100vw); }
         }
-
         .container { width: 100%; max-width: 1500px; }
-        header { text-align: center; margin-bottom: calc(var(--spacing-unit) * 4); position: relative; } /* 32px */
-        header h1 { font-size: 3em; font-weight: 300; color: var(--primary-text-color); margin-bottom: var(--spacing-unit); } /* 8px */
-        header p { font-size: 1.25em; color: var(--secondary-text-color); }
+        header {
+            text-align: center;
+            margin-bottom: calc(var(--spacing-unit) * 2.5); /* 20px: 제목 영역 세로폭 축소 */
+            padding: calc(var(--spacing-unit) * 0.5) 0; /* 4px */
+            position: relative;
+        }
+        header h1 {
+            font-size: clamp(2.05em, 3.25vw, 2.55em);
+            line-height: 1.08;
+            font-weight: 300;
+            color: var(--primary-text-color);
+            margin: 0;
+        }
+        header p { display: none; margin: 0; }
 
         /* 스켈레톤 UI */
         .skeleton { background-color: var(--skeleton-bg); border-radius: calc(var(--spacing-unit) * 1.25); /* 10px */ position: relative; overflow: hidden; }
@@ -252,7 +262,9 @@
             gap: calc(var(--spacing-unit) * 1.5); /* 12px */
         }
         .briefing-remainder-section {
+            margin-top: calc(var(--spacing-unit) * 1.5); /* 12px: 옷차림 카드 그림자와 분리 */
             margin-bottom: calc(var(--spacing-unit) * 4); /* 32px */
+            position: relative;
         }
         .briefing-remainder-section .briefing-list {
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -948,15 +960,980 @@
             animation: gentleBob 3s ease-in-out infinite alternate;
         }
 
+        /* 옷차림 추천 섹션: seoul-outfit-weather.html의 CSS 옷장/추천/체크 기능만 이식 */
+        .outfit-weather-section {
+            display: grid;
+            grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+            gap: calc(var(--spacing-unit) * 3); /* 24px */
+            align-items: stretch;
+            margin-bottom: calc(var(--spacing-unit) * 7); /* 56px: 아래 브리핑 영역과 충분히 분리 */
+            position: relative;
+            z-index: 0;
+        }
+
+        .outfit-feature-card {
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 2); /* 16px */
+            padding: calc(var(--spacing-unit) * 3.5); /* 28px */
+            box-shadow: 0 6px 20px var(--shadow-color);
+            display: flex;
+            flex-direction: column;
+            align-self: stretch;
+            min-height: 0;
+            height: auto;
+            transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .outfit-section-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: calc(var(--spacing-unit) * 2); /* 16px */
+            margin-bottom: calc(var(--spacing-unit) * 2.5); /* 20px */
+        }
+
+        .outfit-section-head h2 {
+            font-size: 1.6em;
+            font-weight: 600;
+            color: var(--primary-text-color);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            transition: color 0.3s ease;
+        }
+
+        .outfit-section-head p {
+            margin: calc(var(--spacing-unit) * 0.75) 0 0;
+            color: var(--secondary-text-color);
+            line-height: 1.55;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+
+        .outfit-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: calc(var(--spacing-unit) * 0.75); /* 6px */
+            min-height: 30px;
+            padding: 0 calc(var(--spacing-unit) * 1.4); /* 11px */
+            border-radius: 999px;
+            background-color: color-mix(in srgb, var(--accent-color) 14%, transparent);
+            color: var(--accent-color);
+            border: 1px solid color-mix(in srgb, var(--accent-color) 22%, transparent);
+            font-size: 0.82em;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .closet-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: calc(var(--spacing-unit) * 1.75); /* 14px */
+            align-content: start;
+        }
+
+        .clothing-card {
+            min-height: 178px;
+            padding: calc(var(--spacing-unit) * 1.6) calc(var(--spacing-unit) * 1.25) calc(var(--spacing-unit) * 1.5);
+            border-radius: calc(var(--spacing-unit) * 2.5); /* 20px */
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.06);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            text-align: center;
+            transition: transform 180ms ease, box-shadow 180ms ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .clothing-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.10);
+        }
+
+        .clothing-card strong {
+            color: var(--primary-text-color);
+            font-size: 0.95em;
+            letter-spacing: -0.03em;
+            transition: color 0.3s ease;
+        }
+
+        .clothing-card span.note {
+            display: block;
+            margin-top: calc(var(--spacing-unit) * 0.35);
+            color: var(--secondary-text-color);
+            font-size: 0.78em;
+            font-weight: 650;
+            line-height: 1.4;
+            transition: color 0.3s ease;
+        }
+
+        .empty-closet {
+            grid-column: 1 / -1;
+            min-height: 178px;
+            display: grid;
+            place-items: center;
+            padding: calc(var(--spacing-unit) * 3) calc(var(--spacing-unit) * 2);
+            border-radius: calc(var(--spacing-unit) * 2.5);
+            background-color: var(--bg-color);
+            border: 1px dashed var(--border-color);
+            text-align: center;
+            color: var(--secondary-text-color);
+            line-height: 1.65;
+            word-break: keep-all;
+            transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .outfit-title-box {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: calc(var(--spacing-unit) * 1.75); /* 14px */
+            align-items: center;
+            padding: calc(var(--spacing-unit) * 2.25); /* 18px */
+            border-radius: calc(var(--spacing-unit) * 2.5); /* 20px */
+            background: linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 12%, transparent), color-mix(in srgb, var(--accent-color-warm) 12%, transparent));
+            border: 1px solid var(--border-color);
+            margin-bottom: calc(var(--spacing-unit) * 2); /* 16px */
+            transition: border-color 0.3s ease;
+        }
+
+        .outfit-icon-box {
+            width: 58px;
+            height: 58px;
+            display: grid;
+            place-items: center;
+            flex: 0 0 auto;
+            border-radius: calc(var(--spacing-unit) * 2.25); /* 18px */
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            font-size: 2rem;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .outfit-title-box h3 {
+            margin: 0;
+            color: var(--primary-text-color);
+            font-size: 1.45em;
+            letter-spacing: -0.04em;
+            transition: color 0.3s ease;
+        }
+
+        .outfit-title-box p {
+            margin: calc(var(--spacing-unit) * 0.65) 0 0;
+            color: var(--secondary-text-color);
+            line-height: 1.55;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+
+        .outfit-advice-list {
+            display: grid;
+            gap: calc(var(--spacing-unit) * 1.25); /* 10px */
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .outfit-advice-list li {
+            display: grid;
+            grid-template-columns: 34px 1fr;
+            gap: calc(var(--spacing-unit) * 1.25); /* 10px */
+            align-items: start;
+            padding: calc(var(--spacing-unit) * 1.5); /* 12px */
+            border: 1px solid var(--border-color);
+            border-radius: calc(var(--spacing-unit) * 1.75); /* 14px */
+            background-color: var(--bg-color);
+            color: var(--secondary-text-color);
+            line-height: 1.55;
+            word-break: keep-all;
+            transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .outfit-advice-list .bullet {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            border-radius: calc(var(--spacing-unit) * 1.35); /* 11px */
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            font-size: 1.05em;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .outfit-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: calc(var(--spacing-unit) * 1); /* 8px */
+            margin: calc(var(--spacing-unit) * 2) 0 0;
+        }
+
+        .outfit-chip {
+            display: inline-flex;
+            gap: calc(var(--spacing-unit) * 0.75); /* 6px */
+            align-items: center;
+            padding: calc(var(--spacing-unit) * 0.9) calc(var(--spacing-unit) * 1.25);
+            border-radius: 999px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--secondary-text-color);
+            font-weight: 700;
+            font-size: 0.88em;
+            transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .comfort-box {
+            display: grid;
+            gap: calc(var(--spacing-unit) * 1.5); /* 12px */
+            margin-top: calc(var(--spacing-unit) * 2.25); /* 18px */
+            padding: calc(var(--spacing-unit) * 2); /* 16px */
+            border-radius: calc(var(--spacing-unit) * 2.25); /* 18px */
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .comfort-row {
+            display: grid;
+            grid-template-columns: 110px 1fr 44px;
+            gap: calc(var(--spacing-unit) * 1.5); /* 12px */
+            align-items: center;
+            color: var(--primary-text-color);
+            font-weight: 700;
+            transition: color 0.3s ease;
+        }
+
+        .bar {
+            position: relative;
+            height: 12px;
+            border-radius: 999px;
+            background-color: color-mix(in srgb, var(--secondary-text-color) 18%, transparent);
+            overflow: hidden;
+        }
+
+        .bar > i {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: var(--value, 50%);
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--accent-color-cold), var(--accent-color), var(--accent-color-warm));
+        }
+
+        .outfit-check-block {
+            margin-top: calc(var(--spacing-unit) * 3); /* 24px */
+            padding-top: calc(var(--spacing-unit) * 3); /* 24px */
+            border-top: 1px solid var(--border-color);
+            transition: border-color 0.3s ease;
+        }
+
+        .outfit-check-title {
+            margin: 0 0 calc(var(--spacing-unit) * 1.5);
+            color: var(--primary-text-color);
+            font-size: 1.25em;
+            font-weight: 700;
+            transition: color 0.3s ease;
+        }
+
+        .outfit-fineprint {
+            margin: calc(var(--spacing-unit) * 1.75) 0 0;
+            color: var(--secondary-text-color);
+            font-size: 0.86em;
+            line-height: 1.65;
+            word-break: keep-all;
+            transition: color 0.3s ease;
+        }
+
+
+        .garment {
+              position: relative;
+              width: 110px;
+              height: 110px;
+              margin: 0 auto 8px;
+              transform: translateZ(0);
+            }
+        
+            .garment > span,
+            .garment::before,
+            .garment::after {
+              position: absolute;
+              display: block;
+              content: "";
+            }
+        
+            .tshirt .s1 {
+              left: 31px;
+              top: 30px;
+              width: 48px;
+              height: 60px;
+              border-radius: 12px 12px 16px 16px;
+              background: linear-gradient(145deg, #55b7ff, #3f63f6);
+              box-shadow: inset 0 -10px 0 rgba(255,255,255,0.12);
+            }
+        
+            .tshirt .s2,
+            .tshirt .s3 {
+              top: 31px;
+              width: 30px;
+              height: 28px;
+              background: linear-gradient(145deg, #55b7ff, #3f63f6);
+              border-radius: 13px 8px 14px 12px;
+            }
+        
+            .tshirt .s2 {
+              left: 15px;
+              transform: rotate(25deg);
+            }
+        
+            .tshirt .s3 {
+              right: 15px;
+              transform: rotate(-25deg);
+            }
+        
+            .tshirt .s4 {
+              left: 45px;
+              top: 27px;
+              width: 20px;
+              height: 15px;
+              border-radius: 0 0 16px 16px;
+              background: rgba(255,255,255,0.62);
+            }
+        
+            .longsleeve .s1 {
+              left: 31px;
+              top: 27px;
+              width: 49px;
+              height: 63px;
+              border-radius: 14px 14px 14px 14px;
+              background: linear-gradient(145deg, #9c7bff, #5a55d6);
+            }
+        
+            .longsleeve .s2,
+            .longsleeve .s3 {
+              top: 30px;
+              width: 24px;
+              height: 57px;
+              background: linear-gradient(145deg, #9c7bff, #5a55d6);
+              border-radius: 13px 13px 10px 10px;
+            }
+        
+            .longsleeve .s2 {
+              left: 14px;
+              transform: rotate(14deg);
+            }
+        
+            .longsleeve .s3 {
+              right: 14px;
+              transform: rotate(-14deg);
+            }
+        
+            .longsleeve .s4 {
+              left: 44px;
+              top: 25px;
+              width: 22px;
+              height: 16px;
+              border-radius: 0 0 18px 18px;
+              background: rgba(255,255,255,0.62);
+            }
+        
+            .shirt .s1 {
+              left: 30px;
+              top: 25px;
+              width: 50px;
+              height: 66px;
+              border-radius: 15px 15px 12px 12px;
+              background: linear-gradient(145deg, #ffffff, #e6edff);
+              border: 2px solid rgba(62, 88, 164, 0.12);
+            }
+        
+            .shirt .s2,
+            .shirt .s3 {
+              top: 31px;
+              width: 26px;
+              height: 38px;
+              border-radius: 12px;
+              background: linear-gradient(145deg, #ffffff, #e6edff);
+              border: 2px solid rgba(62, 88, 164, 0.1);
+            }
+        
+            .shirt .s2 { left: 14px; transform: rotate(21deg); }
+            .shirt .s3 { right: 14px; transform: rotate(-21deg); }
+            .shirt .s4 {
+              left: 54px;
+              top: 30px;
+              width: 2px;
+              height: 55px;
+              background: rgba(62, 88, 164, 0.22);
+              box-shadow: 0 10px 0 rgba(62, 88, 164, 0.22), 0 22px 0 rgba(62, 88, 164, 0.22), 0 34px 0 rgba(62, 88, 164, 0.22);
+            }
+        
+            .sweater .s1 {
+              left: 28px;
+              top: 26px;
+              width: 54px;
+              height: 68px;
+              border-radius: 18px 18px 12px 12px;
+              background:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 5px, transparent 5px, transparent 12px),
+                linear-gradient(145deg, #ffbd68, #e9794c);
+            }
+        
+            .sweater .s2,
+            .sweater .s3 {
+              top: 32px;
+              width: 24px;
+              height: 57px;
+              border-radius: 13px;
+              background:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.18), rgba(255,255,255,0.18) 5px, transparent 5px, transparent 12px),
+                linear-gradient(145deg, #ffbd68, #e9794c);
+            }
+        
+            .sweater .s2 { left: 14px; transform: rotate(14deg); }
+            .sweater .s3 { right: 14px; transform: rotate(-14deg); }
+            .sweater .s4 {
+              left: 39px;
+              top: 23px;
+              width: 32px;
+              height: 16px;
+              border-radius: 16px 16px 8px 8px;
+              background: #d76742;
+            }
+        
+            .heattech .s1 {
+              left: 31px;
+              top: 24px;
+              width: 48px;
+              height: 68px;
+              border-radius: 18px 18px 16px 16px;
+              background: linear-gradient(145deg, #f1f4fb, #c9d1e5);
+              border: 2px dashed rgba(75, 117, 255, 0.28);
+            }
+        
+            .heattech .s2,
+            .heattech .s3 {
+              top: 32px;
+              width: 22px;
+              height: 55px;
+              border-radius: 13px;
+              background: linear-gradient(145deg, #f1f4fb, #c9d1e5);
+              border: 2px dashed rgba(75, 117, 255, 0.22);
+            }
+        
+            .heattech .s2 { left: 16px; transform: rotate(13deg); }
+            .heattech .s3 { right: 16px; transform: rotate(-13deg); }
+            .heattech .s4 {
+              left: 43px;
+              top: 27px;
+              width: 24px;
+              height: 16px;
+              border-radius: 0 0 16px 16px;
+              background: rgba(255, 255, 255, 0.72);
+            }
+        
+            .jacket .s1 {
+              left: 25px;
+              top: 24px;
+              width: 60px;
+              height: 69px;
+              border-radius: 18px 18px 14px 14px;
+              background: linear-gradient(145deg, #404b63, #202738);
+              box-shadow: inset 0 -8px 0 rgba(255,255,255,0.06);
+            }
+        
+            .jacket .s2,
+            .jacket .s3 {
+              top: 32px;
+              width: 23px;
+              height: 57px;
+              border-radius: 13px;
+              background: linear-gradient(145deg, #404b63, #202738);
+            }
+        
+            .jacket .s2 { left: 11px; transform: rotate(13deg); }
+            .jacket .s3 { right: 11px; transform: rotate(-13deg); }
+            .jacket .s4 {
+              left: 54px;
+              top: 28px;
+              width: 2px;
+              height: 60px;
+              background: rgba(255,255,255,0.45);
+              box-shadow: -14px -2px 0 -1px rgba(255,255,255,0.16), 14px -2px 0 -1px rgba(255,255,255,0.16);
+            }
+        
+            .cardigan .s1 {
+              left: 25px;
+              top: 24px;
+              width: 60px;
+              height: 69px;
+              border-radius: 18px 18px 14px 14px;
+              background: linear-gradient(145deg, #8ecfba, #3d9b82);
+            }
+        
+            .cardigan .s2,
+            .cardigan .s3 {
+              top: 32px;
+              width: 23px;
+              height: 57px;
+              border-radius: 13px;
+              background: linear-gradient(145deg, #8ecfba, #3d9b82);
+            }
+        
+            .cardigan .s2 { left: 12px; transform: rotate(14deg); }
+            .cardigan .s3 { right: 12px; transform: rotate(-14deg); }
+            .cardigan .s4 {
+              left: 48px;
+              top: 25px;
+              width: 14px;
+              height: 67px;
+              background: rgba(255,255,255,0.52);
+              clip-path: polygon(50% 0, 100% 16%, 68% 100%, 32% 100%, 0 16%);
+            }
+        
+            .coat .s1 {
+              left: 27px;
+              top: 18px;
+              width: 56px;
+              height: 84px;
+              border-radius: 21px 21px 12px 12px;
+              background: linear-gradient(145deg, #b27b58, #71452e);
+              box-shadow: inset 0 -12px 0 rgba(255,255,255,0.08);
+            }
+        
+            .coat .s2,
+            .coat .s3 {
+              top: 31px;
+              width: 24px;
+              height: 62px;
+              border-radius: 13px;
+              background: linear-gradient(145deg, #b27b58, #71452e);
+            }
+        
+            .coat .s2 { left: 13px; transform: rotate(12deg); }
+            .coat .s3 { right: 13px; transform: rotate(-12deg); }
+            .coat .s4 {
+              left: 33px;
+              top: 46px;
+              width: 44px;
+              height: 5px;
+              border-radius: 99px;
+              background: rgba(255,255,255,0.34);
+              box-shadow: 20px -18px 0 -2px rgba(255,255,255,0.18), -20px -18px 0 -2px rgba(255,255,255,0.18);
+            }
+        
+            .padding .s1 {
+              left: 25px;
+              top: 16px;
+              width: 60px;
+              height: 88px;
+              border-radius: 23px 23px 15px 15px;
+              background:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.2), rgba(255,255,255,0.2) 2px, transparent 2px, transparent 15px),
+                linear-gradient(145deg, #93b1ff, #405bd7);
+              box-shadow: inset 0 -9px 0 rgba(0,0,0,0.06);
+            }
+        
+            .padding .s2,
+            .padding .s3 {
+              top: 32px;
+              width: 25px;
+              height: 61px;
+              border-radius: 15px;
+              background:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.18), rgba(255,255,255,0.18) 2px, transparent 2px, transparent 14px),
+                linear-gradient(145deg, #93b1ff, #405bd7);
+            }
+        
+            .padding .s2 { left: 10px; transform: rotate(11deg); }
+            .padding .s3 { right: 10px; transform: rotate(-11deg); }
+            .padding .s4 {
+              left: 38px;
+              top: 13px;
+              width: 34px;
+              height: 22px;
+              border-radius: 18px 18px 8px 8px;
+              background: #526eec;
+            }
+        
+            .raincoat .s1 {
+              left: 26px;
+              top: 27px;
+              width: 58px;
+              height: 71px;
+              border-radius: 19px 19px 14px 14px;
+              background: linear-gradient(145deg, #ffe066, #f6aa2c);
+              box-shadow: inset 0 -9px 0 rgba(255,255,255,0.16);
+            }
+        
+            .raincoat .s2,
+            .raincoat .s3 {
+              top: 37px;
+              width: 24px;
+              height: 55px;
+              border-radius: 13px;
+              background: linear-gradient(145deg, #ffe066, #f6aa2c);
+            }
+        
+            .raincoat .s2 { left: 13px; transform: rotate(12deg); }
+            .raincoat .s3 { right: 13px; transform: rotate(-12deg); }
+            .raincoat .s4 {
+              left: 36px;
+              top: 12px;
+              width: 38px;
+              height: 30px;
+              border-radius: 22px 22px 12px 12px;
+              background: linear-gradient(145deg, #ffe066, #f6aa2c);
+              box-shadow: inset 0 -8px 0 rgba(255,255,255,0.2);
+            }
+        
+            .pants .s1,
+            .pants .s2 {
+              top: 24px;
+              width: 28px;
+              height: 76px;
+              border-radius: 10px 10px 12px 12px;
+              background: linear-gradient(145deg, #3e557b, #182337);
+            }
+        
+            .pants .s1 { left: 26px; transform: rotate(3deg); }
+            .pants .s2 { right: 26px; transform: rotate(-3deg); }
+            .pants .s3 {
+              left: 25px;
+              top: 18px;
+              width: 60px;
+              height: 16px;
+              border-radius: 8px;
+              background: #263856;
+            }
+            .pants .s4 {
+              left: 52px;
+              top: 31px;
+              width: 6px;
+              height: 64px;
+              background: rgba(255,255,255,0.13);
+              border-radius: 99px;
+            }
+        
+            .shorts .s1,
+            .shorts .s2 {
+              top: 40px;
+              width: 30px;
+              height: 43px;
+              border-radius: 10px 10px 14px 14px;
+              background: linear-gradient(145deg, #69d9d2, #1e9caa);
+            }
+        
+            .shorts .s1 { left: 23px; transform: rotate(5deg); }
+            .shorts .s2 { right: 23px; transform: rotate(-5deg); }
+            .shorts .s3 {
+              left: 23px;
+              top: 30px;
+              width: 64px;
+              height: 17px;
+              border-radius: 9px;
+              background: #188f9d;
+            }
+            .shorts .s4 {
+              left: 53px;
+              top: 45px;
+              width: 4px;
+              height: 31px;
+              background: rgba(255,255,255,0.18);
+              border-radius: 99px;
+            }
+        
+            .linen .s1,
+            .linen .s2 {
+              top: 25px;
+              width: 29px;
+              height: 74px;
+              border-radius: 12px 12px 14px 14px;
+              background:
+                repeating-linear-gradient(90deg, rgba(112,84,44,0.12), rgba(112,84,44,0.12) 2px, transparent 2px, transparent 8px),
+                linear-gradient(145deg, #efd7a3, #d1ab6f);
+            }
+            .linen .s1 { left: 25px; transform: rotate(3deg); }
+            .linen .s2 { right: 25px; transform: rotate(-3deg); }
+            .linen .s3 {
+              left: 24px;
+              top: 18px;
+              width: 62px;
+              height: 16px;
+              border-radius: 9px;
+              background: #c79b5f;
+            }
+            .linen .s4 {
+              left: 52px;
+              top: 33px;
+              width: 6px;
+              height: 60px;
+              background: rgba(255,255,255,0.18);
+              border-radius: 99px;
+            }
+        
+            .scarf .s1 {
+              left: 30px;
+              top: 33px;
+              width: 52px;
+              height: 24px;
+              border-radius: 17px;
+              background:
+                repeating-linear-gradient(90deg, rgba(255,255,255,0.32), rgba(255,255,255,0.32) 7px, transparent 7px, transparent 15px),
+                linear-gradient(145deg, #ff6b82, #c7365c);
+            }
+            .scarf .s2 {
+              left: 57px;
+              top: 49px;
+              width: 22px;
+              height: 55px;
+              border-radius: 9px 9px 14px 14px;
+              background:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.28), rgba(255,255,255,0.28) 7px, transparent 7px, transparent 15px),
+                linear-gradient(145deg, #ff6b82, #c7365c);
+            }
+            .scarf .s3 {
+              left: 24px;
+              top: 50px;
+              width: 30px;
+              height: 38px;
+              border-radius: 8px 8px 12px 12px;
+              background: linear-gradient(145deg, #ff8296, #d74766);
+              transform: rotate(11deg);
+            }
+            .scarf .s4 {
+              left: 61px;
+              top: 96px;
+              width: 14px;
+              height: 3px;
+              background: rgba(80,0,30,0.18);
+              box-shadow: 0 5px 0 rgba(80,0,30,0.18), 0 10px 0 rgba(80,0,30,0.18);
+            }
+        
+            .gloves .s1,
+            .gloves .s2 {
+              top: 42px;
+              width: 34px;
+              height: 42px;
+              border-radius: 18px 18px 14px 14px;
+              background: linear-gradient(145deg, #ff7c7c, #cd3d55);
+            }
+            .gloves .s1 { left: 21px; transform: rotate(-12deg); }
+            .gloves .s2 { right: 21px; transform: rotate(12deg); }
+            .gloves .s3,
+            .gloves .s4 {
+              top: 61px;
+              width: 14px;
+              height: 22px;
+              border-radius: 12px;
+              background: linear-gradient(145deg, #ff7c7c, #cd3d55);
+            }
+            .gloves .s3 { left: 46px; transform: rotate(25deg); }
+            .gloves .s4 { right: 46px; transform: rotate(-25deg); }
+        
+            .cap .s1 {
+              left: 28px;
+              top: 42px;
+              width: 54px;
+              height: 32px;
+              border-radius: 34px 34px 10px 10px;
+              background: linear-gradient(145deg, #79a7ff, #3a5cf2);
+              box-shadow: inset 0 -7px 0 rgba(255,255,255,0.14);
+            }
+            .cap .s2 {
+              left: 51px;
+              top: 34px;
+              width: 8px;
+              height: 12px;
+              border-radius: 999px;
+              background: #2e49ce;
+            }
+            .cap .s3 {
+              left: 51px;
+              top: 68px;
+              width: 46px;
+              height: 13px;
+              border-radius: 0 16px 16px 0;
+              background: #2e49ce;
+              transform: rotate(5deg);
+            }
+            .cap .s4 {
+              left: 37px;
+              top: 49px;
+              width: 36px;
+              height: 18px;
+              border-radius: 99px 99px 0 0;
+              border-top: 2px solid rgba(255,255,255,0.35);
+            }
+        
+            .umbrella .s1 {
+              left: 17px;
+              top: 24px;
+              width: 76px;
+              height: 42px;
+              border-radius: 80px 80px 12px 12px;
+              background:
+                radial-gradient(circle at 28% 100%, rgba(255,255,255,0.32) 0 11px, transparent 12px),
+                radial-gradient(circle at 50% 100%, rgba(255,255,255,0.32) 0 11px, transparent 12px),
+                radial-gradient(circle at 72% 100%, rgba(255,255,255,0.32) 0 11px, transparent 12px),
+                linear-gradient(145deg, #7bd6ff, #2b74ef);
+              overflow: hidden;
+            }
+            .umbrella .s2 {
+              left: 54px;
+              top: 65px;
+              width: 4px;
+              height: 39px;
+              border-radius: 99px;
+              background: #4c5a70;
+            }
+            .umbrella .s3 {
+              left: 52px;
+              top: 95px;
+              width: 23px;
+              height: 18px;
+              border: 4px solid #4c5a70;
+              border-top: 0;
+              border-left: 0;
+              border-radius: 0 0 20px 0;
+            }
+            .umbrella .s4 {
+              left: 54px;
+              top: 17px;
+              width: 4px;
+              height: 11px;
+              border-radius: 99px;
+              background: #4c5a70;
+            }
+        
+            .shoes .s1,
+            .shoes .s2 {
+              top: 56px;
+              width: 42px;
+              height: 24px;
+              border-radius: 18px 22px 10px 10px;
+              background: linear-gradient(145deg, #fbfbff, #c9d3e6);
+              border-bottom: 5px solid #4b5568;
+            }
+            .shoes .s1 { left: 13px; transform: rotate(-5deg); }
+            .shoes .s2 { right: 13px; transform: rotate(5deg); }
+            .shoes .s3,
+            .shoes .s4 {
+              top: 61px;
+              width: 20px;
+              height: 2px;
+              background: rgba(43, 62, 96, 0.35);
+            }
+            .shoes .s3 { left: 26px; transform: rotate(12deg); }
+            .shoes .s4 { right: 26px; transform: rotate(-12deg); }
+        
+            .boots .s1,
+            .boots .s2 {
+              top: 34px;
+              width: 33px;
+              height: 57px;
+              border-radius: 11px 11px 10px 10px;
+              background: linear-gradient(145deg, #6c4a37, #2d211d);
+              border-bottom: 8px solid #18120f;
+            }
+            .boots .s1 { left: 23px; transform: rotate(-2deg); }
+            .boots .s2 { right: 23px; transform: rotate(2deg); }
+            .boots .s3,
+            .boots .s4 {
+              top: 82px;
+              width: 43px;
+              height: 14px;
+              border-radius: 12px 16px 7px 7px;
+              background: #18120f;
+            }
+            .boots .s3 { left: 15px; }
+            .boots .s4 { right: 15px; }
+        
+            .sunglasses .s1,
+            .sunglasses .s2 {
+              top: 48px;
+              width: 34px;
+              height: 28px;
+              border-radius: 11px 11px 16px 16px;
+              background: linear-gradient(145deg, #273142, #05070a);
+              box-shadow: inset 0 4px 0 rgba(255,255,255,0.16);
+            }
+            .sunglasses .s1 { left: 20px; transform: rotate(4deg); }
+            .sunglasses .s2 { right: 20px; transform: rotate(-4deg); }
+            .sunglasses .s3 {
+              left: 53px;
+              top: 59px;
+              width: 11px;
+              height: 4px;
+              border-radius: 99px;
+              background: #111827;
+            }
+            .sunglasses .s4 {
+              left: 14px;
+              top: 50px;
+              width: 82px;
+              height: 5px;
+              border-radius: 99px;
+              background: #111827;
+            }
+        
+            .socks .s1,
+            .socks .s2 {
+              top: 30px;
+              width: 30px;
+              height: 62px;
+              border-radius: 10px 10px 17px 17px;
+              background:
+                repeating-linear-gradient(0deg, rgba(255,255,255,0.28), rgba(255,255,255,0.28) 5px, transparent 5px, transparent 13px),
+                linear-gradient(145deg, #e7ecff, #a8b7e6);
+            }
+            .socks .s1 { left: 25px; transform: rotate(-4deg); }
+            .socks .s2 { right: 25px; transform: rotate(4deg); }
+            .socks .s3,
+            .socks .s4 {
+              top: 82px;
+              width: 38px;
+              height: 17px;
+              border-radius: 18px 14px 8px 8px;
+              background: #a8b7e6;
+            }
+            .socks .s3 { left: 18px; }
+            .socks .s4 { right: 18px; }
+
 
         @media (max-width: 768px) {
+
+            .outfit-weather-section {
+                grid-template-columns: 1fr;
+                gap: calc(var(--spacing-unit) * 2.5);
+                margin-bottom: calc(var(--spacing-unit) * 6);
+            }
+            .outfit-feature-card {
+                padding: calc(var(--spacing-unit) * 2.5);
+            }
+            .outfit-section-head {
+                display: block;
+            }
+            .outfit-section-head .outfit-pill {
+                margin-top: calc(var(--spacing-unit) * 1.25);
+            }
+            .closet-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .comfort-row {
+                grid-template-columns: 92px 1fr 40px;
+                font-size: 0.92em;
+            }
+
 
             .current-weather-section .aqi-details-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
             .skeleton-briefing-remainder-section .briefing-list { grid-template-columns: 1fr; }
             body { padding: calc(var(--spacing-unit) * 2); /* 16px */ padding-top: calc(var(--spacing-unit) * 8.5); /* 68px 테마 토글 버튼 공간 확보 */}
             .theme-toggle-button { top: calc(var(--spacing-unit) * 2); /* 16px */ right: calc(var(--spacing-unit) * 2); /* 16px */ padding: var(--spacing-unit) calc(var(--spacing-unit) * 1.5); /* 8px 12px */ }
-            header h1 { font-size: 2.4em; }
-            header p { font-size: 1.1em; }
+            header { margin-bottom: calc(var(--spacing-unit) * 2); padding-top: calc(var(--spacing-unit) * 1); }
+            header h1 { font-size: 2.05em; }
+            header p { display: none; }
             .current-weather-main .icon { font-size: 5em; }
             .current-weather-main .temp-desc .temp { font-size: 3.5em; }
             .observation-panel-head, .next-24h-header-row { display: block; }
@@ -982,6 +1959,20 @@
             .hourly-item .precip { display: none; } /* 모바일에서는 강수확률 텍스트 숨김 */
             .hourly-item .desc { width: 30%; font-size: 0.85em; } /* 모바일 설명 텍스트 크기 조정 */
         }
+
+        @media (max-width: 520px) {
+            .closet-grid {
+                grid-template-columns: 1fr;
+            }
+            .outfit-title-box {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            .outfit-icon-box {
+                margin: 0 auto;
+            }
+        }
+
 
         footer.page-footer {
             width: 100%;
@@ -1019,8 +2010,7 @@
 
     <div id="loadingSkeleton">
         <header>
-            <div class="skeleton skeleton-text" style="width: 40%; height: 2.8em; margin: 0 auto calc(var(--spacing-unit) * 1);"></div>
-            <div class="skeleton skeleton-text" style="width: 60%; height: 1.2em; margin: 0 auto;"></div>
+            <div class="skeleton skeleton-text" style="width: 34%; height: 2.1em; margin: 0 auto;"></div>
         </header>
         <div class="top-info-grid">
             <section class="skeleton-current-weather-section">
@@ -1164,6 +2154,73 @@
                 </section>
             </div>
         </div>
+
+        <section class="outfit-weather-section" id="outfitWeatherSection" aria-label="오늘의 옷차림 추천">
+            <article class="outfit-feature-card outfit-closet-card" aria-labelledby="outfitClosetTitle">
+                <div class="outfit-section-head">
+                    <div>
+                        <h2 id="outfitClosetTitle">🧺 CSS 옷장</h2>
+                        <p>추천된 의류를 이미지·SVG 없이 CSS 일러스트로 보여드립니다.</p>
+                    </div>
+                    <span class="outfit-pill" id="outfitPieceCount">👚 0개</span>
+                </div>
+                <div class="closet-grid" id="outfitClosetGrid" aria-live="polite">
+                    <div class="empty-closet">날씨 분석이 끝나면 추천 의류가 나타납니다. 🧦</div>
+                </div>
+            </article>
+
+            <article class="outfit-feature-card outfit-recommend-card" aria-labelledby="outfitRecommendTitle">
+                <div class="outfit-section-head">
+                    <div>
+                        <h2 id="outfitRecommendTitle">🎯 추천 옷차림</h2>
+                        <p>기준은 체감 온도 중심, 실제 기온 보조입니다.</p>
+                    </div>
+                    <span class="outfit-pill" id="outfitBasisPill">🌡️ 체감 기준</span>
+                </div>
+
+                <div class="outfit-title-box">
+                    <div class="outfit-icon-box" id="outfitEmoji" aria-hidden="true">🧭</div>
+                    <div>
+                        <h3 id="outfitTitle">추천을 계산하고 있습니다</h3>
+                        <p id="outfitSummary">현재 위치 날씨에 맞는 코디를 준비하고 있습니다.</p>
+                    </div>
+                </div>
+
+                <ul class="outfit-advice-list" id="outfitAdviceList">
+                    <li><span class="bullet">⏳</span><span>현재 날씨와 체감온도를 바탕으로 옷차림을 계산하고 있습니다.</span></li>
+                </ul>
+
+                <div class="outfit-chips" id="outfitTagChips" aria-label="옷차림 추천 태그"></div>
+
+                <div class="comfort-box" aria-label="옷차림 판단 지표">
+                    <div class="comfort-row">
+                        <span>방한도 🧊</span>
+                        <div class="bar" aria-hidden="true"><i id="outfitColdBar" style="--value: 50%"></i></div>
+                        <span id="outfitColdScore">--</span>
+                    </div>
+                    <div class="comfort-row">
+                        <span>시원함 🌴</span>
+                        <div class="bar" aria-hidden="true"><i id="outfitHeatBar" style="--value: 50%"></i></div>
+                        <span id="outfitHeatScore">--</span>
+                    </div>
+                    <div class="comfort-row">
+                        <span>방수/방풍 ☔</span>
+                        <div class="bar" aria-hidden="true"><i id="outfitWeatherBar" style="--value: 35%"></i></div>
+                        <span id="outfitWeatherScore">--</span>
+                    </div>
+                </div>
+
+                <div class="outfit-check-block">
+                    <h3 class="outfit-check-title">💡 외출 전 체크</h3>
+                    <ul class="outfit-advice-list" id="outfitTipsList">
+                        <li><span class="bullet">🧺</span><span>추천 결과가 여기에 표시됩니다.</span></li>
+                    </ul>
+                    <p class="outfit-fineprint">
+                        ※ 체감 온도는 개인차가 큽니다. 추위를 많이 타시면 얇은 겉옷 1겹을, 더위를 많이 타시면 통풍 좋은 소재를 우선해 주세요.
+                    </p>
+                </div>
+            </article>
+        </section>
 
         <section class="briefing-remainder-section" id="weatherBriefingMoreSection" aria-label="오늘의 기상 브리핑 나머지" style="display:none;">
             <h2>브리핑 나머지</h2>
