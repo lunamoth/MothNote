@@ -132,6 +132,7 @@ export const performTransactionalUpdate = async (updateFn) => {
         resultPayload = payload;
         
         newData.lastSavedTimestamp = Date.now();
+        canonicalizeDataBeforeSave(newData);
         
         // 수정된 데이터를 스토리지에 저장
         // [버그 수정] chrome.storage.local.set을 안전한 래퍼 함수로 교체합니다.
@@ -201,6 +202,133 @@ async function withConfirmation(options, action) {
         await action();
     }
 }
+
+
+// 저장 직전에 앱 데이터의 표준 형태를 맞춥니다.
+// 삭제/복원처럼 정상적인 작업에서 생긴 휴지통 메타데이터나 세션 참조가
+// 다음 실행 시 무결성 검사에 의해 "복구 대상"으로 오탐지되지 않도록 합니다.
+const normalizeTimestampForStorage = (value, fallback) => {
+    const timestamp = Number(value);
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : fallback;
+};
+
+const pruneLastActiveNoteMapForData = (data) => {
+    const folders = Array.isArray(data.folders) ? data.folders : [];
+    const trash = Array.isArray(data.trash) ? data.trash : [];
+    const favorites = new Set(Array.isArray(data.favorites) ? data.favorites.map(String) : []);
+
+    const noteIdsByFolder = new Map();
+    const activeNoteIds = new Set();
+
+    folders.forEach(folder => {
+        if (!folder?.id) return;
+        const noteIds = new Set();
+        (Array.isArray(folder.notes) ? folder.notes : []).forEach(note => {
+            if (!note?.id) return;
+            const noteId = String(note.id);
+            noteIds.add(noteId);
+            activeNoteIds.add(noteId);
+        });
+        noteIdsByFolder.set(String(folder.id), noteIds);
+    });
+
+    const trashItemIds = new Set();
+    trash.forEach(item => {
+        if (item?.id) trashItemIds.add(String(item.id));
+    });
+
+    const { ALL, RECENT, FAVORITES, TRASH } = CONSTANTS.VIRTUAL_FOLDERS;
+    const isValidPair = (folderId, noteId) => {
+        if (!folderId || !noteId) return false;
+        const normalizedFolderId = String(folderId);
+        const normalizedNoteId = String(noteId);
+
+        if (noteIdsByFolder.has(normalizedFolderId)) {
+            return noteIdsByFolder.get(normalizedFolderId).has(normalizedNoteId);
+        }
+        if (normalizedFolderId === ALL.id || normalizedFolderId === RECENT.id) {
+            return activeNoteIds.has(normalizedNoteId);
+        }
+        if (normalizedFolderId === FAVORITES.id) {
+            return activeNoteIds.has(normalizedNoteId) && favorites.has(normalizedNoteId);
+        }
+        if (normalizedFolderId === TRASH.id) {
+            return trashItemIds.has(normalizedNoteId);
+        }
+        return false;
+    };
+
+    const cleaned = {};
+    Object.entries(data.lastActiveNotePerFolder || {}).forEach(([folderId, noteId]) => {
+        const normalizedFolderId = String(folderId);
+        const normalizedNoteId = String(noteId);
+        if (isValidPair(normalizedFolderId, normalizedNoteId)) {
+            cleaned[normalizedFolderId] = normalizedNoteId;
+        }
+    });
+
+    data.lastActiveNotePerFolder = cleaned;
+};
+
+const canonicalizeDataBeforeSave = (data) => {
+    if (!data || typeof data !== 'object') return data;
+
+    const now = Date.now();
+    data.folders = Array.isArray(data.folders) ? data.folders : [];
+    data.trash = Array.isArray(data.trash) ? data.trash : [];
+    data.favorites = Array.isArray(data.favorites) ? data.favorites : [];
+    data.lastActiveNotePerFolder = (data.lastActiveNotePerFolder && typeof data.lastActiveNotePerFolder === 'object' && !Array.isArray(data.lastActiveNotePerFolder))
+        ? data.lastActiveNotePerFolder
+        : {};
+
+    data.folders.forEach(folder => {
+        if (!folder || typeof folder !== 'object') return;
+        delete folder.type;
+        delete folder.deletedAt;
+        delete folder.originalIndex;
+        folder.notes = Array.isArray(folder.notes) ? folder.notes : [];
+        folder.notes.forEach(note => {
+            if (!note || typeof note !== 'object') return;
+            delete note.type;
+            delete note.deletedAt;
+            delete note.originalFolderId;
+            delete note.wasFavorite;
+        });
+    });
+
+    data.trash.forEach(item => {
+        if (!item || typeof item !== 'object') return;
+        const isFolderLike = item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes);
+
+        if (isFolderLike) {
+            item.type = CONSTANTS.ITEM_TYPE.FOLDER;
+            item.deletedAt = normalizeTimestampForStorage(item.deletedAt, now);
+            item.notes = Array.isArray(item.notes) ? item.notes : [];
+            item.notes.forEach(note => {
+                if (!note || typeof note !== 'object') return;
+                note.type = CONSTANTS.ITEM_TYPE.NOTE;
+                note.deletedAt = normalizeTimestampForStorage(note.deletedAt, item.deletedAt || now);
+                if (note.originalFolderId === undefined || note.originalFolderId === null) {
+                    note.originalFolderId = item.id;
+                }
+            });
+        } else {
+            item.type = CONSTANTS.ITEM_TYPE.NOTE;
+            item.deletedAt = normalizeTimestampForStorage(item.deletedAt, now);
+        }
+    });
+
+    const activeNoteIds = new Set();
+    data.folders.forEach(folder => {
+        (Array.isArray(folder.notes) ? folder.notes : []).forEach(note => {
+            if (note?.id) activeNoteIds.add(String(note.id));
+        });
+    });
+    data.favorites = Array.from(new Set(data.favorites.map(id => String(id)).filter(id => activeNoteIds.has(id))));
+
+    pruneLastActiveNoteMapForData(data);
+    return data;
+};
 
 const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
     if (!notesInView || notesInView.length === 0) return null;
@@ -464,15 +592,22 @@ export const performDeleteItem = (id, type) => {
             if (folderIndex === -1) return null;
             
             const [folderToMove] = folders.splice(folderIndex, 1);
-            folderToMove.type = 'folder';
+            folderToMove.type = CONSTANTS.ITEM_TYPE.FOLDER;
             folderToMove.originalIndex = folderIndex;
             folderToMove.deletedAt = now;
             folderToMove.updatedAt = now;
-            trash.unshift(folderToMove);
             
             const favoritesSet = new Set(latestData.favorites || []);
-            folderToMove.notes.forEach(note => favoritesSet.delete(note.id));
+            folderToMove.notes = Array.isArray(folderToMove.notes) ? folderToMove.notes : [];
+            folderToMove.notes.forEach(note => {
+                note.type = CONSTANTS.ITEM_TYPE.NOTE;
+                note.originalFolderId = folderToMove.id;
+                note.deletedAt = now;
+                if (favoritesSet.has(note.id)) note.wasFavorite = true;
+                favoritesSet.delete(note.id);
+            });
             latestData.favorites = Array.from(favoritesSet);
+            trash.unshift(folderToMove);
 
             successMessage = CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name);
             if (state.activeFolderId === id) {
@@ -492,7 +627,7 @@ export const performDeleteItem = (id, type) => {
             }
             if (!noteToMove) return null;
 
-            noteToMove.type = 'note';
+            noteToMove.type = CONSTANTS.ITEM_TYPE.NOTE;
             noteToMove.originalFolderId = sourceFolder.id;
             noteToMove.deletedAt = now;
             
@@ -637,11 +772,17 @@ export const handleRestoreItem = async (id, type) => {
                 restoredNoteIds.add(note.id);
                 allExistingIds.add(note.id);
                 
-                delete note.deletedAt; delete note.type; delete note.originalFolderId; 
+                const shouldRestoreFavorite = note.wasFavorite === true;
+                delete note.deletedAt;
+                delete note.type;
+                delete note.originalFolderId;
+                delete note.wasFavorite;
+                if (shouldRestoreFavorite) favoritesSet.add(note.id);
             });
+            latestData.favorites = Array.from(favoritesSet);
             
             delete itemToRestoreInTx.deletedAt;
-            itemToRestoreInTx.type = 'folder';
+            delete itemToRestoreInTx.type;
             itemToRestoreInTx.updatedAt = now;
             
             if (typeof itemToRestoreInTx.originalIndex === 'number' && itemToRestoreInTx.originalIndex >= 0) {
@@ -681,7 +822,7 @@ export const handleRestoreItem = async (id, type) => {
             }
 
             delete itemToRestoreInTx.deletedAt;
-            itemToRestoreInTx.type = 'note';
+            delete itemToRestoreInTx.type;
             delete itemToRestoreInTx.originalFolderId;
             itemToRestoreInTx.updatedAt = now;
 

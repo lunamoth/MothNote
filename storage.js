@@ -94,6 +94,93 @@ export const saveSession = () => {
     }
 };
 
+
+const buildDataReferenceContext = (data) => {
+    const folders = Array.isArray(data?.folders) ? data.folders : [];
+    const trash = Array.isArray(data?.trash) ? data.trash : [];
+    const rawFavorites = data?.favorites instanceof Set
+        ? Array.from(data.favorites)
+        : (Array.isArray(data?.favorites) ? data.favorites : []);
+    const favorites = new Set(rawFavorites.map(String));
+
+    const noteIdsByFolder = new Map();
+    const activeNoteIds = new Set();
+    const trashItemIds = new Set();
+
+    folders.forEach(folder => {
+        if (!folder?.id) return;
+        const folderId = String(folder.id);
+        const noteIds = new Set();
+        (Array.isArray(folder.notes) ? folder.notes : []).forEach(note => {
+            if (!note?.id) return;
+            const noteId = String(note.id);
+            noteIds.add(noteId);
+            activeNoteIds.add(noteId);
+        });
+        noteIdsByFolder.set(folderId, noteIds);
+    });
+
+    trash.forEach(item => {
+        if (item?.id) trashItemIds.add(String(item.id));
+    });
+
+    return { noteIdsByFolder, activeNoteIds, trashItemIds, favorites };
+};
+
+const isValidLastActiveReference = (folderId, noteId, context) => {
+    if (!folderId || !noteId) return false;
+
+    const normalizedFolderId = String(folderId);
+    const normalizedNoteId = String(noteId);
+
+    if (context.noteIdsByFolder.has(normalizedFolderId)) {
+        return context.noteIdsByFolder.get(normalizedFolderId).has(normalizedNoteId);
+    }
+
+    const { ALL, RECENT, FAVORITES, TRASH } = CONSTANTS.VIRTUAL_FOLDERS;
+    if (normalizedFolderId === ALL.id || normalizedFolderId === RECENT.id) {
+        return context.activeNoteIds.has(normalizedNoteId);
+    }
+    if (normalizedFolderId === FAVORITES.id) {
+        return context.activeNoteIds.has(normalizedNoteId) && context.favorites.has(normalizedNoteId);
+    }
+    if (normalizedFolderId === TRASH.id) {
+        return context.trashItemIds.has(normalizedNoteId);
+    }
+    return false;
+};
+
+const sanitizeLastActiveNoteMap = (rawMap, data, idUpdateMap = new Map(), markChanged = null) => {
+    const sourceMap = rawMap && typeof rawMap === 'object' && !Array.isArray(rawMap) ? rawMap : {};
+    if (sourceMap !== rawMap && typeof markChanged === 'function') markChanged();
+
+    const context = buildDataReferenceContext(data);
+    const cleaned = {};
+
+    for (const [folderId, noteId] of Object.entries(sourceMap)) {
+        const newFolderId = idUpdateMap.get(String(folderId)) || String(folderId);
+        const newNoteId = idUpdateMap.get(String(noteId)) || String(noteId);
+        if (isValidLastActiveReference(newFolderId, newNoteId, context)) {
+            cleaned[newFolderId] = newNoteId;
+        } else if (typeof markChanged === 'function') {
+            markChanged();
+        }
+    }
+
+    return cleaned;
+};
+
+const parseSimplenoteTimestamp = (value, fallback) => {
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+        // Simplenote 내보내기/변환본에 초 단위 Unix 시간이 섞여 들어오는 경우도 방어합니다.
+        return numeric < 100000000000 ? numeric * 1000 : numeric;
+    }
+    return fallback;
+};
+
 /**
  * [CRITICAL FIX] 로드된 데이터의 무결성을 검증하고, 손상된 배열/객체/ID 참조를 자동 복구합니다.
  * 일반 폴더는 type 필드가 없으므로 notes 배열을 기준으로도 폴더를 판별합니다.
@@ -108,9 +195,14 @@ const verifyAndSanitizeLoadedData = (data) => {
     const idUpdateMap = new Map();
     const usedIds = new Set();
     let changesMade = false;
+    let notifyChangesMade = false;
     const now = Date.now();
 
-    const markChanged = () => { changesMade = true; };
+    const markChanged = (shouldNotify = true) => {
+        changesMade = true;
+        if (shouldNotify) notifyChangesMade = true;
+    };
+    const markMinorChanged = () => markChanged(false);
     const ensureArray = (value) => {
         if (Array.isArray(value)) return value;
         if (value !== undefined) markChanged();
@@ -118,17 +210,17 @@ const verifyAndSanitizeLoadedData = (data) => {
     };
     const ensureObject = (value) => {
         if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-        if (value !== undefined) markChanged();
+        if (value !== undefined) markChanged(false);
         return {};
     };
     const normalizeText = (value, fallback, maxLength) => {
         const text = String(value ?? fallback ?? '').trim();
         return text.slice(0, maxLength);
     };
-    const normalizeTimestamp = (value, fallback = now) => {
+    const normalizeTimestamp = (value, fallback = now, shouldNotify = true) => {
         const timestamp = Number(value);
         if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
-        markChanged();
+        markChanged(shouldNotify);
         return fallback;
     };
     const normalizeId = (item, prefix) => {
@@ -166,14 +258,14 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         if (isTrash) {
             note.type = CONSTANTS.ITEM_TYPE.NOTE;
-            note.deletedAt = normalizeTimestamp(note.deletedAt);
+            note.deletedAt = normalizeTimestamp(note.deletedAt, now, false);
             if (note.originalFolderId !== undefined && note.originalFolderId !== null) {
                 note.originalFolderId = String(note.originalFolderId);
             }
             if ('wasFavorite' in note) note.wasFavorite = Boolean(note.wasFavorite);
         } else if (note.type !== undefined) {
             delete note.type;
-            markChanged();
+            markChanged(false);
         }
         return note;
     };
@@ -197,10 +289,10 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         if (isTrash) {
             folder.type = CONSTANTS.ITEM_TYPE.FOLDER;
-            folder.deletedAt = normalizeTimestamp(folder.deletedAt);
+            folder.deletedAt = normalizeTimestamp(folder.deletedAt, now, false);
         } else if (folder.type !== undefined) {
             delete folder.type;
-            markChanged();
+            markChanged(false);
         }
         return folder;
     };
@@ -220,11 +312,10 @@ const verifyAndSanitizeLoadedData = (data) => {
         })
         .filter(Boolean);
 
-    const activeFolderIds = new Set(data.folders.map(folder => folder.id));
     const activeNoteIds = new Set();
-    data.folders.forEach(folder => folder.notes.forEach(note => activeNoteIds.add(note.id)));
+    data.folders.forEach(folder => folder.notes.forEach(note => activeNoteIds.add(String(note.id))));
 
-    // ID가 바뀐 참조를 보정하고, 현재 활성 노트에 존재하지 않는 즐겨찾기/세션 참조는 제거합니다.
+    // ID가 바뀐 참조를 보정하고, 현재 활성 노트에 존재하지 않는 즐겨찾기 참조는 제거합니다.
     data.favorites = Array.from(new Set(data.favorites
         .map(id => idUpdateMap.get(String(id)) || String(id))
         .filter(id => activeNoteIds.has(id))));
@@ -239,17 +330,9 @@ const verifyAndSanitizeLoadedData = (data) => {
         else applyOriginalFolderFix(item);
     });
 
-    const newLastActiveMap = {};
-    for (const [folderId, noteId] of Object.entries(data.lastActiveNotePerFolder)) {
-        const newFolderId = idUpdateMap.get(String(folderId)) || String(folderId);
-        const newNoteId = idUpdateMap.get(String(noteId)) || String(noteId);
-        if (activeFolderIds.has(newFolderId) && activeNoteIds.has(newNoteId)) {
-            newLastActiveMap[newFolderId] = newNoteId;
-        } else {
-            markChanged();
-        }
-    }
-    data.lastActiveNotePerFolder = newLastActiveMap;
+    // 실제 폴더뿐 아니라 '모든 노트/최근 노트/즐겨찾기/휴지통' 같은 가상 폴더 세션도 정상 참조로 인정합니다.
+    // 이전 로직은 가상 폴더 세션을 무조건 제거하여 정상 작업 뒤에도 무결성 복구 알림을 만들 수 있었습니다.
+    data.lastActiveNotePerFolder = sanitizeLastActiveNoteMap(data.lastActiveNotePerFolder, data, idUpdateMap, markMinorChanged);
 
     if (data.activeFolderId !== undefined && data.activeFolderId !== null) {
         data.activeFolderId = idUpdateMap.get(String(data.activeFolderId)) || String(data.activeFolderId);
@@ -258,7 +341,7 @@ const verifyAndSanitizeLoadedData = (data) => {
         data.activeNoteId = idUpdateMap.get(String(data.activeNoteId)) || String(data.activeNoteId);
     }
 
-    return { sanitizedData: data, wasSanitized: changesMade, idUpdateMap };
+    return { sanitizedData: data, wasSanitized: changesMade, shouldNotify: notifyChangesMade, idUpdateMap };
 };
 
 
@@ -353,16 +436,18 @@ export const loadData = async () => {
         if (authoritativeData) {
             // 데이터의 깊은 복사본을 만들어 원본 오염 없이 안전하게 검증합니다.
             // [MAJOR BUG FIX] idUpdateMap을 반환받아 세션 데이터 보정에 사용합니다.
-            const { sanitizedData, wasSanitized, idUpdateMap: returnedMap } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
+            const { sanitizedData, wasSanitized, shouldNotify, idUpdateMap: returnedMap } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
             authoritativeData = sanitizedData;
             idUpdateMap = returnedMap;
             
             if (wasSanitized) {
-                // 자동 복구가 발생했음을 사용자에게 알리고, 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
+                // 자동 복구가 발생하면 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
                 await storageSet({ appState: authoritativeData });
-                const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다. 앱이 정상적으로 동작합니다.";
-                // recoveryMessage가 이미 있을 경우, 새 메시지를 추가합니다.
-                recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
+                if (shouldNotify) {
+                    const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다. 앱이 정상적으로 동작합니다.";
+                    // recoveryMessage가 이미 있을 경우, 새 메시지를 추가합니다.
+                    recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
+                }
                 console.log("Sanitized data has been saved back to storage.");
             }
         }
@@ -574,24 +659,16 @@ export const loadData = async () => {
 
             if (lastSession) {
                 // [CRITICAL BUG FIX] ID 변경 맵을 사용하여 세션 데이터의 참조 무결성을 보장합니다.
-                const correctedFolderId = idUpdateMap.get(lastSession.f) || lastSession.f;
-                const correctedNoteId = idUpdateMap.get(lastSession.n) || lastSession.n;
+                const correctedFolderId = idUpdateMap.get(String(lastSession.f)) || lastSession.f;
+                const correctedNoteId = idUpdateMap.get(String(lastSession.n)) || lastSession.n;
 
                 finalState.activeFolderId = correctedFolderId;
                 finalState.activeNoteId = correctedNoteId;
                 finalState.noteSortOrder = lastSession.s ?? 'updatedAt_desc';
                 
-                // lastActiveNotePerFolder 맵의 키와 값 모두 ID 변경 맵으로 보정합니다.
-                const correctedLastActiveMap = {};
-                if (lastSession.l) {
-                    for (const oldFolderId in lastSession.l) {
-                        const newFolderId = idUpdateMap.get(oldFolderId) || oldFolderId;
-                        const oldNoteId = lastSession.l[oldFolderId];
-                        const newNoteId = idUpdateMap.get(oldNoteId) || oldNoteId;
-                        correctedLastActiveMap[newFolderId] = newNoteId;
-                    }
-                }
-                finalState.lastActiveNotePerFolder = correctedLastActiveMap;
+                // localStorage 세션은 앱 데이터보다 자주 낡을 수 있으므로, 존재하는 폴더/노트/휴지통 항목만 남깁니다.
+                // 그렇지 않으면 정제된 appState에 낡은 세션 참조가 다시 섞여 들어가 다음 저장 때 무결성 알림이 반복됩니다.
+                finalState.lastActiveNotePerFolder = sanitizeLastActiveNoteMap(lastSession.l || {}, finalState, idUpdateMap);
             } else {
                 // lastSession이 없을 경우 lastActiveNotePerFolder를 초기화합니다.
                 finalState.lastActiveNotePerFolder = {};
@@ -1049,8 +1126,10 @@ export const setupImportHandler = () => {
                             let content = note.content || '';
                             
                             // [BUG FIX] 공백만 있는 줄을 건너뛰고 첫 번째 실제 텍스트 줄을 제목으로 사용합니다.
+                            const createdAt = parseSimplenoteTimestamp(note.creationDate, now);
+                            const updatedAt = parseSimplenoteTimestamp(note.lastModified, createdAt);
                             const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
-                            const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                            const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
                             
                             // [수정] Simplenote 태그(Tag) 정보 보존
                             if (note.tags && Array.isArray(note.tags) && note.tags.length > 0) {
@@ -1069,8 +1148,8 @@ export const setupImportHandler = () => {
                                 id: newNoteId,
                                 title: title,
                                 content: content,
-                                createdAt: new Date(note.creationDate).getTime(),
-                                updatedAt: new Date(note.lastModified).getTime(),
+                                createdAt: createdAt,
+                                updatedAt: updatedAt,
                                 // [수정] 고정된 노트(Pinned Note) 상태 유지
                                 isPinned: note.pinned === true
                             });
@@ -1083,8 +1162,10 @@ export const setupImportHandler = () => {
                                 const content = note.content || '';
                                 
                                 // [BUG FIX] 여기에도 동일한 제목 생성 로직을 적용합니다.
+                                const createdAt = parseSimplenoteTimestamp(note.creationDate, now);
+                                const updatedAt = parseSimplenoteTimestamp(note.lastModified, createdAt);
                                 const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
-                                const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(note.creationDate).toLocaleDateString()}`;
+                                const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
 
                                 const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                                 allExistingIds.add(newNoteId);
@@ -1093,8 +1174,8 @@ export const setupImportHandler = () => {
                                     id: newNoteId,
                                     title: title,
                                     content: content,
-                                    createdAt: new Date(note.creationDate).getTime(),
-                                    updatedAt: new Date(note.lastModified).getTime(),
+                                    createdAt: createdAt,
+                                    updatedAt: updatedAt,
                                     isPinned: false,
                                     type: 'note',
                                     deletedAt: now,
