@@ -108,13 +108,22 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration
     toastContainer.prepend(toast);
 };
 
-// [버그 수정] 모달 이벤트 처리 로직을 표준적이고 안정적인 방식으로 전면 재작성
-const _showModalInternal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
-    // [BUG FIX] 모달을 열기 전, 현재 포커스를 받은 요소를 저장합니다.
+// 모달 요청은 하나씩 처리합니다. 동일한 <dialog>를 동시에 재사용하면
+// 이벤트 리스너와 UI 상태가 서로 덮어써져 Promise가 끝나지 않을 수 있습니다.
+let modalQueue = Promise.resolve();
+
+const _showSingleModal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
     const elementToFocusOnClose = document.activeElement;
 
-    return new Promise(resolve => {
-        // --- 1. UI 설정 ---
+    return new Promise((resolve, reject) => {
+        if (!modal || !modalTitle || !modalMessage || !modalConfirmBtn || !modalCancelBtn || !modalCloseBtn || !modalInput || !modalErrorMessage) {
+            reject(new Error('필수 모달 DOM 요소를 찾을 수 없습니다.'));
+            return;
+        }
+
+        // 이전 호출의 상태가 다음 모달로 새어 들어오지 않도록 매번 초기화합니다.
+        // 특히 ESC로 닫으면 returnValue가 갱신되지 않으므로 반드시 빈 값으로 리셋해야 합니다.
+        modal.returnValue = '';
         modalTitle.textContent = title;
         modalMessage.innerHTML = '';
         if (message instanceof Node) modalMessage.appendChild(message);
@@ -127,109 +136,130 @@ const _showModalInternal = ({ type, title, message = '', placeholder = '', initi
         modalCancelBtn.textContent = cancelText;
         modalConfirmBtn.className = 'modal-button ripple-effect ' + confirmButtonType;
         modalConfirmBtn.style.display = hideConfirmButton ? 'none' : 'inline-block';
-        modalCancelBtn.style.display = (hideCancelButton || type === 'alert') ? 'none' : 'inline-block';
+        modalCancelBtn.style.display = (hideCancelButton || type === CONSTANTS.MODAL_TYPE.ALERT) ? 'none' : 'inline-block';
         modalCloseBtn.style.display = 'block';
+        modalConfirmBtn.disabled = false;
         modalInput.style.display = type === CONSTANTS.MODAL_TYPE.PROMPT ? 'block' : 'none';
         modalMessage.style.display = message ? 'block' : 'none';
         modalInput.value = initialValue;
         modalInput.placeholder = placeholder;
 
-        // --- 2. 이벤트 핸들러 정의 ---
-        // 핸들러는 이 Promise 스코프 내에서 정의되어 외부 상태에 영향을 주지 않음
         let hasUserInput = false;
         const runValidation = (force = false) => {
             if (!validationFn) return true;
-            const { isValid, message } = validationFn(modalInput.value);
+            const validationResult = validationFn(modalInput.value) || {};
+            const isValid = validationResult.isValid === true;
             modalConfirmBtn.disabled = !isValid;
-            if ((force || hasUserInput) && !isValid && message) {
-                modalErrorMessage.textContent = message;
+            if ((force || hasUserInput) && !isValid && validationResult.message) {
+                modalErrorMessage.textContent = validationResult.message;
                 modalErrorMessage.style.display = 'block';
             } else {
                 modalErrorMessage.style.display = 'none';
             }
             return isValid;
         };
-        
+
         const handleInput = () => {
-            if (!hasUserInput) hasUserInput = true;
+            hasUserInput = true;
             runValidation();
         };
 
-        // 확인 버튼 클릭 시, 유효성 검사를 통과해야만 모달을 닫도록 처리
-        const handleConfirmClick = (e) => {
-            if (validationFn && !runValidation(true)) {
-                e.preventDefault(); // <form method="dialog">의 기본 동작(모달 닫기)을 막음
-                return;
-            }
-            modal.close('confirm'); // 유효성 통과 시 'confirm' 값으로 모달 닫기
+        const closeWithValue = (value) => {
+            if (modal.open) modal.close(value);
         };
 
-        // 취소 관련 버튼은 항상 'cancel' 값으로 모달을 닫음
-        const handleCancelClick = () => modal.close('cancel');
-        
-        const handleKeydown = (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault(); // 기본 form 제출 동작 방지
-                modalConfirmBtn.click(); // 정의된 확인 버튼 로직을 그대로 실행
-            } else if (e.key === 'Escape') {
-                // Escape는 dialog의 기본 동작으로 cancel 이벤트와 close 이벤트를 발생시키므로,
-                // handleClose가 자동으로 처리함. 여기서는 handleCancelClick을 명시적으로 호출하여 일관성 유지.
-                handleCancelClick();
+        const handleConfirmClick = (event) => {
+            // form method="dialog"의 기본 제출과 직접 close()가 중복 실행되지 않도록 차단합니다.
+            event?.preventDefault();
+            if (validationFn && !runValidation(true)) return;
+            closeWithValue('confirm');
+        };
+
+        const handleCancelClick = (event) => {
+            event?.preventDefault();
+            closeWithValue('cancel');
+        };
+
+        const handleCancelRequest = (event) => {
+            // ESC/플랫폼 뒤로가기를 언제나 명시적인 취소로 정규화합니다.
+            // 기본 동작을 막지 않으면 이전 returnValue가 남아 확인으로 오판될 수 있습니다.
+            event.preventDefault();
+            closeWithValue('cancel');
+        };
+
+        const handleKeydown = (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleConfirmClick(event);
             }
         };
 
-        // [핵심 안정성] 'close' 이벤트를 유일한 Promise 종료 지점으로 사용.
-        // 어떤 방식(버튼 클릭, ESC 키, form 제출 등)으로든 모달이 닫히면 항상 호출됨.
-        const handleClose = () => {
-            // --- 4. 리스너 정리 ---
-            // 이 모달 인스턴스를 위해 추가된 모든 이벤트 리스너를 깨끗하게 제거하여 메모리 누수 방지
+        const cleanup = () => {
             modalConfirmBtn.removeEventListener('click', handleConfirmClick);
             modalCancelBtn.removeEventListener('click', handleCancelClick);
             modalCloseBtn.removeEventListener('click', handleCancelClick);
             modalInput.removeEventListener('input', handleInput);
             modalInput.removeEventListener('keydown', handleKeydown);
+            modal.removeEventListener('cancel', handleCancelRequest);
             modal.removeEventListener('close', handleClose);
-            
-            // [BUG FIX] 모달이 닫힌 후, 이전에 저장해 둔 요소로 포커스를 되돌립니다.
+        };
+
+        const handleClose = () => {
+            cleanup();
+
             try {
-                if (elementToFocusOnClose && typeof elementToFocusOnClose.focus === 'function') {
+                if (elementToFocusOnClose && typeof elementToFocusOnClose.focus === 'function' && elementToFocusOnClose.isConnected !== false) {
                     elementToFocusOnClose.focus();
                 }
-            } catch (e) {
-                console.warn("Failed to restore focus to the previous element.", e);
+            } catch (error) {
+                console.warn('Failed to restore focus to the previous element.', error);
             }
 
-            // --- 5. 결과 반환 ---
-            // modal.returnValue 값을 기반으로 Promise의 결과를 결정
             let result = null;
             if (modal.returnValue === 'confirm') {
                 if (type === CONSTANTS.MODAL_TYPE.PROMPT) result = modalInput.value;
                 else if (message instanceof Node && message.querySelector('select')) result = message.querySelector('select').value;
                 else result = true;
             }
-            resolve(result); // Promise를 최종적으로 해결
+            resolve(result);
         };
-        
-        // --- 3. 리스너 연결 ---
+
         modalConfirmBtn.addEventListener('click', handleConfirmClick);
         modalCancelBtn.addEventListener('click', handleCancelClick);
         modalCloseBtn.addEventListener('click', handleCancelClick);
+        modal.addEventListener('cancel', handleCancelRequest);
         modal.addEventListener('close', handleClose);
-        
+
         if (type === CONSTANTS.MODAL_TYPE.PROMPT) {
             modalInput.addEventListener('keydown', handleKeydown);
             if (validationFn) {
                 modalInput.addEventListener('input', handleInput);
-                runValidation(); // 초기 버튼 상태 설정
+                runValidation();
             }
         }
-        
-        modal.showModal();
-        if (type === CONSTANTS.MODAL_TYPE.PROMPT) {
-            modalInput.focus();
-            modalInput.select();
+
+        try {
+            modal.showModal();
+            if (type === CONSTANTS.MODAL_TYPE.PROMPT) {
+                modalInput.focus();
+                modalInput.select();
+            } else if (!hideConfirmButton) {
+                modalConfirmBtn.focus();
+            }
+        } catch (error) {
+            cleanup();
+            reject(error);
         }
     });
+};
+
+const _showModalInternal = (options) => {
+    const request = modalQueue.then(() => _showSingleModal(options));
+    // 한 요청이 실패해도 다음 요청이 영구적으로 막히지 않도록 큐를 복구합니다.
+    modalQueue = request.catch(error => {
+        console.error('Modal request failed:', error);
+    });
+    return request;
 };
 
 export const showAlert = (options) => _showModalInternal({ ...options, type: CONSTANTS.MODAL_TYPE.ALERT, hideCancelButton: true });

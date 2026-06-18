@@ -64,6 +64,7 @@ import { welcomeNoteContent } from './welcomeNote.js';
 import { escapeHtml } from './sanitizer.js';
 // [기능 추가] LunaFlowACT.js에서 노트 내용을 가져옵니다.
 import { lunaFlowACTContent } from './LunaFlowACT.js';
+import { withAppStateWriteLock } from './storageLock.js';
 
 // [기능 추가] 습관 트래커 데이터 키 상수
 const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
@@ -76,7 +77,7 @@ const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 
 // 이 파일에 있던 함수 정의를 완전히 삭제합니다.
 
 
-// [REMOVED] 멀티탭 동기화를 위한 분산 락(Distributed Lock) 관련 함수를 모두 제거했습니다.
+// appState의 읽기-수정-쓰기는 storageLock.js의 Web Locks 기반 배타 락으로 직렬화합니다.
 
 
 // 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)
@@ -354,102 +355,96 @@ export const loadData = async () => {
     let idUpdateMap = new Map();
 
     try {
-        // [BUG-C-01 수정] 가져오기(Import) 작업의 원자성(Atomicity) 보장 로직
-        const importStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-        const backupResult = await storageGet('appState_backup');
-
-        if (importStatus === 'done' && backupResult.appState_backup) {
-            // 시나리오: 성공적인 가져오기 후 리로드됨. 백업을 정리하고 계속 진행합니다.
-            console.log("Import successfully completed. Cleaning up backup data.");
-            await storageRemove('appState_backup');
-            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-            recoveryMessage = CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS;
-        } else if (importStatus === 'true' && backupResult.appState_backup) {
-            // 시나리오: 가져오기 중 비정상 종료됨. 이전 데이터로 롤백합니다.
+        // 미완료 가져오기 복구 역시 같은 appState 락 안에서 판정·복원·정리합니다.
+        // 여러 새 탭이 동시에 시작되어 같은 백업을 반복 복원하는 경합을 방지합니다.
+        const importRecoveryMessage = await withAppStateWriteLock(async () => {
+            const importStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            const backupResult = await storageGet('appState_backup');
             const backupPayload = backupResult.appState_backup;
-            console.warn("Incomplete import detected. Rolling back to previous data.");
-            
-            // --- START OF FIX ---
-            // [BUG-C-CRITICAL 수정] 롤백할 백업 데이터의 무결성을 검증하고 정제합니다.
-            // JSON.parse(JSON.stringify(...))로 깊은 복사본을 만들어 원본 오염 없이 안전하게 처리합니다.
-            const { sanitizedData, wasSanitized } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(backupPayload.appState || {})));
-            
-            if (wasSanitized) {
-                console.warn("[Rollback] The backup data itself required sanitization before restoration.");
+
+            if (importStatus === 'done') {
+                if (backupPayload) await storageRemove('appState_backup');
+                // 성공 후 백업만 먼저 지워진 경우에도 완료 플래그가 영구히 남지 않게 정리합니다.
+                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                return backupPayload ? CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS : null;
             }
-            
-            // 정제된 (안전한) 데이터로 롤백을 수행합니다.
-            await storageSet({ appState: sanitizedData });
-        
-            // 설정 데이터도 안전하게 처리합니다.
-            if (backupPayload.settings) {
-                try {
-                    // [개선] 설정 데이터도 파싱-정제 과정을 거쳐 안전하게 복원합니다.
-                    const parsedSettings = JSON.parse(backupPayload.settings);
-                    const sanitizedSettings = sanitizeSettings(parsedSettings);
-                    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
-                } catch (e) {
-                    // 설정 복원 실패 시, 기본값으로 돌아가도록 기존 설정을 제거합니다.
-                    console.error("Failed to parse or sanitize settings from backup. Using defaults.", e);
+
+            if (importStatus === 'true' && backupPayload) {
+                console.warn('Incomplete import detected. Rolling back to previous data.');
+                const hadAppState = backupPayload.hadAppState !== undefined
+                    ? backupPayload.hadAppState === true
+                    : backupPayload.appState != null;
+
+                if (hadAppState) {
+                    const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(backupPayload.appState || {})));
+                    await storageSet({ appState: verification.sanitizedData });
+                    if (verification.wasSanitized) {
+                        console.warn('[Rollback] The backup data required sanitization before restoration.');
+                    }
+                } else {
+                    await storageRemove('appState');
+                }
+
+                if (typeof backupPayload.settings === 'string') {
+                    try {
+                        const parsedSettings = JSON.parse(backupPayload.settings);
+                        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizeSettings(parsedSettings)));
+                    } catch (settingsError) {
+                        console.error('Failed to parse settings from import backup. Using defaults.', settingsError);
+                        localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+                    }
+                } else {
                     localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
                 }
-            } else {
-                localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+
+                restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
+                restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
+                restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);
+
+                await storageRemove('appState_backup');
+                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                return '데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.';
             }
 
-            // [기능 추가] 습관 트래커 데이터 롤백
-            if (backupPayload.habitTrackerData) {
-                localStorage.setItem(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
-            } else {
-                localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
+            if (importStatus === 'true' && !backupPayload) {
+                console.warn("Inconsistent import state detected: flag is 'true' but no backup exists.");
+                localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                return '이전 데이터 가져오기 작업이 비정상적으로 중단되었습니다. 작업을 다시 시도해주세요.';
             }
 
-            // [기능 추가] 다이어트 챌린지 데이터 롤백
-            if (backupPayload.dietChallengeData) {
-                localStorage.setItem(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
-            } else {
-                localStorage.removeItem(DIET_CHALLENGE_DATA_KEY);
-            }
-            if (backupPayload.dietChallengeSettings) {
-                localStorage.setItem(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);
-            } else {
-                localStorage.removeItem(DIET_CHALLENGE_SETTINGS_KEY);
-            }
-            // --- END OF FIX ---
-            
-            await storageRemove('appState_backup');
-            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-            recoveryMessage = "데이터 가져오기 작업이 비정상적으로 종료되어, 이전 데이터로 안전하게 복구했습니다.";
-        } else if (importStatus === 'true' && !backupResult.appState_backup) {
-            // [안전망 추가] 시나리오: 플래그는 있으나 백업이 없는 불일치 상태.
-            // 이는 백업 생성 단계에서 실패했음을 의미합니다.
-            console.warn("Inconsistent import state detected: Flag is 'true' but no backup found. Clearing flag to prevent deadlock.");
-            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-            recoveryMessage = "이전 데이터 가져오기 작업이 비정상적으로 중단되었습니다. 작업을 다시 시도해주세요.";
-        }
-        
-        // 2. [핵심 변경] 주 저장소(Single Source of Truth)에서 데이터를 로드합니다.
-        const mainStorageResult = await storageGet('appState');
-        authoritativeData = mainStorageResult.appState;
-        
-        // [BUG-C-CRITICAL 수정 및 통합] 로드된 데이터의 무결성을 검증하고 자동 복구합니다.
-        if (authoritativeData) {
-            // 데이터의 깊은 복사본을 만들어 원본 오염 없이 안전하게 검증합니다.
-            // [MAJOR BUG FIX] idUpdateMap을 반환받아 세션 데이터 보정에 사용합니다.
-            const { sanitizedData, wasSanitized, shouldNotify, idUpdateMap: returnedMap } = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
-            authoritativeData = sanitizedData;
-            idUpdateMap = returnedMap;
-            
-            if (wasSanitized) {
-                // 자동 복구가 발생하면 수정된 데이터를 스토리지에 다시 저장하여 무결성을 유지합니다.
-                await storageSet({ appState: authoritativeData });
-                if (shouldNotify) {
-                    const sanizitationMessage = "데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다. 앱이 정상적으로 동작합니다.";
-                    // recoveryMessage가 이미 있을 경우, 새 메시지를 추가합니다.
-                    recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanizitationMessage}` : sanizitationMessage;
+            return null;
+        });
+
+        if (importRecoveryMessage) recoveryMessage = importRecoveryMessage;
+
+        // 2. 주 저장소를 탭 간 락 안에서 읽고, 무결성 보정이 필요하면 같은 락 안에서 저장합니다.
+        // 오래된 탭이 검증 직후 다른 탭의 신규 변경을 덮어쓰는 read-modify-write 경합을 막습니다.
+        const loadedResult = await withAppStateWriteLock(async () => {
+            const mainStorageResult = await storageGet('appState');
+            let loadedData = mainStorageResult.appState;
+            let loadedIdUpdateMap = new Map();
+            let shouldShowRecoveryNotice = false;
+
+            if (loadedData) {
+                const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(loadedData)));
+                loadedData = verification.sanitizedData;
+                loadedIdUpdateMap = verification.idUpdateMap;
+                shouldShowRecoveryNotice = verification.shouldNotify;
+
+                if (verification.wasSanitized) {
+                    await storageSet({ appState: loadedData });
+                    console.log('Sanitized data has been saved back to storage.');
                 }
-                console.log("Sanitized data has been saved back to storage.");
             }
+
+            return { loadedData, loadedIdUpdateMap, shouldShowRecoveryNotice };
+        });
+
+        authoritativeData = loadedResult.loadedData;
+        idUpdateMap = loadedResult.loadedIdUpdateMap;
+        if (loadedResult.shouldShowRecoveryNotice) {
+            const sanitizationMessage = '데이터 무결성 검사 중 문제를 발견하여 자동 복구했습니다. 앱이 정상적으로 동작합니다.';
+            recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanitizationMessage}` : sanitizationMessage;
         }
 
         // --- BUG-C-02 FIX START ---
@@ -766,28 +761,55 @@ export const loadData = async () => {
                 lastSavedTimestamp: now
             };
             
-            const newState = {
-                ...state,
-                ...initialAppState,
-                favorites: new Set(),
-                activeFolderId: lastFolderId,
-                activeNoteId: welcomeNoteId,
-                totalNoteCount: 2, // 노트 2개
-                lastActiveNotePerFolder: {
-                    [lastFolderId]: lunaFlowNoteId
-                },
-            };
+            // 다른 새 탭의 초기화/첫 저장과 충돌하지 않도록 최초 데이터 생성도 같은 락을 사용합니다.
+            // 저장이 성공하기 전에 메모리 상태를 먼저 바꾸지 않아, 초기 저장 실패 시 '보이지만 저장되지 않은'
+            // 기본 노트가 생기는 문제도 방지합니다.
+            const initializationResult = await withAppStateWriteLock(async () => {
+                const latestResult = await storageGet('appState');
+                if (!latestResult.appState) {
+                    await storageSet({ appState: initialAppState });
+                    return { appState: initialAppState, createdHere: true };
+                }
 
-            // --- [BUG FIX] START ---
-            // 상태 관리 원칙을 준수하도록 수정합니다.
-            // 1. `setState`를 먼저 호출하여 상태를 원자적으로 업데이트합니다.
-            setState(newState);
-            
-            // 2. [REMOVED] 이제 setState가 자동으로 buildNoteMap을 호출하므로, 이 줄은 제거합니다.
-            
-            // --- [BUG FIX] END ---
-            
-            await storageSet({ appState: initialAppState });
+                // 락을 기다리는 사이 다른 탭이 먼저 초기화했다면 그 데이터를 권위 있는 값으로 채택합니다.
+                const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(latestResult.appState)));
+                const latestData = verification.sanitizedData;
+                if (verification.wasSanitized) await storageSet({ appState: latestData });
+                return { appState: latestData, createdHere: false };
+            });
+
+            if (initializationResult.createdHere) {
+                setState({
+                    ...state,
+                    ...initialAppState,
+                    favorites: new Set(),
+                    activeFolderId: lastFolderId,
+                    activeNoteId: welcomeNoteId,
+                    totalNoteCount: 2,
+                    lastActiveNotePerFolder: { [lastFolderId]: lunaFlowNoteId }
+                });
+            } else {
+                const latestData = initializationResult.appState;
+                const folders = Array.isArray(latestData.folders) ? latestData.folders : [];
+                const preferredFolder = [...folders].reverse().find(folder => Array.isArray(folder.notes) && folder.notes.length > 0)
+                    || folders[0]
+                    || null;
+                const preferredNote = preferredFolder && Array.isArray(preferredFolder.notes)
+                    ? preferredFolder.notes[0] || null
+                    : null;
+
+                setState({
+                    ...state,
+                    ...latestData,
+                    folders,
+                    trash: Array.isArray(latestData.trash) ? latestData.trash : [],
+                    favorites: new Set(latestData.favorites || []),
+                    activeFolderId: preferredFolder?.id || CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+                    activeNoteId: preferredNote?.id || null,
+                    lastActiveNotePerFolder: sanitizeLastActiveNoteMap(latestData.lastActiveNotePerFolder || {}, latestData),
+                    totalNoteCount: folders.reduce((sum, folder) => sum + (Array.isArray(folder.notes) ? folder.notes.length : 0), 0)
+                });
+            }
         }
 
         updateNoteCreationDates();
@@ -942,65 +964,119 @@ const sanitizeContentData = data => {
 
 export const sanitizeSettings = (settingsData) => {
     const defaults = CONSTANTS.DEFAULT_SETTINGS;
-    const sanitized = JSON.parse(JSON.stringify(defaults)); 
+    const sanitized = JSON.parse(JSON.stringify(defaults));
 
     if (!settingsData || typeof settingsData !== 'object') {
         return sanitized;
     }
 
-    // [BUG FIX] 숫자 0이 falsy로 취급되어 기본값으로 덮어씌워지는 문제를 해결하는 헬퍼 함수
-    const getNumericValue = (value, defaultValue, isFloat = false) => {
-        const parsed = isFloat ? parseFloat(value) : parseInt(value, 10);
-        // Number.isFinite는 null, undefined, NaN, Infinity 등을 모두 걸러내고 유효한 숫자(0 포함)만 통과시킵니다.
+    const parseFiniteNumber = (value, defaultValue, isFloat = false) => {
+        const parsed = isFloat ? Number.parseFloat(value) : Number.parseInt(value, 10);
         return Number.isFinite(parsed) ? parsed : defaultValue;
     };
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    const getClampedNumber = (value, defaultValue, min, max, isFloat = false) =>
+        clamp(parseFiniteNumber(value, defaultValue, isFloat), min, max);
+    const getNumberInRangeOrDefault = (value, defaultValue, min, max, isFloat = false) => {
+        const parsed = parseFiniteNumber(value, defaultValue, isFloat);
+        return parsed >= min && parsed <= max ? parsed : defaultValue;
+    };
 
-    if (settingsData.layout) {
-        sanitized.layout.col1 = getNumericValue(settingsData.layout.col1, defaults.layout.col1);
-        sanitized.layout.col2 = getNumericValue(settingsData.layout.col2, defaults.layout.col2);
+    if (settingsData.layout && typeof settingsData.layout === 'object') {
+        sanitized.layout.col1 = getClampedNumber(settingsData.layout.col1, defaults.layout.col1, 10, 50);
+        sanitized.layout.col2 = getClampedNumber(settingsData.layout.col2, defaults.layout.col2, 10, 50);
     }
-    if (settingsData.zenMode) {
-        sanitized.zenMode.maxWidth = getNumericValue(settingsData.zenMode.maxWidth, defaults.zenMode.maxWidth);
+    if (settingsData.zenMode && typeof settingsData.zenMode === 'object') {
+        sanitized.zenMode.maxWidth = getClampedNumber(settingsData.zenMode.maxWidth, defaults.zenMode.maxWidth, 500, 2000);
     }
-    if (settingsData.editor) {
+    if (settingsData.editor && typeof settingsData.editor === 'object') {
         const importedFontFamily = settingsData.editor.fontFamily;
-        if (importedFontFamily && typeof CSS.supports === 'function' && CSS.supports('font-family', importedFontFamily)) {
-             sanitized.editor.fontFamily = importedFontFamily;
-        } else {
-             sanitized.editor.fontFamily = defaults.editor.fontFamily;
+        if (typeof importedFontFamily === 'string'
+            && importedFontFamily.trim()
+            && typeof CSS !== 'undefined'
+            && typeof CSS.supports === 'function'
+            && CSS.supports('font-family', importedFontFamily)) {
+            sanitized.editor.fontFamily = importedFontFamily.trim().slice(0, 300);
         }
-        sanitized.editor.fontSize = getNumericValue(settingsData.editor.fontSize, defaults.editor.fontSize);
+        sanitized.editor.fontSize = getClampedNumber(settingsData.editor.fontSize, defaults.editor.fontSize, 10, 30);
     }
-    if (settingsData.weather) {
-        sanitized.weather.lat = getNumericValue(settingsData.weather.lat, defaults.weather.lat, true);
-        sanitized.weather.lon = getNumericValue(settingsData.weather.lon, defaults.weather.lon, true);
+    if (settingsData.weather && typeof settingsData.weather === 'object') {
+        // 잘못된 좌표를 극값으로 강제 보정하면 엉뚱한 지역 날씨가 표시되므로 기본 위치로 되돌립니다.
+        sanitized.weather.lat = getNumberInRangeOrDefault(settingsData.weather.lat, defaults.weather.lat, -90, 90, true);
+        sanitized.weather.lon = getNumberInRangeOrDefault(settingsData.weather.lon, defaults.weather.lon, -180, 180, true);
     }
 
     return sanitized;
 };
 
+// 데이터 작업 전에 편집기와 인라인 이름 변경을 확실히 저장합니다.
+// 실패를 무시한 채 백업/가져오기를 진행하면 방금 입력한 내용이 백업에서 빠지거나 덮어써질 수 있습니다.
+const flushPendingChangesForDataOperation = async (operationName) => {
+    const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
+
+    if (!(await finishPendingRename())) {
+        showToast(`이름 변경 저장에 실패하여 ${operationName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+    if (!(await saveCurrentNoteIfChanged())) {
+        showToast(`노트 저장에 실패하여 ${operationName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+    return true;
+};
+
 // [BUG FIX & 기능 추가] 습관 트래커 및 다이어트 챌린지 데이터를 포함하도록 handleExport 함수 수정
 export const handleExport = async (settings) => {
-    const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
-    await finishPendingRename();
-    await saveCurrentNoteIfChanged();
+    if (!(await flushPendingChangesForDataOperation('백업'))) {
+        return false;
+    }
 
     try {
+        // 탭 간 쓰기가 끝난 시점의 영구 저장 데이터를 읽어 백업합니다.
+        // 현재 탭의 메모리가 오래됐더라도 다른 탭에서 만든 노트를 누락하지 않습니다.
+        const persistedResult = await withAppStateWriteLock(() => storageGet('appState'));
+        const persistedState = persistedResult?.appState;
+        const exportState = persistedState && Array.isArray(persistedState.folders)
+            ? persistedState
+            : {
+                folders: state.folders,
+                trash: state.trash,
+                favorites: Array.from(state.favorites),
+                lastSavedTimestamp: state.lastSavedTimestamp
+            };
+
+        let settingsToExport = sanitizeSettings(settings);
+        const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
+        if (storedSettings) {
+            try { settingsToExport = sanitizeSettings(JSON.parse(storedSettings)); }
+            catch (settingsError) { console.warn('저장된 설정을 읽지 못해 현재 설정을 백업합니다.', settingsError); }
+        }
+
         // [기능 추가] localStorage에서 습관 트래커 데이터 가져오기
         const habitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
         // [기능 추가] localStorage에서 다이어트 챌린지 데이터 가져오기
         const dietChallengeData = localStorage.getItem(DIET_CHALLENGE_DATA_KEY);
         const dietChallengeSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
+        let habitTrackerDataForExport = null;
+        if (habitTrackerData) {
+            try {
+                habitTrackerDataForExport = JSON.parse(habitTrackerData);
+            } catch (habitDataError) {
+                // 일부 데이터가 손상돼도 전체 노트 백업까지 막지 않고 원문을 보존합니다.
+                console.warn('습관 트래커 데이터가 올바른 JSON이 아니어서 원문 그대로 백업합니다.', habitDataError);
+                habitTrackerDataForExport = habitTrackerData;
+            }
+        }
 
         const dataToExport = {
-            mothNoteVersion: "18.6", // [기능 추가] 백업 파일 버전 명시 (다이어트 챌린지 추가)
-            settings: settings,
-            folders: state.folders,
-            trash: state.trash,
-            favorites: Array.from(state.favorites),
-            lastSavedTimestamp: state.lastSavedTimestamp,
+            mothNoteVersion: "23.1.1", // 백업을 생성한 앱 버전
+            settings: settingsToExport,
+            folders: exportState.folders || [],
+            trash: exportState.trash || [],
+            favorites: Array.isArray(exportState.favorites) ? exportState.favorites : [],
+            lastSavedTimestamp: exportState.lastSavedTimestamp || Date.now(),
             // [기능 추가] 습관 트래커 데이터가 있으면 포함시킵니다.
-            habitTrackerData: habitTrackerData ? JSON.parse(habitTrackerData) : null,
+            habitTrackerData: habitTrackerDataForExport,
             // [기능 추가] 다이어트 챌린지 데이터가 있으면 포함시킵니다.
             dietChallengeData: dietChallengeData, // 문자열 그대로 저장
             dietChallengeSettings: dietChallengeSettings // 문자열 그대로 저장
@@ -1039,9 +1115,11 @@ export const handleExport = async (settings) => {
             fallbackAnchorDownload(url, filename);
         }
 
+        return true;
     } catch (e) {
         console.error("내보내기 준비 중 오류 발생:", e);
         showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
     }
 };
 
@@ -1049,6 +1127,33 @@ export const handleExport = async (settings) => {
 export const handleImport = async () => {
     // 실제 동작은 app.js에서 처리하므로, 여기서는 클릭 이벤트만 트리거
     importFileInput.click();
+};
+
+const restoreLocalStorageValue = (key, value) => {
+    if (typeof value === 'string') localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+};
+
+const restoreImportBackupPayload = async (backupPayload) => {
+    if (!backupPayload || typeof backupPayload !== 'object') {
+        throw new Error('가져오기 백업 데이터가 없습니다.');
+    }
+
+    // 새 백업은 hadAppState를 기록합니다. 구버전 백업은 appState 존재 여부로 호환 처리합니다.
+    const hadAppState = backupPayload.hadAppState !== undefined
+        ? backupPayload.hadAppState === true
+        : backupPayload.appState != null;
+
+    if (hadAppState && backupPayload.appState) {
+        await storageSet({ appState: backupPayload.appState });
+    } else {
+        await storageRemove('appState');
+    }
+
+    restoreLocalStorageValue(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
+    restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
+    restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
+    restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);
 };
 
 export const setupImportHandler = () => {
@@ -1065,7 +1170,10 @@ export const setupImportHandler = () => {
         const reader = new FileReader();
         reader.onload = async event => {
             let overlay = null;
-            let importStarted = false;
+            let importBackupCreated = false;
+            let importRollbackCompleted = false;
+            let importRollbackFailed = false;
+            let importCommitted = false;
 
             try {
                 const importedData = JSON.parse(event.target.result);
@@ -1081,6 +1189,7 @@ export const setupImportHandler = () => {
                     });
 
                     if (!confirmSimpleImport) { e.target.value = ''; return; }
+                    if (!(await flushPendingChangesForDataOperation('Simplenote 가져오기'))) return;
 
                     window.isImporting = true;
                     overlay = document.createElement('div');
@@ -1222,152 +1331,136 @@ export const setupImportHandler = () => {
                     if (!finalConfirm) { showToast("데이터 가져오기 작업이 취소되었습니다.", CONSTANTS.TOAST_TYPE.ERROR); e.target.value = ''; return; }
                 }
                 
-                const { saveCurrentNoteIfChanged, finishPendingRename } = await import('./itemActions.js');
-                await finishPendingRename();
-                await saveCurrentNoteIfChanged();
+                if (!(await flushPendingChangesForDataOperation('데이터 가져오기'))) return;
 
                 const importPayload = {
                     folders: sanitizedContent.folders, trash: sanitizedContent.trash,
                     favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
                 };
 
-                // [BUG-C-01 수정 및 안정성 강화]
-                // 1. 백업 생성을 먼저 시도하여 안전을 확보합니다.
-                const currentDataResult = await storageGet('appState');
-                const currentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-                // [기능 추가] 현재 습관 트래커 및 다이어트 챌린지 데이터 백업
-                const currentHabitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
-                const currentDietChallengeData = localStorage.getItem(DIET_CHALLENGE_DATA_KEY);
-                const currentDietChallengeSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
-
-                if (currentDataResult.appState) {
+                // 가져오기 전체를 탭 간 appState 락 안에서 수행합니다.
+                // 실패 시에도 락을 놓기 전에 원본으로 복구하여 다른 탭의 저장과 롤백이 교차하지 않게 합니다.
+                const importApplied = await withAppStateWriteLock(async () => {
+                    const currentDataResult = await storageGet('appState');
+                    const hasCurrentAppState = Object.prototype.hasOwnProperty.call(currentDataResult, 'appState')
+                        && currentDataResult.appState != null;
                     const backupPayload = {
-                        appState: currentDataResult.appState,
-                        settings: currentSettings, // settings가 null일 수도 있음 (정상)
-                        habitTrackerData: currentHabitTrackerData, // 습관 데이터 추가
-                        dietChallengeData: currentDietChallengeData, // 다이어트 데이터 추가
-                        dietChallengeSettings: currentDietChallengeSettings // 다이어트 설정 추가
+                        hadAppState: hasCurrentAppState,
+                        appState: hasCurrentAppState ? currentDataResult.appState : null,
+                        settings: localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS),
+                        habitTrackerData: localStorage.getItem(HABIT_TRACKER_DATA_KEY),
+                        dietChallengeData: localStorage.getItem(DIET_CHALLENGE_DATA_KEY),
+                        dietChallengeSettings: localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY)
                     };
+
                     try {
-                        await storageSet({ 'appState_backup': backupPayload });
-                    } catch (err) {
-                        console.error("Import failed: Could not create backup.", err);
+                        await storageSet({ appState_backup: backupPayload });
+                        importBackupCreated = true;
+                    } catch (backupError) {
+                        console.error('Import failed: Could not create backup.', backupError);
                         showAlert({
                             title: '📥 가져오기 실패',
-                            message: '데이터 백업 생성에 실패했습니다. 저장 공간이 부족할 수 있습니다. 기존 데이터는 변경되지 않았습니다.',
+                            message: '데이터 백업 생성에 실패했습니다. 기존 데이터는 변경되지 않았습니다.',
                             confirmText: '✅ 확인'
                         });
-                        return;
+                        return false;
                     }
-                }
 
-                // 2. 백업이 성공적으로 생성된 후에만 진행 플래그 및 UI 변경을 적용합니다.
-                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
-                importStarted = true;
-                window.isImporting = true;
-                
-                overlay = document.createElement('div');
-                overlay.className = 'import-overlay';
-                overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
-                document.body.appendChild(overlay);
+                    localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
+                    window.isImporting = true;
 
-                // 3. 실제 데이터 덮어쓰기
-                await storageSet({ appState: importPayload });
-                localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                    overlay = document.createElement('div');
+                    overlay.className = 'import-overlay';
+                    overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
+                    document.body.appendChild(overlay);
 
-                // [기능 추가] 습관 트래커 데이터 복원
-                if (importedData.habitTrackerData) {
-                    localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(importedData.habitTrackerData));
-                } else {
-                    // 백업 파일에 습관 데이터가 없으면 기존 데이터도 삭제하여 일관성 유지
-                    localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
-                }
+                    const toStorageString = (value) => {
+                        if (value == null) return null;
+                        return typeof value === 'string' ? value : JSON.stringify(value);
+                    };
 
-                // [기능 추가] 다이어트 챌린지 데이터 복원
-                if (importedData.dietChallengeData) {
-                    // dietChallengeData는 이미 문자열 상태일 수 있음 (JSON.stringify 되었는지 확인 필요)
-                    // 여기서는 백업 시 그대로 저장했으므로 그대로 복원합니다. 
-                    // 단, importedData가 파싱된 객체이므로 dietChallengeData가 문자열이 아닐 수 있음에 유의.
-                    // 위 handleExport에서는 dietChallengeData를 localStorage.getItem()으로 가져와 객체에 할당했으므로
-                    // JSON.parse(event.target.result) 시에는 다시 문자열(혹은 null)이 됩니다.
-                    // 만약 JSON.parse된 상태라면 다시 stringify해야 할 수도 있습니다. 
-                    // 하지만 export 로직상 localStorage.getItem 결과(문자열)를 할당했으므로, 
-                    // importedData.dietChallengeData는 문자열입니다.
-                    localStorage.setItem(DIET_CHALLENGE_DATA_KEY, importedData.dietChallengeData);
-                } else {
-                    localStorage.removeItem(DIET_CHALLENGE_DATA_KEY);
-                }
+                    try {
+                        await storageSet({ appState: importPayload });
+                        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
 
-                if (importedData.dietChallengeSettings) {
-                    localStorage.setItem(DIET_CHALLENGE_SETTINGS_KEY, importedData.dietChallengeSettings);
-                } else {
-                    localStorage.removeItem(DIET_CHALLENGE_SETTINGS_KEY);
-                }
+                        restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, toStorageString(importedData.habitTrackerData));
+                        restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, toStorageString(importedData.dietChallengeData));
+                        restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, toStorageString(importedData.dietChallengeSettings));
 
-                // 4. 성공 플래그를 설정하고 리로드합니다.
-                localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
+                        localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
+                        return true;
+                    } catch (applyError) {
+                        try {
+                            await restoreImportBackupPayload(backupPayload);
+                            await storageRemove('appState_backup');
+                            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                            importRollbackCompleted = true;
+                        } catch (restoreError) {
+                            importRollbackFailed = true;
+                            console.error('CRITICAL: Failed to restore import backup while lock was held.', restoreError);
+                            // 백업과 진행 플래그를 남겨 다음 실행의 자동 복구가 다시 시도하도록 합니다.
+                        }
+                        throw applyError;
+                    }
+                });
+
+                if (!importApplied) return;
+                importCommitted = true;
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
                 setTimeout(() => window.location.reload(), 500);
 
             } catch (err) {
-                // [BUG FIX] 실패 시 즉각적인 롤백 및 사용자 피드백 로직 강화
-                console.error("Import failed critically:", err);
+                console.error('Import failed critically:', err);
 
-                const backupResult = await storageGet('appState_backup');
-                if (backupResult.appState_backup) {
-                    // 백업이 존재하면, 즉시 복구를 시도
+                if (importCommitted) {
+                    // 데이터 적용은 완료됐고 성공 플래그도 기록되었습니다. UI 후처리 오류 때문에
+                    // 이미 완료된 가져오기를 되돌리지 않고 재시작만 안내합니다.
+                    showAlert({
+                        title: '📥 가져오기 완료',
+                        message: '데이터 적용은 완료되었지만 화면 갱신 중 오류가 발생했습니다. 새 탭을 다시 열어주세요.',
+                        confirmText: '✅ 확인'
+                    });
+                } else if (importRollbackCompleted) {
+                    let message = '가져오기 중 오류가 발생하여 이전 데이터로 안전하게 복원했습니다.';
+                    if (err?.message?.toLowerCase().includes('quota')) {
+                        message = '저장 공간 문제로 가져오기에 실패했으며, 이전 데이터로 안전하게 복원했습니다.';
+                    }
+                    showAlert({ title: '📥 가져오기 실패', message, confirmText: '✅ 확인' });
+                } else if (importRollbackFailed) {
+                    showAlert({
+                        title: '‼️ 심각한 오류',
+                        message: '가져오기 실패 후 즉시 복원하지 못했습니다. 복구 백업은 보존되어 있으며, 새 탭을 다시 열면 자동 복구를 다시 시도합니다.',
+                        confirmText: '✅ 확인'
+                    });
+                } else if (importBackupCreated) {
+                    // 잠금 내부 복구 전에 예외가 난 극단적 상황에 대한 최후의 안전망입니다.
                     try {
-                        await storageSet({ appState: backupResult.appState_backup.appState });
-                        if (backupResult.appState_backup.settings) {
-                            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupResult.appState_backup.settings);
-                        } else {
-                            localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
-                        }
-
-                        // [기능 추가] 습관 트래커 데이터 롤백
-                        if (backupResult.appState_backup.habitTrackerData) {
-                            localStorage.setItem(HABIT_TRACKER_DATA_KEY, backupResult.appState_backup.habitTrackerData);
-                        } else {
-                            localStorage.removeItem(HABIT_TRACKER_DATA_KEY);
-                        }
-
-                        // [기능 추가] 다이어트 챌린지 데이터 롤백
-                        if (backupResult.appState_backup.dietChallengeData) {
-                            localStorage.setItem(DIET_CHALLENGE_DATA_KEY, backupResult.appState_backup.dietChallengeData);
-                        } else {
-                            localStorage.removeItem(DIET_CHALLENGE_DATA_KEY);
-                        }
-                        if (backupResult.appState_backup.dietChallengeSettings) {
-                            localStorage.setItem(DIET_CHALLENGE_SETTINGS_KEY, backupResult.appState_backup.dietChallengeSettings);
-                        } else {
-                            localStorage.removeItem(DIET_CHALLENGE_SETTINGS_KEY);
-                        }
-                        
-                        await storageRemove('appState_backup');
-                        localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
-
-                        let message = '가져오기 중 오류가 발생하여 작업을 중단하고 이전 데이터로 안전하게 복원했습니다.';
-                        if (err && err.message && err.message.toLowerCase().includes('quota')) {
-                            message = '저장 공간이 부족하여 가져오기에 실패했습니다. 이전 데이터로 안전하게 복원되었습니다.';
-                        }
-                        showAlert({ title: '📥 가져오기 실패', message: message, confirmText: '✅ 확인' });
-
-                    } catch (restoreErr) {
-                        console.error("CRITICAL: Failed to restore from backup during import failure.", restoreErr);
+                        await withAppStateWriteLock(async () => {
+                            const backupResult = await storageGet('appState_backup');
+                            if (!backupResult.appState_backup) throw new Error('복구 백업을 찾을 수 없습니다.');
+                            await restoreImportBackupPayload(backupResult.appState_backup);
+                            await storageRemove('appState_backup');
+                            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                        });
                         showAlert({
-                            title: '‼️ 심각한 오류',
-                            message: '가져오기 실패 후 데이터 복원 중에도 오류가 발생했습니다. 앱을 다시 시작하면 데이터가 자동 복구될 수 있습니다.',
+                            title: '📥 가져오기 실패',
+                            message: '가져오기 중 오류가 발생하여 이전 데이터로 복원했습니다.',
                             confirmText: '✅ 확인'
                         });
-                        // 복구마저 실패하면, 플래그를 남겨두어 다음 실행 시 loadData가 복구를 시도하도록 함
+                    } catch (restoreError) {
+                        console.error('CRITICAL: Fallback import rollback failed.', restoreError);
+                        showAlert({
+                            title: '‼️ 심각한 오류',
+                            message: '가져오기 복원에 실패했습니다. 복구 백업을 보존했으므로 새 탭을 다시 열어 자동 복구를 시도해주세요.',
+                            confirmText: '✅ 확인'
+                        });
                     }
                 } else {
-                    // 백업이 없다면, 원본 데이터는 변경되지 않았으므로 플래그만 정리
                     localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                     showAlert({
                         title: '📥 가져오기 실패',
-                        message: `알 수 없는 오류로 가져오기에 실패했습니다. 기존 데이터는 변경되지 않았습니다. (오류: ${err.message})`,
+                        message: `파일을 처리하지 못했습니다. 기존 데이터는 변경되지 않았습니다. (오류: ${err?.message || '알 수 없는 오류'})`,
                         confirmText: '✅ 확인'
                     });
                 }

@@ -3,7 +3,8 @@
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap, generateUniqueId } from './state.js';
 // [버그 수정] storage.js에 추가된 Promise 래퍼 함수를 가져옵니다.
-import { storageSet } from './storage.js';
+import { storageGet, storageSet } from './storage.js';
+import { withAppStateWriteLock } from './storageLock.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
     showConfirm, showPrompt, showToast, sortNotes, showAlert, showFolderSelectPrompt,
@@ -16,7 +17,6 @@ import {
 import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './renderer.js';
 import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navigationActions.js';
 
-let globalSaveLock = Promise.resolve();
 let autoSaveTimer = null; // 자동 저장을 위한 타이머
 
 export const toYYYYMMDD = (dateInput) => {
@@ -46,15 +46,20 @@ export const updateNoteCreationDates = () => {
 
 let pendingRenamePromise = null;
 let resolvePendingRename = null;
+let pendingRenameCleanup = null;
 
 export const forceResolvePendingRename = () => {
-    if (resolvePendingRename) {
-        console.warn("Force resolving a pending rename operation due to external changes.");
-        setState({ renamingItemId: null });
-        resolvePendingRename(); 
-        resolvePendingRename = null;
-        pendingRenamePromise = null;
+    if (state.renamingItemId || pendingRenamePromise) {
+        console.warn('Force resolving a pending rename operation due to external changes.');
     }
+    if (pendingRenameCleanup) {
+        pendingRenameCleanup();
+        pendingRenameCleanup = null;
+    }
+    setState({ renamingItemId: null });
+    if (resolvePendingRename) resolvePendingRename(false);
+    resolvePendingRename = null;
+    pendingRenamePromise = null;
 };
 
 // [BUG FIX] 이름 변경 중 다른 작업 실행 시, 변경 사항이 유실되는 'Major' 버그를 수정합니다.
@@ -88,6 +93,10 @@ export const finishPendingRename = async () => {
             return true; // span이 없으면 더 이상 할 작업이 없으므로 성공으로 간주
         }
     }
+    // 렌더 직후 요소를 찾지 못한 과거 경합 상태가 남아 있더라도 앱을 잠그지 않습니다.
+    if (state.renamingItemId && !pendingRenamePromise) {
+        setState({ renamingItemId: null });
+    }
     return true; // 이름 변경 중이 아니면 항상 성공
 };
 
@@ -96,97 +105,104 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
-// [SIMPLIFIED] 탭 간 경쟁을 고려하지 않는 단순화된 데이터 업데이트 함수
+// appState 전체를 저장하는 모든 일반 작업은 탭 간 배타 락 안에서
+// "최신 스토리지 읽기 -> 변경 -> 저장" 순서로 수행합니다.
+// 각 탭의 오래된 메모리 사본으로 전체 appState를 덮어쓰는 데이터 유실을 방지합니다.
 export const performTransactionalUpdate = async (updateFn) => {
-    // [주석 추가] 아래의 globalSaveLock은 멀티탭 동기화 기능이 아닙니다.
-    // 단일 탭 내에서 노트 저장, 폴더 삭제 등 여러 비동기 작업이 동시에 실행될 때
-    // 데이터 충돌을 막기 위한 안전장치이므로 단일 탭 환경에서도 유용합니다.
-    await globalSaveLock;
-    let releaseLocalLock;
-    globalSaveLock = new Promise(resolve => { releaseLocalLock = resolve; });
-
-    let resultPayload = null;
-    let success = false;
-    try {
-        setState({ isPerformingOperation: true });
-        
-        // 현재 메모리 상태를 기반으로 데이터를 수정
-        const dataCopy = JSON.parse(JSON.stringify({
-            folders: state.folders,
-            trash: state.trash,
-            favorites: Array.from(state.favorites),
-            lastSavedTimestamp: state.lastSavedTimestamp,
-            lastActiveNotePerFolder: state.lastActiveNotePerFolder
-        }));
-
-        const result = await updateFn(dataCopy);
-        
-        if (result === null) { 
-            // [안정성 강화] releaseLocalLock이 항상 함수일 것으로 보장되지만, 만약의 경우를 대비한 방어 코드를 추가하여 데드락 가능성을 원천적으로 차단합니다.
-            if (typeof releaseLocalLock === 'function') releaseLocalLock();
-            setState({ isPerformingOperation: false });
-            return { success: false, payload: null };
-        }
-
-        const { newData, successMessage, postUpdateState, payload } = result;
-        resultPayload = payload;
-        
-        newData.lastSavedTimestamp = Date.now();
-        canonicalizeDataBeforeSave(newData);
-        
-        // 수정된 데이터를 스토리지에 저장
-        // [버그 수정] chrome.storage.local.set을 안전한 래퍼 함수로 교체합니다.
-        await storageSet({ appState: newData });
-        
-        // 메모리 상태를 최신 데이터로 업데이트
-        setState({
-            folders: newData.folders,
-            trash: newData.trash,
-            favorites: new Set(newData.favorites || []),
-            lastSavedTimestamp: newData.lastSavedTimestamp,
-            lastActiveNotePerFolder: newData.lastActiveNotePerFolder || {},
-            totalNoteCount: newData.folders.reduce((sum, f) => sum + f.notes.length, 0)
-        });
-        buildNoteMap();
-        updateNoteCreationDates();
-        clearSortedNotesCache();
-        if (calendarRenderer) {
-            calendarRenderer(true);
-        }
-        
-        if (postUpdateState) setState(postUpdateState);
-        if (successMessage) showToast(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
-        
-        success = true;
-
-    } catch (e) {
-        console.error("Transactional update failed:", e);
-        // [BUG FIX] 저장 공간 초과 오류를 감지하고 사용자에게 명확한 안내를 제공합니다.
-        if (e && e.message && e.message.toLowerCase().includes('quota')) {
+    const reportFailure = (error) => {
+        console.error('Transactional update failed:', error);
+        if (error && error.message && error.message.toLowerCase().includes('quota')) {
             showAlert({
                 title: '💾 저장 공간 부족',
-                message: '저장 공간(5MB)이 가득 찼습니다. 더 이상 데이터를 저장할 수 없습니다.\n\n불필요한 노트를 휴지통으로 이동한 뒤, 휴지통을 비워 영구적으로 삭제하면 공간을 확보할 수 있습니다.',
+                message: '저장 공간이 가득 찼습니다. 더 이상 데이터를 저장할 수 없습니다.\n\n불필요한 노트를 휴지통으로 이동한 뒤, 휴지통을 비워 영구적으로 삭제하면 공간을 확보할 수 있습니다.',
                 confirmText: '✅ 확인'
             });
         } else {
-            showToast("오류가 발생하여 작업을 완료하지 못했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            showToast('오류가 발생하여 작업을 완료하지 못했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
         }
-        success = false;
-    } finally {
-        setState({ isPerformingOperation: false });
-        // [BUG FIX & 안정성 강화] releaseLocalLock() 호출이 실패하는 극단적인 경우를 대비하여 try-catch로 감싸고,
-        // 실패 시 전역 락을 강제로 리셋하여 데드락을 방지합니다.
-        try {
-            if (typeof releaseLocalLock === 'function') {
-                releaseLocalLock();
+    };
+
+    try {
+        return await withAppStateWriteLock(async () => {
+            let resultPayload = null;
+            setState({ isPerformingOperation: true });
+
+            try {
+                const memorySnapshot = {
+                    folders: state.folders,
+                    trash: state.trash,
+                    favorites: Array.from(state.favorites),
+                    lastSavedTimestamp: state.lastSavedTimestamp,
+                    lastActiveNotePerFolder: state.lastActiveNotePerFolder
+                };
+
+                // 락을 획득한 뒤 읽어야 다른 탭이 직전에 저장한 변경을 포함할 수 있습니다.
+                const storedResult = await storageGet('appState');
+                const storedData = storedResult?.appState;
+                const hasUsableStoredData = storedData
+                    && Array.isArray(storedData.folders)
+                    && Array.isArray(storedData.trash)
+                    && (Array.isArray(storedData.favorites) || storedData.favorites == null);
+
+                const baseData = hasUsableStoredData
+                    ? {
+                        folders: storedData.folders,
+                        trash: storedData.trash,
+                        favorites: storedData.favorites || [],
+                        lastSavedTimestamp: storedData.lastSavedTimestamp || 0,
+                        // 구버전 저장 데이터에 이 필드가 없으면 현재 세션 값을 보존합니다.
+                        lastActiveNotePerFolder: storedData.lastActiveNotePerFolder || state.lastActiveNotePerFolder || {}
+                    }
+                    : memorySnapshot;
+
+                const dataCopy = JSON.parse(JSON.stringify(baseData));
+                const result = await updateFn(dataCopy);
+
+                if (result == null) {
+                    return { success: false, payload: null };
+                }
+
+                const { newData, successMessage, postUpdateState, payload } = result;
+                if (!newData || !Array.isArray(newData.folders) || !Array.isArray(newData.trash)) {
+                    throw new Error('트랜잭션 결과의 appState 형식이 올바르지 않습니다.');
+                }
+
+                resultPayload = payload ?? null;
+                newData.lastSavedTimestamp = Date.now();
+                canonicalizeDataBeforeSave(newData);
+
+                await storageSet({ appState: newData });
+
+                setState({
+                    folders: newData.folders,
+                    trash: newData.trash,
+                    favorites: new Set(newData.favorites || []),
+                    lastSavedTimestamp: newData.lastSavedTimestamp,
+                    lastActiveNotePerFolder: newData.lastActiveNotePerFolder || {},
+                    totalNoteCount: newData.folders.reduce((sum, folder) => sum + (Array.isArray(folder.notes) ? folder.notes.length : 0), 0)
+                });
+                buildNoteMap();
+                updateNoteCreationDates();
+                clearSortedNotesCache();
+                if (calendarRenderer) calendarRenderer(true);
+
+                if (postUpdateState) setState(postUpdateState);
+                if (successMessage) showToast(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
+
+                return { success: true, payload: resultPayload };
+            } catch (error) {
+                reportFailure(error);
+                return { success: false, payload: null };
+            } finally {
+                setState({ isPerformingOperation: false });
             }
-        } catch (e) {
-            console.error("CRITICAL: Failed to release the transaction lock. Resetting to prevent deadlock.", e);
-            // 데드락 방지를 위한 최후의 안전장치
-            globalSaveLock = Promise.resolve();
-        }
+        });
+    } catch (error) {
+        // Web Locks 요청 자체가 실패하거나 중단된 경우도 동일하게 사용자에게 알립니다.
+        reportFailure(error);
+        setState({ isPerformingOperation: false });
+        return { success: false, payload: null };
     }
-    return { success, payload: resultPayload };
 };
 
 // [BUG-C-CRITICAL 수정] 모달 확인 후에 변경사항을 저장하도록 `withConfirmation` 헬퍼 수정
@@ -1117,6 +1133,10 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     }
 
     nameSpan.contentEditable = false;
+    if (pendingRenameCleanup) {
+        pendingRenameCleanup();
+        pendingRenameCleanup = null;
+    }
     
     if (resolvePendingRename) {
         resolvePendingRename();
@@ -1196,32 +1216,44 @@ export const startRename = async (liElement, type) => {
         }
     }
     
+    // 상태가 먼저 바뀐 직후 다른 작업이 들어와도 finishPendingRename()이
+    // 반드시 이 작업을 인식하도록 Promise를 타이머보다 먼저 생성합니다.
+    pendingRenamePromise = new Promise(resolve => { resolvePendingRename = resolve; });
     setState({ renamingItemId: id });
 
     setTimeout(() => {
-        // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
+        // 타이머가 실행되기 전에 다른 작업이 이름 변경을 끝냈거나 새 이름 변경이 시작됐다면
+        // 오래된 콜백이 편집 모드를 되살리거나 새 작업의 상태를 지우지 않도록 중단합니다.
+        if (state.renamingItemId !== id || !pendingRenamePromise) return;
+
         const safeId = typeof id === 'string' ? CSS.escape(id) : id;
         const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
-        if (!newLiElement) return;
-        const nameSpan = newLiElement.querySelector('.item-name');
-        if (!nameSpan) return;
+        const nameSpan = newLiElement?.querySelector('.item-name');
+
+        if (!newLiElement || !nameSpan) {
+            forceResolvePendingRename();
+            return;
+        }
         
-        nameSpan.contentEditable = true; nameSpan.focus();
+        nameSpan.contentEditable = true;
+        nameSpan.focus();
         document.execCommand('selectAll', false, null);
 
-        pendingRenamePromise = new Promise(resolve => { resolvePendingRename = resolve; });
-
-        const onBlur = () => _handleRenameEnd(id, type, nameSpan, true);
-        const onKeydown = (ev) => {
-            if (ev.key === 'Enter') {
-                ev.preventDefault();
+        const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
+        const onKeydown = (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
                 nameSpan.blur();
-            } else if (ev.key === 'Escape') {
-                ev.preventDefault();
-                _handleRenameEnd(id, type, nameSpan, false);
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                void _handleRenameEnd(id, type, nameSpan, false);
             }
         };
-        
+
+        pendingRenameCleanup = () => {
+            nameSpan.removeEventListener('blur', onBlur);
+            nameSpan.removeEventListener('keydown', onKeydown);
+        };
         nameSpan.addEventListener('blur', onBlur, { once: true });
         nameSpan.addEventListener('keydown', onKeydown);
     }, 0);

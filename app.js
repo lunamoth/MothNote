@@ -164,29 +164,30 @@ const handleSettingsSave = () => {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR); isSavingSettings = false; return;
     }
 
-    // [BUG FIX] 숫자 0이 falsy로 취급되어 기본값으로 덮어씌워지는 문제를 해결하는 헬퍼 함수
-    const getNumericValue = (value, defaultValue, isFloat = false) => {
-        const parsed = isFloat ? parseFloat(value) : parseInt(value, 10);
-        return Number.isFinite(parsed) ? parsed : defaultValue;
-    };
-
-    const defaults = CONSTANTS.DEFAULT_SETTINGS;
-    const newSettings = {
+    // HTML의 min/max는 직접 입력·가져오기·스크립트 변경을 완전히 막지 못하므로
+    // 저장 직전에도 중앙 정제 함수를 거쳐 안전한 범위만 영구 저장합니다.
+    appSettings = sanitizeSettings({
         layout: {
-            col1: getNumericValue(settingsCol1Input.value, defaults.layout.col1),
-            col2: getNumericValue(settingsCol2Input.value, defaults.layout.col2)
+            col1: settingsCol1Input.value,
+            col2: settingsCol2Input.value
         },
         zenMode: {
-            maxWidth: getNumericValue(settingsZenMaxInput.value, defaults.zenMode.maxWidth)
+            maxWidth: settingsZenMaxInput.value
         },
         editor: {
             fontFamily: finalFontFamily,
-            fontSize: getNumericValue(settingsEditorFontSize.value, defaults.editor.fontSize)
+            fontSize: settingsEditorFontSize.value
         },
-        weather: { lat, lon } // 위에서 이미 유효성 검사를 통과했으므로 그대로 사용
-    };
+        weather: { lat, lon }
+    });
 
-    appSettings = newSettings;
+    settingsCol1Width.value = appSettings.layout.col1;
+    settingsCol1Input.value = appSettings.layout.col1;
+    settingsCol2Width.value = appSettings.layout.col2;
+    settingsCol2Input.value = appSettings.layout.col2;
+    settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
+    settingsZenMaxInput.value = appSettings.zenMode.maxWidth;
+    settingsEditorFontSize.value = appSettings.editor.fontSize;
     localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
     localStorage.removeItem(CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY);
     applySettings(appSettings);
@@ -306,7 +307,7 @@ const setupSettingsModal = () => {
         if (!slider || !input) return;
         const updateStyle = (value) => { document.documentElement.style.setProperty(cssVarName, `${value}${unit}`); };
         slider.addEventListener('input', () => { const value = slider.value; input.value = value; updateStyle(value); });
-        input.addEventListener('input', () => { let value = parseInt(input.value, 10); const min = parseInt(input.min, 10); const max = parseInt(input.max, 10); if (isNaN(value)) return; slider.value = Math.max(min, Math.min(value, max)); updateStyle(value); });
+        input.addEventListener('input', () => { const value = parseInt(input.value, 10); const min = parseInt(input.min, 10); const max = parseInt(input.max, 10); if (isNaN(value)) return; const clampedValue = Math.max(min, Math.min(value, max)); slider.value = clampedValue; updateStyle(clampedValue); });
         input.addEventListener('blur', () => { let value = parseInt(input.value, 10); const min = parseInt(input.min, 10); const max = parseInt(input.max, 10); if (isNaN(value) || value < min) value = min; else if (value > max) value = max; input.value = value; slider.value = value; updateStyle(value); });
     };
 
@@ -318,7 +319,14 @@ const setupSettingsModal = () => {
         settingsEditorFontFamily.addEventListener('input', (e) => { document.documentElement.style.setProperty('--editor-font-family', e.target.value); });
     }
     if (settingsEditorFontSize) {
-        settingsEditorFontSize.addEventListener('input', (e) => { document.documentElement.style.setProperty('--editor-font-size', `${e.target.value}px`); });
+        settingsEditorFontSize.addEventListener('input', (e) => {
+            const rawValue = Number.parseInt(e.target.value, 10);
+            if (!Number.isFinite(rawValue)) return;
+            const min = Number.parseInt(e.target.min, 10) || 10;
+            const max = Number.parseInt(e.target.max, 10) || 30;
+            const clampedValue = Math.max(min, Math.min(rawValue, max));
+            document.documentElement.style.setProperty('--editor-font-size', `${clampedValue}px`);
+        });
     }
 
     if (settingsWeatherCitySearchBtn) settingsWeatherCitySearchBtn.addEventListener('click', handleWeatherCitySearch);
