@@ -111,7 +111,7 @@ export const CONSTANTS = {
             EMPTY_NAME_ERROR: '🤔 이름은 비워둘 수 없어요.',
             DUPLICATE_NAME_ERROR: name => `🤔 '${name}' 이름이 이미 존재합니다.`,
             EXPORT_FAILURE: '📤❌ 데이터 내보내기 실패.', IMPORT_FAILURE: err => `📥❌ 가져오기 실패: ${err.message}`,
-            IMPORT_SIZE_EXCEEDED: '📥❌ 파일 크기가 5MB를 초과할 수 없습니다.',
+            IMPORT_FILE_READ_FAILURE: '📥❌ 백업 파일을 읽을 수 없습니다.',
             INVALID_FONT_NAME: '🤔 유효하지 않은 글꼴 이름입니다. 기본값으로 복원됩니다.',
             WEATHER_CITY_NOT_FOUND: '🌦️ 도시를 찾을 수 없습니다. 다른 이름으로 검색해보세요.',
             INVALID_LATITUDE: '🤔 유효하지 않은 위도 값입니다. (-90 ~ 90)',
