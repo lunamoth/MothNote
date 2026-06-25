@@ -169,7 +169,14 @@ export const subscribe = (callback) => {
 const notify = () => {
     subscribers.forEach(callback => {
         try {
-            callback();
+            const result = callback();
+            // async 구독자의 Promise 거부는 동기 try/catch로 잡히지 않습니다.
+            // 처리하지 않은 Promise 거부가 전체 렌더 흐름을 불안정하게 만들지 않도록 별도로 관찰합니다.
+            if (result && typeof result.catch === 'function') {
+                result.catch(error => {
+                    console.error("An async subscriber failed during notification:", error);
+                });
+            }
         } catch (error) {
             console.error("A subscriber failed during notification:", error);
         }

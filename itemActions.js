@@ -1046,11 +1046,29 @@ export const handleEmptyTrash = async () => {
     );
 };
 
+const deriveFinalNoteTitle = (rawTitle, content) => {
+    let finalTitle = String(rawTitle ?? '').trim();
+
+    if (!finalTitle && content) {
+        let firstLine = String(content).split('\n')[0].trim();
+        if (firstLine) {
+            const hasKorean = /[\uAC00-\uD7AF]/.test(firstLine);
+            const limit = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;
+            if (firstLine.length > limit) {
+                firstLine = firstLine.slice(0, limit) + '...';
+            }
+            finalTitle = firstLine;
+        }
+    }
+
+    return finalTitle;
+};
+
 export async function saveCurrentNoteIfChanged() {
     if (!state.isDirty) {
         return true;
     }
-    
+
     // 편집 버퍼의 소유자는 activeNoteId가 아니라 입력 시 기록한 dirtyNoteId입니다.
     // 두 값이 어긋난 상태에서 현재 DOM을 저장하면 다른 노트 내용으로 덮어쓸 수 있으므로 중단합니다.
     if (state.dirtyNoteId && state.activeNoteId !== state.dirtyNoteId) {
@@ -1066,107 +1084,126 @@ export async function saveCurrentNoteIfChanged() {
     const noteIdToSave = state.dirtyNoteId || state.activeNoteId;
     const titleToSave = noteTitleInput?.value ?? '';
     const contentToSave = noteContentTextarea?.value ?? '';
-    
+
     if (!noteIdToSave) {
         updateSaveStatus('dirty');
         showToast('저장할 노트를 식별할 수 없어 변경사항을 유지한 채 저장을 중단했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
         return false;
     }
-    
+
     updateSaveStatus('saving');
 
-    const { success } = await performTransactionalUpdate(latestData => {
-        let noteToSave, parentFolder;
+    const { success, payload } = await performTransactionalUpdate(latestData => {
+        let noteToSave = null;
+        let parentFolder = null;
         for (const folder of latestData.folders) {
-            const note = folder.notes.find(n => n.id === noteIdToSave);
-            if (note) { noteToSave = note; parentFolder = folder; break; }
+            const note = (Array.isArray(folder.notes) ? folder.notes : []).find(n => n.id === noteIdToSave);
+            if (note) {
+                noteToSave = note;
+                parentFolder = folder;
+                break;
+            }
         }
 
         if (!noteToSave) {
             console.error(`Save failed: Note with ID ${noteIdToSave} not found in storage.`);
-            showToast("저장 실패: 노트가 다른 곳에서 삭제된 것 같습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            showToast('저장 실패: 노트를 찾을 수 없습니다.', CONSTANTS.TOAST_TYPE.ERROR);
             return null;
         }
 
         const now = Date.now();
-        let finalTitle = titleToSave.trim();
-        
-        if (!finalTitle && contentToSave) {
-            let firstLine = contentToSave.split('\n')[0].trim();
-            if (firstLine) {
-                const hasKorean = /[\uAC00-\uD7AF]/.test(firstLine);
-                const limit = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;
-                
-                if (firstLine.length > limit) {
-                    firstLine = firstLine.slice(0, limit) + '...';
-                }
-                finalTitle = firstLine;
-            }
-        }
+        const finalTitle = deriveFinalNoteTitle(titleToSave, contentToSave);
 
         noteToSave.title = finalTitle;
         noteToSave.content = contentToSave;
         noteToSave.updatedAt = now;
         if (parentFolder) parentFolder.updatedAt = now;
-        
-        return { newData: latestData, successMessage: null, postUpdateState: {} };
+
+        return {
+            newData: latestData,
+            successMessage: null,
+            postUpdateState: {},
+            payload: {
+                savedNoteId: noteIdToSave,
+                savedTitle: finalTitle,
+                savedContent: contentToSave
+            }
+        };
     });
-    
-    if (success) {
-        const { item: justSavedNote } = findNote(noteIdToSave);
-        const liveTitle = noteTitleInput.value;
-        const liveContent = noteContentTextarea.value;
 
-        const isStillDirty = state.activeNoteId === noteIdToSave && justSavedNote && (justSavedNote.title !== liveTitle || justSavedNote.content !== liveContent);
-
-        if (isStillDirty) {
-            setState({ isDirty: true, dirtyNoteId: noteIdToSave });
-            updateSaveStatus('dirty'); 
-            handleUserInput();
-        } else {
-            setState({ isDirty: false, dirtyNoteId: null });
-            updateSaveStatus('saved');
-        }
-    } else {
+    if (!success) {
         updateSaveStatus('dirty');
+        return false;
     }
 
-    return success;
+    let liveTitle = noteTitleInput?.value ?? titleToSave;
+    const liveContent = noteContentTextarea?.value ?? contentToSave;
+    const titleChangedDuringSave = liveTitle !== titleToSave;
+    const contentChangedDuringSave = liveContent !== contentToSave;
+    const draftChangedDuringSave = titleChangedDuringSave || contentChangedDuringSave;
+    const savedTitle = payload?.savedTitle ?? titleToSave;
+    const savedContent = payload?.savedContent ?? contentToSave;
+
+    // 제목 입력이 저장 중 바뀌지 않았다면 자동 생성된 최종 제목을 편집기에 반영합니다.
+    // 이렇게 해야 빈 제목이 저장본과 계속 다르다고 판단되어 자동 저장이 반복되지 않습니다.
+    if (!titleChangedDuringSave && noteTitleInput && liveTitle !== savedTitle) {
+        noteTitleInput.value = savedTitle;
+        liveTitle = savedTitle;
+    }
+
+    if (draftChangedDuringSave && state.activeNoteId === noteIdToSave) {
+        // 저장 요청이 진행되는 동안 추가 입력이 있었다면 최신 입력을 다음 자동 저장 대상으로 유지합니다.
+        setState({ isDirty: true, dirtyNoteId: noteIdToSave });
+        updateSaveStatus('dirty');
+        void handleUserInput();
+    } else {
+        setState({ isDirty: false, dirtyNoteId: null });
+        if (state.activeNoteId === noteIdToSave) {
+            if (noteTitleInput && noteTitleInput.value !== savedTitle) {
+                noteTitleInput.value = savedTitle;
+            }
+            if (noteContentTextarea && noteContentTextarea.value !== savedContent) {
+                noteContentTextarea.value = savedContent;
+            }
+        }
+        updateSaveStatus('saved');
+    }
+
+    return true;
 }
 
 export async function handleUserInput() {
     if (!state.activeNoteId) return;
-    
+
     const { item: activeNote } = findNote(state.activeNoteId);
     if (!activeNote) return;
 
     const currentTitle = noteTitleInput.value;
     const currentContent = noteContentTextarea.value;
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
-    
+
     if (hasChanged) {
-        if (!state.isDirty) {
+        if (!state.isDirty || state.dirtyNoteId !== state.activeNoteId) {
             setState({ isDirty: true, dirtyNoteId: state.activeNoteId });
-            updateSaveStatus('dirty');
         }
+        updateSaveStatus('dirty');
     } else {
-        if (state.isDirty) {
+        if (state.isDirty && (!state.dirtyNoteId || state.dirtyNoteId === state.activeNoteId)) {
             setState({ isDirty: false, dirtyNoteId: null });
             clearTimeout(autoSaveTimer);
             updateSaveStatus('saved');
         }
         return;
     }
-    
+
     clearTimeout(autoSaveTimer);
 
     autoSaveTimer = setTimeout(() => {
         if (state.isDirty && state.dirtyNoteId === state.activeNoteId) {
-            saveCurrentNoteIfChanged();
+            void saveCurrentNoteIfChanged();
         }
     }, CONSTANTS.DEBOUNCE_DELAY.SAVE);
 }
-
 
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     if (state.renamingItemId !== id || !pendingRenamePromise) {

@@ -454,11 +454,45 @@
     };
 
     const debounce = (func, delay) => {
-        let timer;
-        return (...args) => {
-            clearTimeout(timer);
-            timer = setTimeout(() => func(...args), delay);
+        let timer = null;
+        let pendingArgs = null;
+        let pendingThis = null;
+
+        const debounced = function(...args) {
+            pendingArgs = args;
+            pendingThis = this;
+            if (timer !== null) clearTimeout(timer);
+            timer = setTimeout(() => {
+                const callArgs = pendingArgs || [];
+                const callThis = pendingThis;
+                timer = null;
+                pendingArgs = null;
+                pendingThis = null;
+                func.apply(callThis, callArgs);
+            }, delay);
         };
+
+        // 페이지가 숨겨지거나 닫힐 때 아직 대기 중인 마지막 저장을 즉시 실행할 수 있게 합니다.
+        debounced.flush = () => {
+            if (timer === null) return false;
+            clearTimeout(timer);
+            const callArgs = pendingArgs || [];
+            const callThis = pendingThis;
+            timer = null;
+            pendingArgs = null;
+            pendingThis = null;
+            func.apply(callThis, callArgs);
+            return true;
+        };
+
+        debounced.cancel = () => {
+            if (timer !== null) clearTimeout(timer);
+            timer = null;
+            pendingArgs = null;
+            pendingThis = null;
+        };
+
+        return debounced;
     };
 
     // --- 1. 상태 및 DOM 관리 ---
@@ -531,6 +565,35 @@
             goal1: Number.isFinite(goal1) && goal1 > 0 && goal1 <= 500 ? MathUtil.round(goal1) : defaults.goal1,
             intake: Number.isFinite(intake) && intake >= 1 && intake <= 10000 ? Math.round(intake) : defaults.intake
         };
+    };
+
+
+    const loadPersistedDietState = (storage, currentSettings) => {
+        let records = [];
+        let settings = sanitizeDietSettings(currentSettings);
+
+        // 기록과 설정을 독립적으로 읽습니다. 설정 JSON 하나가 손상됐다는 이유로
+        // 정상적인 전체 체중 기록까지 빈 배열로 교체하면 다음 저장 시 실제 데이터가 유실될 수 있습니다.
+        const storedRecords = storage.getItem(AppState.STORAGE_KEY);
+        if (storedRecords) {
+            try {
+                records = sanitizeDietRecords(JSON.parse(storedRecords) || []);
+            } catch (recordError) {
+                console.error('Diet record data load error. The original localStorage value was left untouched.', recordError);
+            }
+        }
+
+        const storedSettings = storage.getItem(AppState.SETTINGS_KEY);
+        if (storedSettings) {
+            try {
+                settings = sanitizeDietSettings(JSON.parse(storedSettings));
+            } catch (settingsError) {
+                // 설정만 기본값으로 되돌리고, 위에서 정상 로드한 기록은 그대로 보존합니다.
+                console.error('Diet settings load error. Falling back to safe defaults without clearing records.', settingsError);
+            }
+        }
+
+        return { records, settings };
     };
 
     // --- 2. 초기화 ---
@@ -651,14 +714,9 @@
         const dateInput = AppState.getEl('dateInput');
         if (dateInput) dateInput.value = DateUtil.format(new Date());
         
-        try {
-            AppState.records = sanitizeDietRecords(JSON.parse(localStorage.getItem(AppState.STORAGE_KEY)) || []);
-            const savedSettings = JSON.parse(localStorage.getItem(AppState.SETTINGS_KEY));
-            if (savedSettings) AppState.settings = sanitizeDietSettings(savedSettings);
-        } catch (e) {
-            console.error('Data Load Error', e);
-            AppState.records = [];
-        }
+        const persistedDietState = loadPersistedDietState(localStorage, AppState.settings);
+        AppState.records = persistedDietState.records;
+        AppState.settings = persistedDietState.settings;
 
         AppState.chartFilterMode = localStorage.getItem(AppState.FILTER_KEY) || 'ALL';
         
@@ -752,6 +810,19 @@
     const debouncedSaveSettings = debounce(() => {
         localStorage.setItem(AppState.SETTINGS_KEY, JSON.stringify(AppState.settings));
     }, 500);
+
+    const flushPendingStorageWrites = () => {
+        debouncedSaveRecords.flush();
+        debouncedSaveSettings.flush();
+    };
+
+    // 새 탭을 닫거나 다른 페이지로 이동하는 순간이 500ms 지연 저장보다 빠르더라도
+    // 마지막 기록/설정을 잃지 않도록 브라우저 생명주기 이벤트에서 즉시 저장합니다.
+    window.addEventListener('pagehide', flushPendingStorageWrites);
+    window.addEventListener('beforeunload', flushPendingStorageWrites);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingStorageWrites();
+    });
 
     function showToast(message) {
         const container = document.getElementById('toast-container');

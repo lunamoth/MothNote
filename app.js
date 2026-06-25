@@ -1,5 +1,7 @@
 // app.js
 
+// [설계 전제] 이 앱은 여러 탭에서 동일한 문서를 동시에 편집하는 것 자체를 지원하지 않고, 가정하지도 않습니다.
+
 import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
 import { loadData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';
 import {

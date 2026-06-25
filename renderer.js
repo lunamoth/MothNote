@@ -14,6 +14,9 @@ import { sanitizeHtml } from './sanitizer.js';
 
 // [수정] marked 모듈을 저장할 변수를 선언합니다. 한 번 로드하면 재사용합니다.
 let markedModule = null;
+// 비동기 Markdown 파서 로딩 중 다른 노트로 이동했을 때, 늦게 끝난 이전 렌더가
+// 현재 미리보기를 덮어쓰지 못하도록 렌더 세대 번호를 추적합니다.
+let renderEditorRevision = 0;
 const HIGHLIGHT_TERM_MAX_LENGTH = 50; // [버그 수정] 하이라이트를 적용할 최대 검색어 길이 상수 추가
 
 // [수정] marked 모듈을 안전하게 로드하는 비동기 함수를 추가합니다.
@@ -375,6 +378,9 @@ export const renderFolders = () => {
 export let sortedNotesCache = { sourceNotes: null, searchTerm: null, sortOrder: null, result: null };
 export const clearSortedNotesCache = () => { sortedNotesCache.sourceNotes = null; };
 
+export const sortTrashNotesForDisplay = (notes) =>
+    [...(Array.isArray(notes) ? notes : [])].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
+
 const getPlaceholderMessage = (viewData) => {
     if (state.searchTerm) {
         if (viewData.isDateFilteredView) {
@@ -439,7 +445,9 @@ export const renderNotes = () => {
               )
             : sourceNotes;
 
-        if (viewData.isTrashView) sortedNotes = filteredNotes.sort((a,b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+        // 휴지통의 원본 배열(state.trash)을 렌더 단계에서 직접 정렬하면
+        // 표시만 했는데도 메모리 상태 순서가 바뀝니다. 반드시 복사본만 정렬합니다.
+        if (viewData.isTrashView) sortedNotes = sortTrashNotesForDisplay(filteredNotes);
         else if (viewData.isSortable) sortedNotes = sortNotes(filteredNotes, state.noteSortOrder);
         else sortedNotes = filteredNotes;
 
@@ -448,7 +456,12 @@ export const renderNotes = () => {
         
     if (viewData.isSortable) noteSortSelect.value = state.noteSortOrder;
 
-    if (state.activeNoteId && !sortedNotes.some(note => note.id === state.activeNoteId)) {
+    const activeEditorOwnsUnsavedDraft = state.isDirty
+        && state.dirtyNoteId
+        && state.activeNoteId === state.dirtyNoteId;
+    if (state.activeNoteId
+        && !sortedNotes.some(note => note.id === state.activeNoteId)
+        && !activeEditorOwnsUnsavedDraft) {
         setState({ activeNoteId: sortedNotes[0]?.id ?? null });
     }
     
@@ -477,7 +490,9 @@ export const updateSaveStatus = (status) => {
 
 // [수정] 함수를 async로 변경하여 동적 임포트를 처리합니다.
 export const renderEditor = async () => {
-    const { item: activeNote, isInTrash } = findNote(state.activeNoteId);
+    const renderRevision = ++renderEditorRevision;
+    const activeNoteIdAtStart = state.activeNoteId;
+    const { item: activeNote, isInTrash } = findNote(activeNoteIdAtStart);
 
     const markdownToggleBtn = document.getElementById('markdown-toggle-btn');
     if (markdownToggleBtn) {
@@ -525,6 +540,15 @@ export const renderEditor = async () => {
     // [수정] marked 모듈을 안전하게 불러와서 사용합니다.
     if (state.isMarkdownView) {
         const marked = await getMarkedParser();
+
+        // 파서 로딩 중 노트/모드가 바뀌었다면 이 호출은 이미 오래된 렌더입니다.
+        // 최신 렌더가 만든 DOM을 과거 결과로 덮어쓰지 않습니다.
+        if (renderRevision !== renderEditorRevision
+            || state.activeNoteId !== activeNoteIdAtStart
+            || !state.isMarkdownView) {
+            return;
+        }
+
         // marked 로드에 성공한 경우에만 파싱을 실행합니다.
         if (marked) {
             noteContentView.innerHTML = sanitizeHtml(marked.parse(activeNote.content ?? ''));

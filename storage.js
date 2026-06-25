@@ -1191,8 +1191,14 @@ export const handleExport = async (settings) => {
             }
         }
 
+        const runtimeVersion = (typeof chrome !== 'undefined'
+            && chrome.runtime
+            && typeof chrome.runtime.getManifest === 'function')
+            ? chrome.runtime.getManifest().version
+            : '23.5.1';
+
         const dataToExport = {
-            mothNoteVersion: "23.3", // 백업을 생성한 앱 버전
+            mothNoteVersion: runtimeVersion, // 실제 설치된 확장 프로그램 버전
             settings: settingsToExport,
             folders: exportState.folders || [],
             trash: exportState.trash || [],
