@@ -10,6 +10,7 @@ import { clearSortedNotesCache } from './renderer.js';
 
 
 let searchDebounceTimer;
+let searchRequestVersion = 0;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
 // [수정] 폴더 전환 중 중복 호출을 막기 위한 잠금 변수
@@ -163,35 +164,68 @@ const handleSearch = (searchTerm) => {
     setState(newState);
 };
 
-export const handleSearchInput = async (e) => {
-    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
-    const renameSuccess = await finishPendingRename();
-    if (!renameSuccess) {
-        showToast("이름 변경 저장에 실패하여 검색을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-        // 검색 입력을 되돌릴 필요는 없으므로, 여기서 return 합니다.
+const restoreSearchInput = () => {
+    if (searchInput) searchInput.value = state.searchTerm;
+};
+
+const applySearchSafely = async (term, requestVersion) => {
+    // 이전 검색 저장이 진행되는 동안 새 입력이 들어오면 오래된 요청을 폐기합니다.
+    if (requestVersion !== searchRequestVersion) return;
+
+    // 검색 결과는 활성 노트를 바꿀 수 있으므로, 편집 중인 노트가 실제로 저장된 뒤에만 적용합니다.
+    if (!(await confirmNavigation())) {
+        if (requestVersion === searchRequestVersion) restoreSearchInput();
         return;
     }
-    let term = e.target.value;
+
+    if (requestVersion !== searchRequestVersion) return;
+    handleSearch(term);
+};
+
+export const handleSearchInput = async (e) => {
+    const requestVersion = ++searchRequestVersion;
+    const input = e?.target || searchInput;
+    let term = String(input?.value ?? '');
 
     // [버그 수정] 검색어 길이 제한
     if (term.length > SEARCH_TERM_MAX_LENGTH) {
         term = term.substring(0, SEARCH_TERM_MAX_LENGTH);
-        e.target.value = term; // 입력창의 값도 잘라낸 값으로 업데이트
+        if (input) input.value = term;
         showToast(`검색어는 최대 ${SEARCH_TERM_MAX_LENGTH}자까지 입력할 수 있습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
     }
 
-    debounce(() => handleSearch(term), CONSTANTS.DEBOUNCE_DELAY.SEARCH);
+    const renameSuccess = await finishPendingRename();
+    if (requestVersion !== searchRequestVersion) return;
+    if (!renameSuccess) {
+        showToast("이름 변경 저장에 실패하여 검색을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        restoreSearchInput();
+        return;
+    }
+
+    debounce(() => {
+        void applySearchSafely(term, requestVersion);
+    }, CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
 
 export const handleClearSearch = async () => {
-    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+    const requestVersion = ++searchRequestVersion;
+    clearTimeout(searchDebounceTimer);
+
     const renameSuccess = await finishPendingRename();
+    if (requestVersion !== searchRequestVersion) return;
     if (!renameSuccess) {
         showToast("이름 변경 저장에 실패하여 검색 지우기를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        restoreSearchInput();
         return;
     }
-    clearTimeout(searchDebounceTimer);
-    if (searchInput.value === '') return;
+
+    if (!(await confirmNavigation())) {
+        if (requestVersion === searchRequestVersion) restoreSearchInput();
+        return;
+    }
+    if (requestVersion !== searchRequestVersion || !searchInput) return;
+    if (searchInput.value === '' && state.searchTerm === '') return;
+
     searchInput.value = '';
     handleSearch('');
     searchInput.focus();

@@ -754,12 +754,12 @@ let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFo
 
 const setupRippleEffect = () => { document.body.addEventListener('click', (e) => { const button = e.target.closest('.ripple-effect'); if (!button) return; const ripple = document.createElement('span'); const diameter = Math.max(button.clientWidth, button.clientHeight); ripple.style.width = ripple.style.height = `${diameter}px`; ripple.style.left = `${e.clientX - button.getBoundingClientRect().left - diameter / 2}px`; ripple.style.top = `${e.clientY - button.getBoundingClientRect().top - diameter / 2}px`; ripple.classList.add('ripple'); const existingRipple = button.querySelector('.ripple'); if (existingRipple) existingRipple.remove(); button.appendChild(ripple); setTimeout(() => { if (ripple.parentElement) ripple.remove(); }, 600); }); };
 // [버그 수정] handleRestoreItem, handlePermanentlyDeleteItem 호출 시 type 인자 추가
-const handleItemActionClick = (button, id, type) => { 
-    if (button.classList.contains('pin-btn')) handlePinNote(id); 
-    else if (button.classList.contains('favorite-btn')) handleToggleFavorite(id); 
-    else if (button.classList.contains('delete-item-btn')) handleDelete(id, type); 
-    else if (button.classList.contains('restore-item-btn')) handleRestoreItem(id, type); 
-    else if (button.classList.contains('perm-delete-item-btn')) handlePermanentlyDeleteItem(id, type); 
+const handleItemActionClick = async (button, id, type) => { 
+    if (button.classList.contains('pin-btn')) await handlePinNote(id); 
+    else if (button.classList.contains('favorite-btn')) await handleToggleFavorite(id); 
+    else if (button.classList.contains('delete-item-btn')) await handleDelete(id, type); 
+    else if (button.classList.contains('restore-item-btn')) await handleRestoreItem(id, type); 
+    else if (button.classList.contains('perm-delete-item-btn')) await handlePermanentlyDeleteItem(id, type); 
 };
 
 // [버그 수정] 클릭 시 즉시 키보드 탐색이 가능하도록 포커스를 설정합니다.
@@ -769,7 +769,7 @@ const handleListClick = (e, type) => {
     const id = li.dataset.id;
     const actionBtn = e.target.closest('.icon-button');
     if (actionBtn) {
-        handleItemActionClick(actionBtn, id, li.dataset.type);
+        void handleItemActionClick(actionBtn, id, li.dataset.type);
         return;
     }
 
@@ -784,7 +784,123 @@ const handleListClick = (e, type) => {
     }
 };
 
-const setupDragAndDrop = (listElement, type) => { if (!listElement) return; let dragOverIndicator; const getDragOverIndicator = () => { if (!dragOverIndicator) { dragOverIndicator = document.createElement('li'); dragOverIndicator.className = 'drag-over-indicator'; } return dragOverIndicator; }; listElement.addEventListener('dragstart', e => { const li = e.target.closest('.item-list-entry'); if (!li || !li.draggable) { e.preventDefault(); return; } draggedItemInfo.id = li.dataset.id; draggedItemInfo.type = type; if (type === CONSTANTS.ITEM_TYPE.NOTE) { const { folder } = findNote(draggedItemInfo.id); draggedItemInfo.sourceFolderId = folder?.id; } e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedItemInfo.id); setTimeout(() => li.classList.add(CONSTANTS.CLASSES.DRAGGING), 0); }); listElement.addEventListener('dragover', e => { e.preventDefault(); if (listElement !== folderList) return; const indicator = getDragOverIndicator(); const li = e.target.closest('.item-list-entry'); const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]'); if (!hasDraggableItems) { listElement.append(indicator); return; } if (!li || li.classList.contains(CONSTANTS.CLASSES.DRAGGING) || !li.draggable) { getDragOverIndicator().remove(); return; } const rect = li.getBoundingClientRect(), isAfter = e.clientY > rect.top + rect.height / 2; if (isAfter) li.after(indicator); else li.before(indicator); }); listElement.addEventListener('dragleave', e => { if (e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) getDragOverIndicator().remove(); }); listElement.addEventListener('drop', async e => { e.preventDefault(); if (listElement !== folderList || !draggedItemInfo.id) return; const indicator = getDragOverIndicator(); if(!indicator.parentElement) return; const draggedId = draggedItemInfo.id; const fromIndex = state.folders.findIndex(item => item.id === draggedId); if (fromIndex === -1) return; const originalNextElId = state.folders[fromIndex + 1]?.id; const dropNextElId = indicator.nextElementSibling?.dataset.id; indicator.remove(); if (originalNextElId === dropNextElId) { setState({}); return; } await performTransactionalUpdate((latestData) => { const { folders } = latestData; const fromIdx = folders.findIndex(item => item.id === draggedId); if (fromIdx === -1) return null; const [draggedItem] = folders.splice(fromIdx, 1); let toIdx = folders.findIndex(item => item.id === dropNextElId); if (toIdx === -1) folders.push(draggedItem); else folders.splice(toIdx, 0, draggedItem); draggedItem.updatedAt = Date.now(); return { newData: latestData, successMessage: null, postUpdateState: {} }; }); }); listElement.addEventListener('dragend', () => { const li = listElement.querySelector(`.${CONSTANTS.CLASSES.DRAGGING}`); if (li) li.classList.remove(CONSTANTS.CLASSES.DRAGGING); getDragOverIndicator().remove(); if (folderList) folderList.querySelector(`.${CONSTANTS.CLASSES.DROP_TARGET}`)?.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); draggedItemInfo = { id: null, type: null, sourceFolderId: null }; }); };
+const setupDragAndDrop = (listElement, type) => {
+    if (!listElement) return;
+
+    let dragOverIndicator;
+    const getDragOverIndicator = () => {
+        if (!dragOverIndicator) {
+            dragOverIndicator = document.createElement('li');
+            dragOverIndicator.className = 'drag-over-indicator';
+        }
+        return dragOverIndicator;
+    };
+
+    listElement.addEventListener('dragstart', e => {
+        const li = e.target.closest('.item-list-entry');
+        if (!li || !li.draggable) {
+            e.preventDefault();
+            return;
+        }
+
+        draggedItemInfo.id = li.dataset.id;
+        draggedItemInfo.type = type;
+        if (type === CONSTANTS.ITEM_TYPE.NOTE) {
+            const { folder } = findNote(draggedItemInfo.id);
+            draggedItemInfo.sourceFolderId = folder?.id;
+        }
+
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', draggedItemInfo.id);
+        setTimeout(() => li.classList.add(CONSTANTS.CLASSES.DRAGGING), 0);
+    });
+
+    listElement.addEventListener('dragover', e => {
+        e.preventDefault();
+        if (listElement !== folderList) return;
+
+        const indicator = getDragOverIndicator();
+        const li = e.target.closest('.item-list-entry');
+        const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]');
+        if (!hasDraggableItems) {
+            listElement.append(indicator);
+            return;
+        }
+        if (!li || li.classList.contains(CONSTANTS.CLASSES.DRAGGING) || !li.draggable) {
+            indicator.remove();
+            return;
+        }
+
+        const rect = li.getBoundingClientRect();
+        const isAfter = e.clientY > rect.top + rect.height / 2;
+        if (isAfter) li.after(indicator);
+        else li.before(indicator);
+    });
+
+    listElement.addEventListener('dragleave', e => {
+        if (e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) {
+            getDragOverIndicator().remove();
+        }
+    });
+
+    listElement.addEventListener('drop', async e => {
+        e.preventDefault();
+        if (listElement !== folderList || !draggedItemInfo.id) return;
+
+        const indicator = getDragOverIndicator();
+        if (!indicator.parentElement) return;
+
+        const draggedId = draggedItemInfo.id;
+        const fromIndex = state.folders.findIndex(item => item.id === draggedId);
+        if (fromIndex === -1) {
+            indicator.remove();
+            return;
+        }
+
+        const originalNextElId = state.folders[fromIndex + 1]?.id;
+        const dropNextElId = indicator.nextElementSibling?.dataset.id;
+        indicator.remove();
+
+        if (originalNextElId === dropNextElId) {
+            setState({});
+            return;
+        }
+
+        // 폴더 순서 변경도 전체 appState를 다시 렌더링하므로, 미저장 편집 버퍼를 먼저 확정합니다.
+        if (!(await finishPendingRename())) {
+            showToast('이름 변경 저장에 실패하여 폴더 순서 변경을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+        if (!(await confirmNavigation())) {
+            showToast('변경사항 저장에 실패하여 폴더 순서 변경을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+
+        await performTransactionalUpdate((latestData) => {
+            const { folders } = latestData;
+            const fromIdx = folders.findIndex(item => item.id === draggedId);
+            if (fromIdx === -1) return null;
+
+            const [draggedItem] = folders.splice(fromIdx, 1);
+            const toIdx = folders.findIndex(item => item.id === dropNextElId);
+            if (toIdx === -1) folders.push(draggedItem);
+            else folders.splice(toIdx, 0, draggedItem);
+
+            draggedItem.updatedAt = Date.now();
+            return { newData: latestData, successMessage: null, postUpdateState: {} };
+        });
+    });
+
+    listElement.addEventListener('dragend', () => {
+        const li = listElement.querySelector(`.${CONSTANTS.CLASSES.DRAGGING}`);
+        if (li) li.classList.remove(CONSTANTS.CLASSES.DRAGGING);
+        getDragOverIndicator().remove();
+        if (folderList) {
+            folderList.querySelector(`.${CONSTANTS.CLASSES.DROP_TARGET}`)?.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
+        }
+        draggedItemInfo = { id: null, type: null, sourceFolderId: null };
+    });
+};
 const setupNoteToFolderDrop = () => { if (!folderList) return; let currentDropTarget = null; folderList.addEventListener('dragenter', e => { if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return; const targetFolderLi = e.target.closest('.item-list-entry'); if (currentDropTarget && currentDropTarget !== targetFolderLi) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } if (targetFolderLi) { const folderId = targetFolderLi.dataset.id; const { ALL, RECENT } = CONSTANTS.VIRTUAL_FOLDERS; if (folderId !== draggedItemInfo.sourceFolderId && ![ALL.id, RECENT.id].includes(folderId)) { e.preventDefault(); targetFolderLi.classList.add(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = targetFolderLi; } } }); folderList.addEventListener('dragleave', e => { if (currentDropTarget && !e.currentTarget.contains(e.relatedTarget)) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } }); folderList.addEventListener('dragover', e => { if (draggedItemInfo.type === CONSTANTS.ITEM_TYPE.NOTE && currentDropTarget) e.preventDefault(); }); folderList.addEventListener('drop', async e => { e.preventDefault(); if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE || !currentDropTarget) return; const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id; currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; if (!(await saveCurrentNoteIfChanged())) { showToast("변경사항 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR); return; } const { TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS; if (targetFolderId === TRASH.id) { await performDeleteItem(noteId, CONSTANTS.ITEM_TYPE.NOTE); } else if (targetFolderId === FAVORITES.id) { const { item: note } = findNote(noteId); if (note && !state.favorites.has(noteId)) await handleToggleFavorite(noteId); } else { await performTransactionalUpdate((latestData) => { const { folders } = latestData; let noteToMove, sourceFolder; for (const folder of folders) { const noteIndex = folder.notes.findIndex(n => n.id === noteId); if (noteIndex > -1) { [noteToMove] = folder.notes.splice(noteIndex, 1); sourceFolder = folder; break; } } const targetFolder = folders.find(f => f.id === targetFolderId); if (!noteToMove || !targetFolder || sourceFolder.id === targetFolder.id) return null; const now = Date.now(); noteToMove.updatedAt = now; targetFolder.notes.unshift(noteToMove); sourceFolder.updatedAt = now; targetFolder.updatedAt = now; return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name), postUpdateState: {} }; }); } }); };
 const _focusAndScrollToListItem = (listElement, itemId) => {
     // [BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.

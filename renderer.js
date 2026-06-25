@@ -512,8 +512,15 @@ export const renderEditor = async () => {
     noteContentTextarea.readOnly = isReadOnly;
     editorContainer.classList.toggle(CONSTANTS.CLASSES.READONLY, isReadOnly);
 
-    if (document.activeElement !== noteTitleInput) noteTitleInput.value = activeNote.title ?? '';
-    if (document.activeElement !== noteContentTextarea) noteContentTextarea.value = activeNote.content ?? '';
+    // 저장 실패나 메타데이터 변경처럼 편집기와 무관한 상태 갱신도 전체 렌더를 유발합니다.
+    // 포커스만 기준으로 값을 다시 쓰면, 사용자가 검색창/버튼을 누르는 순간 미저장 버퍼가 사라질 수 있습니다.
+    const hasProtectedDraft = state.isDirty && state.dirtyNoteId === state.activeNoteId;
+    if (!hasProtectedDraft && document.activeElement !== noteTitleInput) {
+        noteTitleInput.value = activeNote.title ?? '';
+    }
+    if (!hasProtectedDraft && document.activeElement !== noteContentTextarea) {
+        noteContentTextarea.value = activeNote.content ?? '';
+    }
     
     // [수정] marked 모듈을 안전하게 불러와서 사용합니다.
     if (state.isMarkdownView) {

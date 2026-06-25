@@ -47,6 +47,7 @@ export const updateNoteCreationDates = () => {
 let pendingRenamePromise = null;
 let resolvePendingRename = null;
 let pendingRenameCleanup = null;
+let isStartingRename = false;
 
 export const forceResolvePendingRename = () => {
     if (state.renamingItemId || pendingRenamePromise) {
@@ -535,43 +536,70 @@ const _withNoteAction = (noteId, actionFn) => {
     });
 };
 
-export const handlePinNote = (id) => _withNoteAction(id, (note, folder, data) => {
-    note.isPinned = !note.isPinned;
-    const now = Date.now();
-    note.updatedAt = now;
-    folder.updatedAt = now;
-    return {
-        newData: data,
-        successMessage: note.isPinned ? CONSTANTS.MESSAGES.SUCCESS.NOTE_PINNED : CONSTANTS.MESSAGES.SUCCESS.NOTE_UNPINNED,
-        postUpdateState: {}
-    };
-});
-
-export const handleToggleFavorite = (id) => _withNoteAction(id, (note, folder, data) => {
-    const now = Date.now();
-    note.updatedAt = now;
-    folder.updatedAt = now;
-    
-    const favoritesSet = new Set(data.favorites || []);
-    const isNowFavorite = !favoritesSet.has(id);
-    
-    if (isNowFavorite) favoritesSet.add(id);
-    else favoritesSet.delete(id);
-    
-    data.favorites = Array.from(favoritesSet);
-
-    let postUpdateState = {};
-    if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.FAVORITES.id && !isNowFavorite) {
-        postUpdateState.searchTerm = '';
-        postUpdateState.preSearchActiveNoteId = null;
+const prepareForImmediateNoteMutation = async (actionName) => {
+    if (!(await finishPendingRename())) {
+        showToast(`이름 변경 저장에 실패하여 ${actionName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
     }
 
-    return {
-        newData: data,
-        successMessage: isNowFavorite ? CONSTANTS.MESSAGES.SUCCESS.NOTE_FAVORITED : CONSTANTS.MESSAGES.SUCCESS.NOTE_UNFAVORITED,
-        postUpdateState
-    };
-});
+    // 고정/즐겨찾기 변경도 appState 전체를 다시 렌더링합니다. 편집 버퍼를 먼저 저장하지 않으면
+    // 저장 실패 직후 메타데이터 작업이 성공하면서 화면의 미저장 본문을 덮어쓸 수 있습니다.
+    if (!(await saveCurrentNoteIfChanged())) {
+        showToast(`변경사항 저장에 실패하여 ${actionName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+    return true;
+};
+
+export const handlePinNote = async (id) => {
+    if (!(await prepareForImmediateNoteMutation('노트 고정'))) {
+        return { success: false, payload: null };
+    }
+
+    return _withNoteAction(id, (note, folder, data) => {
+        note.isPinned = !note.isPinned;
+        const now = Date.now();
+        note.updatedAt = now;
+        folder.updatedAt = now;
+        return {
+            newData: data,
+            successMessage: note.isPinned ? CONSTANTS.MESSAGES.SUCCESS.NOTE_PINNED : CONSTANTS.MESSAGES.SUCCESS.NOTE_UNPINNED,
+            postUpdateState: {}
+        };
+    });
+};
+
+export const handleToggleFavorite = async (id) => {
+    if (!(await prepareForImmediateNoteMutation('즐겨찾기'))) {
+        return { success: false, payload: null };
+    }
+
+    return _withNoteAction(id, (note, folder, data) => {
+        const now = Date.now();
+        note.updatedAt = now;
+        folder.updatedAt = now;
+        
+        const favoritesSet = new Set(data.favorites || []);
+        const isNowFavorite = !favoritesSet.has(id);
+        
+        if (isNowFavorite) favoritesSet.add(id);
+        else favoritesSet.delete(id);
+        
+        data.favorites = Array.from(favoritesSet);
+
+        let postUpdateState = {};
+        if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.FAVORITES.id && !isNowFavorite) {
+            postUpdateState.searchTerm = '';
+            postUpdateState.preSearchActiveNoteId = null;
+        }
+
+        return {
+            newData: data,
+            successMessage: isNowFavorite ? CONSTANTS.MESSAGES.SUCCESS.NOTE_FAVORITED : CONSTANTS.MESSAGES.SUCCESS.NOTE_UNFAVORITED,
+            postUpdateState
+        };
+    });
+};
 
 export const handleDelete = async (id, type) => {
     if (!(await finishPendingRename())) {
@@ -1023,13 +1051,26 @@ export async function saveCurrentNoteIfChanged() {
         return true;
     }
     
-    const noteIdToSave = state.activeNoteId;
-    const titleToSave = noteTitleInput.value;
-    const contentToSave = noteContentTextarea.value;
+    // 편집 버퍼의 소유자는 activeNoteId가 아니라 입력 시 기록한 dirtyNoteId입니다.
+    // 두 값이 어긋난 상태에서 현재 DOM을 저장하면 다른 노트 내용으로 덮어쓸 수 있으므로 중단합니다.
+    if (state.dirtyNoteId && state.activeNoteId !== state.dirtyNoteId) {
+        console.error('Save aborted: the dirty note does not match the active editor.', {
+            dirtyNoteId: state.dirtyNoteId,
+            activeNoteId: state.activeNoteId
+        });
+        updateSaveStatus('dirty');
+        showToast('저장할 노트와 현재 편집기가 일치하지 않아 저장을 중단했습니다. 페이지를 새로고침하기 전에 내용을 복사해 주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+
+    const noteIdToSave = state.dirtyNoteId || state.activeNoteId;
+    const titleToSave = noteTitleInput?.value ?? '';
+    const contentToSave = noteContentTextarea?.value ?? '';
     
     if (!noteIdToSave) {
-        setState({ isDirty: false, dirtyNoteId: null });
-        return true;
+        updateSaveStatus('dirty');
+        showToast('저장할 노트를 식별할 수 없어 변경사항을 유지한 채 저장을 중단했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
     }
     
     updateSaveStatus('saving');
@@ -1165,6 +1206,15 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         if (nameSpan) nameSpan.textContent = originalName;
         return true;
     }
+
+    // 목록 이름 변경도 전체 상태를 다시 렌더링할 수 있으므로, 현재 편집 버퍼를 먼저 확정합니다.
+    // 특히 검색 결과에서 제목을 바꾸면 활성 노트가 목록에서 사라질 수 있어 저장 실패 상태에서는 데이터 유실로 이어집니다.
+    if (!(await saveCurrentNoteIfChanged())) {
+        setState({ renamingItemId: null });
+        if (nameSpan) nameSpan.textContent = originalName;
+        showToast('변경사항 저장에 실패하여 이름 변경을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
     
     const { success } = await performTransactionalUpdate(latestData => {
         let itemToRename, parentFolder, isDuplicate = false;
@@ -1208,57 +1258,72 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
 
 export const startRename = async (liElement, type) => {
     const id = liElement?.dataset.id;
-    if (!id || state.renamingItemId || state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) return;
+    if (!id || isStartingRename || state.renamingItemId || state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) return;
     if (Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
 
-    if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId !== id) {
-        if (!(await changeActiveNote(id))) {
-             showToast("노트 전환에 실패하여 이름 변경을 시작할 수 없습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-             return;
+    isStartingRename = true;
+    try {
+        if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId !== id) {
+            if (!(await changeActiveNote(id))) {
+                showToast("노트 전환에 실패하여 이름 변경을 시작할 수 없습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                return;
+            }
         }
-    }
-    
-    // 상태가 먼저 바뀐 직후 다른 작업이 들어와도 finishPendingRename()이
-    // 반드시 이 작업을 인식하도록 Promise를 타이머보다 먼저 생성합니다.
-    pendingRenamePromise = new Promise(resolve => { resolvePendingRename = resolve; });
-    setState({ renamingItemId: id });
 
-    setTimeout(() => {
-        // 타이머가 실행되기 전에 다른 작업이 이름 변경을 끝냈거나 새 이름 변경이 시작됐다면
-        // 오래된 콜백이 편집 모드를 되살리거나 새 작업의 상태를 지우지 않도록 중단합니다.
-        if (state.renamingItemId !== id || !pendingRenamePromise) return;
-
-        const safeId = typeof id === 'string' ? CSS.escape(id) : id;
-        const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
-        const nameSpan = newLiElement?.querySelector('.item-name');
-
-        if (!newLiElement || !nameSpan) {
-            forceResolvePendingRename();
+        // 편집기가 dirty인 채 contentEditable 모드에 들어가면, 포커스 이동으로 시작된 저장 렌더가
+        // 이름 변경 DOM을 교체해 입력값과 pending promise를 고립시킬 수 있습니다.
+        if (!(await saveCurrentNoteIfChanged())) {
+            showToast('변경사항 저장에 실패하여 이름 변경을 시작하지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
             return;
         }
+
+        // 저장을 기다리는 동안 항목이 삭제되었을 수 있으므로 현재 상태에서 다시 확인합니다.
+        const { item: currentItem } = type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id);
+        if (!currentItem || state.renamingItemId) return;
         
-        nameSpan.contentEditable = true;
-        nameSpan.focus();
-        document.execCommand('selectAll', false, null);
+        // 상태가 먼저 바뀐 직후 다른 작업이 들어와도 finishPendingRename()이
+        // 반드시 이 작업을 인식하도록 Promise를 타이머보다 먼저 생성합니다.
+        pendingRenamePromise = new Promise(resolve => { resolvePendingRename = resolve; });
+        setState({ renamingItemId: id });
 
-        const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
-        const onKeydown = (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                nameSpan.blur();
-            } else if (event.key === 'Escape') {
-                event.preventDefault();
-                void _handleRenameEnd(id, type, nameSpan, false);
+        setTimeout(() => {
+            // 타이머가 실행되기 전에 다른 작업이 이름 변경을 끝냈거나 새 이름 변경이 시작됐다면
+            // 오래된 콜백이 편집 모드를 되살리거나 새 작업의 상태를 지우지 않도록 중단합니다.
+            if (state.renamingItemId !== id || !pendingRenamePromise) return;
+
+            const safeId = typeof id === 'string' ? CSS.escape(id) : id;
+            const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
+            const nameSpan = newLiElement?.querySelector('.item-name');
+
+            if (!newLiElement || !nameSpan) {
+                forceResolvePendingRename();
+                return;
             }
-        };
+            
+            nameSpan.contentEditable = true;
+            nameSpan.focus();
+            document.execCommand('selectAll', false, null);
 
-        pendingRenameCleanup = () => {
-            nameSpan.removeEventListener('blur', onBlur);
-            nameSpan.removeEventListener('keydown', onKeydown);
-        };
-        nameSpan.addEventListener('blur', onBlur, { once: true });
-        nameSpan.addEventListener('keydown', onKeydown);
-    }, 0);
+            const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
+            const onKeydown = (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void _handleRenameEnd(id, type, nameSpan, true);
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    void _handleRenameEnd(id, type, nameSpan, false);
+                }
+            };
+            nameSpan.addEventListener('blur', onBlur, { once: true });
+            nameSpan.addEventListener('keydown', onKeydown);
+            pendingRenameCleanup = () => {
+                nameSpan.removeEventListener('blur', onBlur);
+                nameSpan.removeEventListener('keydown', onKeydown);
+            };
+        }, 0);
+    } finally {
+        isStartingRename = false;
+    }
 };
 
 const handleTextareaKeyDown = (e) => {
