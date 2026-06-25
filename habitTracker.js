@@ -203,12 +203,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 return id;
             };
             const normalizeFrequency = (frequency) => {
-                const type = frequency?.type === 'specific_days' ? 'specific_days' : 'daily';
-                const rawDays = Array.isArray(frequency?.days) ? frequency.days : [0,1,2,3,4,5,6];
+                const validTypes = new Set(['daily', 'weekdays', 'weekends', 'specific_days']);
+                const type = validTypes.has(frequency?.type) ? frequency.type : 'daily';
+                const defaultDays = {
+                    daily: [0,1,2,3,4,5,6],
+                    weekdays: [1,2,3,4,5],
+                    weekends: [0,6],
+                    specific_days: [0,1,2,3,4,5,6]
+                }[type];
+                const rawDays = Array.isArray(frequency?.days) ? frequency.days : defaultDays;
                 const days = Array.from(new Set(rawDays
                     .map(Number)
                     .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)));
-                return { type, days: days.length ? days : [0,1,2,3,4,5,6] };
+                return { type, days: days.length ? days : defaultDays };
             };
             const normalizeLogs = (logs) => {
                 const safeLogs = {};
@@ -1854,7 +1861,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         // ----- ACHIEVEMENTS -----
-        checkAchievement(id) {
+        checkAchievement(id, forceUnlock = false) {
             if (this.state.achievements[id]) return;
             const unlockConditions = {
                 'first_habit': () => this.state.habits.length > 0,
@@ -1921,7 +1928,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 'comeback_king': () => false,
                 'data_guardian': () => false,
             };
-            if (unlockConditions[id] && unlockConditions[id]()) {
+            if (unlockConditions[id] && (forceUnlock || unlockConditions[id]())) {
                 this.state.achievements[id] = { unlockedAt: new Date().toISOString() };
                 this.saveData();
                 const { title, description } = achievementList[id];
@@ -1943,7 +1950,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastPracticeDate = this.parseDateString(sortedLogs);
                 const diffDays = Math.floor((today - lastPracticeDate) / (1000 * 60 * 60 * 24));
                 if (diffDays >= 7) {
-                    this.checkAchievement('comeback_king');
+                    this.checkAchievement('comeback_king', true);
                 }
             }
         },

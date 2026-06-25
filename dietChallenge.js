@@ -492,7 +492,7 @@
     const sanitizeDietRecord = (raw) => {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
         const date = String(raw.date ?? '').trim();
-        if (!DateUtil.isValidDateString(date)) return null;
+        if (!DateUtil.isValidDateString(date) || DateUtil.isFuture(date)) return null;
 
         const weight = Number(raw.weight);
         if (!Number.isFinite(weight) || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) return null;
@@ -529,7 +529,7 @@
             height: Number.isFinite(height) && height > 0 && height <= 300 ? MathUtil.round(height) : defaults.height,
             startWeight: Number.isFinite(startWeight) && startWeight > 0 && startWeight <= 500 ? MathUtil.round(startWeight) : defaults.startWeight,
             goal1: Number.isFinite(goal1) && goal1 > 0 && goal1 <= 500 ? MathUtil.round(goal1) : defaults.goal1,
-            intake: Number.isFinite(intake) && intake > 0 && intake <= 10000 ? Math.round(intake) : defaults.intake
+            intake: Number.isFinite(intake) && intake >= 1 && intake <= 10000 ? Math.round(intake) : defaults.intake
         };
     };
 
@@ -787,11 +787,12 @@
         if (isNaN(height) || height <= 0 || height > 300) return showToast('유효한 키(cm)를 입력해주세요.');
         if (isNaN(startWeight) || startWeight <= 0 || startWeight > 500) return showToast('유효한 시작 체중을 입력해주세요.');
         if (isNaN(goal1) || goal1 <= 0 || goal1 > 500) return showToast('유효한 목표 체중을 입력해주세요.');
+        if (!Number.isFinite(intake) || intake < 1 || intake > 10000) return showToast('유효한 하루 섭취 칼로리를 입력해주세요 (1~10000kcal).');
 
         AppState.settings.height = height;
         AppState.settings.startWeight = startWeight;
         AppState.settings.goal1 = goal1;
-        AppState.settings.intake = intake || 2000;
+        AppState.settings.intake = Math.round(intake);
         
         AppState.state.isDirty = true;
         debouncedSaveSettings();
@@ -819,6 +820,7 @@
         const fatStr = fatInput.value;
 
         if (!date || !DateUtil.isValidDateString(date)) return showToast('유효한 날짜를 입력해주세요.');
+        if (DateUtil.isFuture(date)) return showToast('미래 날짜의 기록은 추가할 수 없습니다.');
         
         // 값이 비어있는지 확인
         if (!weightStr || weightStr.trim() === '') {
@@ -1287,6 +1289,7 @@
 
     // --- 6. 통계 렌더링 ---
     function renderStats(s) {
+        const hasRecords = AppState.records.length > 0;
         const currentW = s.current !== undefined ? s.current : AppState.settings.startWeight;
         const totalLost = s.totalLost !== undefined ? s.totalLost : 0;
         
@@ -1317,7 +1320,8 @@
         }
         AppState.getEl('remainingPercentDisplay').innerText = `${remainingPct.toFixed(1)}%`;
 
-        const bmi = s.bmi || 0;
+        const heightM = AppState.settings.height / 100;
+        const bmi = s.bmi !== undefined ? s.bmi : (heightM > 0 ? currentW / (heightM * heightM) : 0);
         
         let bmiLabel = '정상';
         if(bmi < CONFIG.BMI.UNDER) bmiLabel = '저체중';
@@ -1339,26 +1343,28 @@
         AppState.getEl('successRateDisplay').innerText = (s.successRate || 0) + '%';
         
         const pred = calculateScenarios(currentW);
-        AppState.getEl('predictedDate').innerText = pred.avg;
-        AppState.getEl('predictionRange').innerText = pred.range;
+        AppState.getEl('predictedDate').innerText = hasRecords ? pred.avg : '데이터 부족';
+        AppState.getEl('predictionRange').innerText = hasRecords ? pred.range : '체중 기록을 추가해주세요';
         
-        AppState.getEl('rate7Days').innerText = s.rate7;
-        AppState.getEl('rate30Days').innerText = s.rate30;
-        AppState.getEl('dashboardRate7Days').innerText = s.rate7;
-        AppState.getEl('dashboardRate30Days').innerText = s.rate30;
-        AppState.getEl('weeklyCompareDisplay').innerText = s.weeklyComp;
+        const rate7 = s.rate7 || '-';
+        const rate30 = s.rate30 || '-';
+        AppState.getEl('rate7Days').innerText = rate7;
+        AppState.getEl('rate30Days').innerText = rate30;
+        AppState.getEl('dashboardRate7Days').innerText = rate7;
+        AppState.getEl('dashboardRate30Days').innerText = rate30;
+        AppState.getEl('weeklyCompareDisplay').innerText = s.weeklyComp || '데이터 부족';
 
-        AppState.getEl('minMaxWeightDisplay').innerHTML = `
-            <span class="text-danger">${(s.max||0).toFixed(1)}kg</span> / 
-            <span class="text-primary">${(s.min||0).toFixed(1)}kg</span>
-        `;
+        AppState.getEl('minMaxWeightDisplay').innerHTML = hasRecords ? `
+            <span class="text-danger">${s.max.toFixed(1)}kg</span> / 
+            <span class="text-primary">${s.min.toFixed(1)}kg</span>
+        ` : '- / -';
         
-        AppState.getEl('dailyVolatilityDisplay').innerHTML = `
+        AppState.getEl('dailyVolatilityDisplay').innerHTML = AppState.records.length > 1 ? `
             <span class="text-primary">▼${(s.maxDrop||0).toFixed(1)}</span> / 
             <span class="text-danger">▲${(s.maxGain||0).toFixed(1)}</span>
-        `;
+        ` : '- / -';
 
-        AppState.getEl('weeklyAvgDisplay').innerText = s.weeklyAvgLoss + 'kg';
+        AppState.getEl('weeklyAvgDisplay').innerText = (s.weeklyAvgLoss !== undefined && s.weeklyAvgLoss !== '-') ? s.weeklyAvgLoss + 'kg' : '-';
         
 		const mCompEl = AppState.getEl('monthCompareDisplay');
         // [수정] 값이 없으면(undefined) 기본값 '-'을 사용하여 에러 방지

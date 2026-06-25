@@ -1132,11 +1132,13 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         return true;
     }
 
-    nameSpan.contentEditable = false;
+    // contentEditable을 끄면 blur가 발생할 수 있으므로, 저장용 blur 리스너를 먼저 제거합니다.
+    // Escape 취소가 blur 저장과 경합해 새 이름을 커밋하는 문제를 방지합니다.
     if (pendingRenameCleanup) {
         pendingRenameCleanup();
         pendingRenameCleanup = null;
     }
+    nameSpan.contentEditable = false;
     
     if (resolvePendingRename) {
         resolvePendingRename();

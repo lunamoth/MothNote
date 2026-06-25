@@ -172,13 +172,14 @@ const sanitizeLastActiveNoteMap = (rawMap, data, idUpdateMap = new Map(), markCh
 };
 
 const parseSimplenoteTimestamp = (value, fallback) => {
-    const parsed = new Date(value).getTime();
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    // 숫자형 Unix 타임스탬프는 Date 문자열 파싱보다 먼저 판별해야 합니다.
+    // 그렇지 않으면 초 단위 값이 밀리초로 해석되어 1970년 날짜가 됩니다.
     const numeric = Number(value);
     if (Number.isFinite(numeric) && numeric > 0) {
-        // Simplenote 내보내기/변환본에 초 단위 Unix 시간이 섞여 들어오는 경우도 방어합니다.
         return numeric < 100000000000 ? numeric * 1000 : numeric;
     }
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
     return fallback;
 };
 
@@ -1061,6 +1062,17 @@ export const handleExport = async (settings) => {
         if (habitTrackerData) {
             try {
                 habitTrackerDataForExport = JSON.parse(habitTrackerData);
+                if (habitTrackerDataForExport && typeof habitTrackerDataForExport === 'object' && !Array.isArray(habitTrackerDataForExport)) {
+                    const achievements = habitTrackerDataForExport.achievements && typeof habitTrackerDataForExport.achievements === 'object'
+                        ? habitTrackerDataForExport.achievements
+                        : {};
+                    if (!achievements.data_guardian) {
+                        achievements.data_guardian = { unlockedAt: new Date().toISOString() };
+                        habitTrackerDataForExport.achievements = achievements;
+                        // 백업에 포함할 뿐 아니라 습관 트래커를 다시 열었을 때도 업적이 유지되도록 저장합니다.
+                        localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(habitTrackerDataForExport));
+                    }
+                }
             } catch (habitDataError) {
                 // 일부 데이터가 손상돼도 전체 노트 백업까지 막지 않고 원문을 보존합니다.
                 console.warn('습관 트래커 데이터가 올바른 JSON이 아니어서 원문 그대로 백업합니다.', habitDataError);
