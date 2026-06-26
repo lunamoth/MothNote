@@ -135,3 +135,4 @@ https://fairy.hada.io/@lunamoth
 * 2026-06-25 오전 11:28 // 23.4, MothNote 마이너 버그 7개 수정 (ChatGPT 5.5 프로 확장)
 * 2026-06-25 오후 12:47 // 23.5, MothNote 버그 4개 수정 (ChatGPT 5.5 프로 확장)
 * 2026-06-25 오후 7:39 // 23.6, MothNote 버그 6개 수정 (ChatGPT 5.5 프로 확장)
+* 2026-06-26 오후 3:00 // 23.7, MothNote 버그 8개 수정 (ChatGPT 5.5 프로 확장)
