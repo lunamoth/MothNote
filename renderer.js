@@ -462,7 +462,10 @@ export const renderNotes = () => {
     if (state.activeNoteId
         && !sortedNotes.some(note => note.id === state.activeNoteId)
         && !activeEditorOwnsUnsavedDraft) {
+        // activeNoteId 보정은 setState()를 통해 즉시 재렌더를 유발합니다.
+        // 현재 렌더가 계속 진행되면 재렌더된 DOM을 오래된 목록으로 다시 덮어쓸 수 있으므로 중단합니다.
         setState({ activeNoteId: sortedNotes[0]?.id ?? null });
+        return;
     }
     
     noteList.innerHTML = '';

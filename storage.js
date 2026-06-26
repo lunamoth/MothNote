@@ -698,6 +698,21 @@ export const loadData = async () => {
                 
                 const updatedStorageResult = await storageGet('appState');
                 authoritativeData = updatedStorageResult.appState;
+                if (authoritativeData) {
+                    const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
+                    authoritativeData = verification.sanitizedData;
+                    verification.folderIdUpdateMap.forEach((newId, oldId) => folderIdUpdateMap.set(oldId, newId));
+                    verification.noteIdUpdateMap.forEach((newId, oldId) => noteIdUpdateMap.set(oldId, newId));
+
+                    if (verification.wasSanitized) {
+                        await storageSet({ appState: authoritativeData });
+                        console.warn('[Emergency Recovery] Recovered data required additional sanitization and was saved back to storage.');
+                    }
+                    if (verification.shouldNotify) {
+                        const sanitizationMessage = '복구된 데이터의 무결성 검사 중 문제를 발견하여 자동 복구했습니다.';
+                        recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanitizationMessage}` : sanitizationMessage;
+                    }
+                }
 
             } catch (e) {
                 console.error("비상 백업 데이터 복구 실패. 무한 루프 방지를 위해 백업 데이터가 제거됩니다.", e);
@@ -759,10 +774,15 @@ export const loadData = async () => {
             const { findFolder } = await import('./state.js'); 
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
             const noteExistsInMap = state.noteMap.has(state.activeNoteId);
+            const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
+            const trashItemExists = !state.activeNoteId || state.trash.some(item => item?.id === state.activeNoteId);
 
             if (!folderExists) {
                 setState({ activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id, activeNoteId: null });
-            } else if (state.activeFolderId !== CONSTANTS.VIRTUAL_FOLDERS.TRASH.id && !noteExistsInMap) {
+            } else if (isTrashView && !trashItemExists) {
+                const nextTrashItem = [...state.trash].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0))[0];
+                setState({ activeNoteId: nextTrashItem?.id ?? null });
+            } else if (!isTrashView && !noteExistsInMap) {
                 const { item: activeFolder } = findFolder(state.activeFolderId);
                  const firstNoteId = (activeFolder && activeFolder.notes && activeFolder.notes.length > 0)
                     ? sortNotes(activeFolder.notes, state.noteSortOrder)[0]?.id ?? null

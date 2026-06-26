@@ -19,9 +19,28 @@ import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navig
 
 let autoSaveTimer = null; // 자동 저장을 위한 타이머
 
+export const parseYYYYMMDDLocal = (value) => {
+    if (typeof value !== 'string') return null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const monthIndex = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const date = new Date(year, monthIndex, day);
+
+    // 2026-02-31처럼 자동 보정되는 잘못된 날짜는 거부합니다.
+    if (date.getFullYear() !== year || date.getMonth() !== monthIndex || date.getDate() !== day) {
+        return null;
+    }
+    return date;
+};
+
 export const toYYYYMMDD = (dateInput) => {
     if (!dateInput) return null;
-    const date = (dateInput instanceof Date) ? dateInput : new Date(dateInput);
+    const date = dateInput instanceof Date
+        ? dateInput
+        : (parseYYYYMMDDLocal(dateInput) || new Date(dateInput));
     if (isNaN(date.getTime())) return null;
 
     const y = date.getFullYear();
@@ -768,7 +787,8 @@ export const handleRestoreItem = async (id, type) => {
 
         const now = Date.now();
         let hadIdCollision = false;
-        const idUpdateMap = new Map();
+        const folderIdUpdateMap = new Map();
+        const noteIdUpdateMap = new Map();
 
         if (txEffectiveType === 'folder') {
             if (folders.some(f => f.name === finalFolderName)) {
@@ -796,7 +816,7 @@ export const handleRestoreItem = async (id, type) => {
                 const newId = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, allExistingIds);
                 itemToRestoreInTx.id = newId;
                 allExistingIds.add(newId);
-                idUpdateMap.set(oldId, newId);
+                folderIdUpdateMap.set(oldId, newId);
                 hadIdCollision = true;
             }
 
@@ -809,7 +829,7 @@ export const handleRestoreItem = async (id, type) => {
                     const combinedExistingIds = new Set([...allExistingIds, ...restoredNoteIds]);
                     const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, combinedExistingIds);
                     note.id = newId;
-                    idUpdateMap.set(oldId, newId);
+                    noteIdUpdateMap.set(oldId, newId);
                     hadIdCollision = true;
                 }
                 
@@ -861,7 +881,7 @@ export const handleRestoreItem = async (id, type) => {
                  const oldId = itemToRestoreInTx.id;
                  const newId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                  itemToRestoreInTx.id = newId;
-                 idUpdateMap.set(oldId, newId);
+                 noteIdUpdateMap.set(oldId, newId);
                  hadIdCollision = true;
             }
 
@@ -884,12 +904,12 @@ export const handleRestoreItem = async (id, type) => {
             targetFolderInTx.updatedAt = now;
         }
 
-        if (idUpdateMap.size > 0 && latestData.lastActiveNotePerFolder) {
+        if ((folderIdUpdateMap.size > 0 || noteIdUpdateMap.size > 0) && latestData.lastActiveNotePerFolder) {
             const newLastActiveMap = {};
             for (const oldFolderId in latestData.lastActiveNotePerFolder) {
-                const newFolderId = idUpdateMap.get(oldFolderId) || oldFolderId;
+                const newFolderId = folderIdUpdateMap.get(oldFolderId) || oldFolderId;
                 const oldNoteId = latestData.lastActiveNotePerFolder[oldFolderId];
-                const newNoteId = idUpdateMap.get(oldNoteId) || oldNoteId;
+                const newNoteId = noteIdUpdateMap.get(oldNoteId) || oldNoteId;
                 newLastActiveMap[newFolderId] = newNoteId;
             }
             latestData.lastActiveNotePerFolder = newLastActiveMap;

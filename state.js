@@ -199,6 +199,8 @@ export const buildNoteMap = () => {
 export const setState = (newState) => {
     // [BUG FIX] folders 데이터가 업데이트되었는지 확인합니다.
     const foldersJustUpdated = 'folders' in newState;
+    const trashJustUpdated = 'trash' in newState;
+    const favoritesJustUpdated = 'favorites' in newState;
 
     Object.assign(state, newState);
 
@@ -206,6 +208,9 @@ export const setState = (newState) => {
     // 이렇게 하면 상태와 파생 데이터(noteMap)의 일관성이 항상 보장됩니다.
     if (foldersJustUpdated) {
         buildNoteMap();
+    } else if (trashJustUpdated || favoritesJustUpdated) {
+        // 휴지통/즐겨찾기 가상 폴더도 캐시를 사용하므로, 해당 원본 상태가 바뀌면 즉시 무효화합니다.
+        state._virtualFolderCache = { all: null, recent: null, favorites: null, trash: null };
     }
 
     notify();
@@ -225,12 +230,22 @@ const _findNoteInState = (id) => {
 
 const _findFolderInState = (id) => {
     const index = state.folders.findIndex(f => f.id === id);
-    return { item: state.folders[index], index };
+    return { item: index >= 0 ? state.folders[index] : null, index };
 };
 
-const _findInTrash = (id) => {
-    const index = state.trash.findIndex(item => item.id === id);
-    return { item: state.trash[index], index };
+const inferTrashItemType = (item) => {
+    if (!item || typeof item !== 'object') return null;
+    if (item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes)) return CONSTANTS.ITEM_TYPE.FOLDER;
+    if (item.type === CONSTANTS.ITEM_TYPE.NOTE || 'content' in item || 'title' in item) return CONSTANTS.ITEM_TYPE.NOTE;
+    return null;
+};
+
+const _findInTrash = (id, expectedType = null) => {
+    const index = state.trash.findIndex(item => {
+        if (!item || item.id !== id) return false;
+        return !expectedType || inferTrashItemType(item) === expectedType;
+    });
+    return { item: index >= 0 ? state.trash[index] : null, index };
 };
 
 const _findInVirtualFolders = (id) => {
@@ -258,7 +273,7 @@ const findItem = (id, type) => {
         if (virtualResult) return { ...virtualResult, isInTrash: false };
     }
 
-    const { item: trashedItem, index: trashIndex } = _findInTrash(id);
+    const { item: trashedItem, index: trashIndex } = _findInTrash(id, type);
     if (trashedItem) {
         return { item: trashedItem, index: trashIndex, folder: null, isInTrash: true };
     }

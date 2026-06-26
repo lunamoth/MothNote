@@ -115,6 +115,8 @@ const getCurrentViewNotes = () => {
 const handleSearch = (searchTerm) => {
     const previousSearchTerm = state.searchTerm;
     const newState = { searchTerm };
+    const { item: currentFolder } = findFolder(state.activeFolderId);
+    const isSortableView = currentFolder?.isSortable !== false;
     
     if (searchTerm && !previousSearchTerm) {
         newState.preSearchActiveNoteId = state.activeNoteId;
@@ -124,15 +126,16 @@ const handleSearch = (searchTerm) => {
 
     if (searchTerm) {
         const sourceNotes = getCurrentViewNotes();
+        const normalizedSearchTerm = searchTerm.toLowerCase();
         
         const filteredNotes = sourceNotes.filter(n =>
-            (n.title ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (n.content ?? '').toLowerCase().includes(searchTerm.toLowerCase())
+            (n.title ?? n.name ?? '').toLowerCase().includes(normalizedSearchTerm) ||
+            (n.content ?? '').toLowerCase().includes(normalizedSearchTerm)
         );
-        const sortedNotes = sortNotes(filteredNotes, state.noteSortOrder);
+        const notesToSelectFrom = isSortableView ? sortNotes(filteredNotes, state.noteSortOrder) : filteredNotes;
         
-        if (sortedNotes.length > 0) {
-            nextActiveNoteId = sortedNotes[0].id;
+        if (notesToSelectFrom.length > 0) {
+            nextActiveNoteId = notesToSelectFrom[0].id;
         } else {
             nextActiveNoteId = null;
         }
@@ -154,7 +157,8 @@ const handleSearch = (searchTerm) => {
         }
         
         if (nextActiveNoteId === null && notesInCurrentView.length > 0) {
-            nextActiveNoteId = sortNotes(notesInCurrentView, state.noteSortOrder)[0]?.id ?? null;
+            const notesToSelectFrom = isSortableView ? sortNotes(notesInCurrentView, state.noteSortOrder) : notesInCurrentView;
+            nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
         }
 
         newState.preSearchActiveNoteId = null;
