@@ -72,6 +72,30 @@ const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
 const DIET_CHALLENGE_DATA_KEY = 'diet_pro_records'; // dietChallenge.js의 STORAGE_KEY와 일치해야 함
 const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 SETTINGS_KEY와 일치해야 함
 
+// [CRITICAL FIX] 실제 데이터 ID가 가상 폴더 ID와 충돌하면 해당 항목을 선택/삭제/복원할 수 없게 됩니다.
+// 로드/가져오기 시 폴더·노트 ID 형식과 예약 ID를 엄격히 검증해 앱 내부 참조 무결성을 보장합니다.
+const RESERVED_ITEM_IDS = new Set(Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(folder => folder.id));
+const MAX_ITEM_ID_LENGTH = 160;
+
+const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
+
+const isValidItemIdForType = (id, prefix) => (
+    typeof id === 'string'
+    && id.length > 0
+    && id.length <= MAX_ITEM_ID_LENGTH
+    && id.startsWith(prefix)
+    && !isReservedItemId(id)
+);
+
+const getFolderIdAfterSanitization = (folderId, folderIdUpdateMap = new Map()) => {
+    if (folderId === undefined || folderId === null) return null;
+    const normalizedId = String(folderId);
+    // 가상 폴더 세션은 실제 폴더의 손상 ID 복구 맵과 충돌하지 않도록 그대로 유지합니다.
+    return isReservedItemId(normalizedId)
+        ? normalizedId
+        : (folderIdUpdateMap.get(normalizedId) || normalizedId);
+};
+
 
 // [순환 참조 해결] generateUniqueId 함수를 state.js 파일로 이동시켰습니다.
 // 이 파일에 있던 함수 정의를 완전히 삭제합니다.
@@ -167,7 +191,7 @@ const sanitizeLastActiveNoteMap = (rawMap, data, idUpdateMaps = {}, markChanged 
     for (const [folderId, noteId] of Object.entries(sourceMap)) {
         const normalizedFolderId = String(folderId);
         const normalizedNoteId = String(noteId);
-        const newFolderId = folderIdUpdateMap.get(normalizedFolderId) || normalizedFolderId;
+        const newFolderId = getFolderIdAfterSanitization(normalizedFolderId, folderIdUpdateMap);
         const newNoteId = noteIdUpdateMap.get(normalizedNoteId) || normalizedNoteId;
         if (isValidLastActiveReference(newFolderId, newNoteId, context)) {
             cleaned[newFolderId] = newNoteId;
@@ -211,7 +235,7 @@ const verifyAndSanitizeLoadedData = (data) => {
     const noteIdUpdateMap = new Map();
     const seenOriginalFolderIds = new Set();
     const seenOriginalNoteIds = new Set();
-    const usedIds = new Set();
+    const usedIds = new Set(RESERVED_ITEM_IDS);
     let changesMade = false;
     let notifyChangesMade = false;
     const now = Date.now();
@@ -248,10 +272,11 @@ const verifyAndSanitizeLoadedData = (data) => {
         const seenIds = isFolder ? seenOriginalFolderIds : seenOriginalNoteIds;
         const updateMap = isFolder ? folderIdUpdateMap : noteIdUpdateMap;
         const wasSeenInSameType = Boolean(oldId && seenIds.has(oldId));
+        const hasUnsafeFormat = !isValidItemIdForType(oldId, prefix);
         const collidesGlobally = Boolean(oldId && usedIds.has(oldId));
         let finalId = oldId;
 
-        if (!finalId || collidesGlobally) {
+        if (hasUnsafeFormat || collidesGlobally) {
             finalId = generateUniqueId(prefix, usedIds);
             item.id = finalId;
 
@@ -262,7 +287,7 @@ const verifyAndSanitizeLoadedData = (data) => {
             }
 
             markChanged();
-            console.warn(`[Data Sanitization] Invalid or duplicate ID fixed on load: ${oldId || '(empty)'} -> ${finalId}`);
+            console.warn(`[Data Sanitization] Unsafe, reserved, or duplicate ID fixed on load: ${oldId || '(empty)'} -> ${finalId}`);
         } else if (item.id !== finalId) {
             // 숫자형 등 문자열이 아닌 ID는 실제 데이터에도 문자열로 기록해 strict 비교 실패를 막습니다.
             item.id = finalId;
@@ -381,8 +406,7 @@ const verifyAndSanitizeLoadedData = (data) => {
     );
 
     if (data.activeFolderId !== undefined && data.activeFolderId !== null) {
-        const normalizedId = String(data.activeFolderId);
-        data.activeFolderId = folderIdUpdateMap.get(normalizedId) || normalizedId;
+        data.activeFolderId = getFolderIdAfterSanitization(data.activeFolderId, folderIdUpdateMap);
     }
     if (data.activeNoteId !== undefined && data.activeNoteId !== null) {
         const normalizedId = String(data.activeNoteId);
@@ -743,9 +767,7 @@ export const loadData = async () => {
 
             if (lastSession) {
                 // 세션 ID도 문자열로 정규화하고, 폴더/노트 유형에 맞는 복구 맵을 각각 적용합니다.
-                const correctedFolderId = lastSession.f === undefined || lastSession.f === null
-                    ? null
-                    : (folderIdUpdateMap.get(String(lastSession.f)) || String(lastSession.f));
+                const correctedFolderId = getFolderIdAfterSanitization(lastSession.f, folderIdUpdateMap);
                 const correctedNoteId = lastSession.n === undefined || lastSession.n === null
                     ? null
                     : (noteIdUpdateMap.get(String(lastSession.n)) || String(lastSession.n));
@@ -960,7 +982,7 @@ const sanitizeContentData = data => {
         throw new Error("유효하지 않은 파일 구조입니다.");
     }
 
-    const usedIds = new Set();
+    const usedIds = new Set(RESERVED_ITEM_IDS);
     const folderIdMap = new Map();
     const noteIdMap = new Map();
     const now = Date.now();
@@ -972,7 +994,8 @@ const sanitizeContentData = data => {
 
     const getUniqueId = (prefix, id, referenceMap) => {
         const oldId = id === undefined || id === null ? '' : String(id);
-        let finalId = oldId.slice(0, 50);
+        const candidateId = oldId.slice(0, MAX_ITEM_ID_LENGTH);
+        let finalId = isValidItemIdForType(candidateId, prefix) ? candidateId : '';
 
         if (!finalId || usedIds.has(finalId)) {
             finalId = generateUniqueId(prefix, usedIds);
