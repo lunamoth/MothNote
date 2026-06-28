@@ -19,6 +19,18 @@ import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navig
 
 let autoSaveTimer = null; // 자동 저장을 위한 타이머
 
+// CSS.escape가 없는 브라우저/테스트 환경에서도 data-id 선택자가 안전하게 동작하도록 폴백을 제공합니다.
+const escapeCssAttributeValue = (value) => {
+    const stringValue = String(value ?? '');
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(stringValue);
+    }
+    return stringValue
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/[\n\r\f]/g, ' ');
+};
+
 export const parseYYYYMMDDLocal = (value) => {
     if (typeof value !== 'string') return null;
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
@@ -89,7 +101,7 @@ export const finishPendingRename = async () => {
     if (state.renamingItemId && pendingRenamePromise) {
         const id = state.renamingItemId;
         // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
-        const safeId = typeof id === 'string' ? CSS.escape(id) : id;
+        const safeId = escapeCssAttributeValue(id);
         // DOM에서 이름 변경 중인 li 요소를 찾습니다.
         const renamingElementWrapper = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
         
@@ -456,7 +468,7 @@ export const handleAddFolder = async () => {
         await changeActiveFolder(newFolderId, { force: true });
         requestAnimationFrame(() => {
             // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
-            const safeNewFolderId = typeof newFolderId === 'string' ? CSS.escape(newFolderId) : newFolderId;
+            const safeNewFolderId = escapeCssAttributeValue(newFolderId);
             const newFolderEl = folderList.querySelector(`[data-id="${safeNewFolderId}"]`);
             if (newFolderEl) {
                 newFolderEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -1348,7 +1360,7 @@ export const startRename = async (liElement, type) => {
             // 오래된 콜백이 편집 모드를 되살리거나 새 작업의 상태를 지우지 않도록 중단합니다.
             if (state.renamingItemId !== id || !pendingRenamePromise) return;
 
-            const safeId = typeof id === 'string' ? CSS.escape(id) : id;
+            const safeId = escapeCssAttributeValue(id);
             const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
             const nameSpan = newLiElement?.querySelector('.item-name');
 

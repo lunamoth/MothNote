@@ -76,8 +76,41 @@ const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 
 // 로드/가져오기 시 폴더·노트 ID 형식과 예약 ID를 엄격히 검증해 앱 내부 참조 무결성을 보장합니다.
 const RESERVED_ITEM_IDS = new Set(Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(folder => folder.id));
 const MAX_ITEM_ID_LENGTH = 160;
+const MAX_FOLDER_NAME_LENGTH = 120;
 
 const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
+
+const normalizeFolderName = (value, fallback = '새 폴더') => {
+    const normalized = String(value ?? fallback).trim().slice(0, MAX_FOLDER_NAME_LENGTH);
+    return normalized || fallback;
+};
+
+const getUniqueFolderName = (name, usedNameKeys) => {
+    const baseName = normalizeFolderName(name);
+    const baseKey = baseName.toLowerCase();
+    if (!usedNameKeys.has(baseKey)) {
+        usedNameKeys.add(baseKey);
+        return baseName;
+    }
+
+    let counter = 2;
+    while (counter < 10000) {
+        const suffix = ` (${counter})`;
+        const truncatedBase = baseName.slice(0, Math.max(1, MAX_FOLDER_NAME_LENGTH - suffix.length));
+        const candidate = `${truncatedBase}${suffix}`;
+        const candidateKey = candidate.toLowerCase();
+        if (!usedNameKeys.has(candidateKey)) {
+            usedNameKeys.add(candidateKey);
+            return candidate;
+        }
+        counter += 1;
+    }
+
+    const fallbackSuffix = ` (${Date.now()})`;
+    const fallbackName = `${baseName.slice(0, Math.max(1, MAX_FOLDER_NAME_LENGTH - fallbackSuffix.length))}${fallbackSuffix}`;
+    usedNameKeys.add(fallbackName.toLowerCase());
+    return fallbackName;
+};
 
 const isValidItemIdForType = (id, prefix) => (
     typeof id === 'string'
@@ -340,7 +373,7 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         const folder = rawFolder;
         normalizeId(folder, CONSTANTS.ID_PREFIX.FOLDER, CONSTANTS.ITEM_TYPE.FOLDER);
-        folder.name = normalizeText(folder.name, '새 폴더', 120) || '새 폴더';
+        folder.name = normalizeFolderName(folder.name);
         folder.createdAt = normalizeTimestamp(folder.createdAt);
         folder.updatedAt = normalizeTimestamp(folder.updatedAt, folder.createdAt);
 
@@ -362,6 +395,17 @@ const verifyAndSanitizeLoadedData = (data) => {
     data.folders = data.folders
         .map(folder => normalizeFolder(folder, false))
         .filter(Boolean);
+
+    const usedActiveFolderNameKeys = new Set();
+    data.folders.forEach(folder => {
+        const uniqueName = getUniqueFolderName(folder.name, usedActiveFolderNameKeys);
+        if (folder.name !== uniqueName) {
+            console.warn(`[Data Sanitization] Duplicate folder name fixed on load: ${folder.name} -> ${uniqueName}`);
+            folder.name = uniqueName;
+            folder.updatedAt = Math.max(Number(folder.updatedAt) || now, now);
+            markChanged();
+        }
+    });
 
     data.trash = data.trash
         .map(item => {
@@ -1047,7 +1091,7 @@ const sanitizeContentData = data => {
         const updatedAt = normalizeTimestamp(rawFolder.updatedAt, createdAt);
         const folder = {
             id: folderId,
-            name: String(rawFolder.name ?? '제목 없는 폴더').slice(0, 100),
+            name: normalizeFolderName(rawFolder.name),
             notes: Array.isArray(rawFolder.notes)
                 ? rawFolder.notes.map(note => sanitizeNote(note, isTrash))
                 : [],
@@ -1066,7 +1110,12 @@ const sanitizeContentData = data => {
         return folder;
     };
 
-    const sanitizedFolders = data.folders.map(folder => sanitizeFolder(folder, false));
+    const usedActiveFolderNameKeys = new Set();
+    const sanitizedFolders = data.folders.map(folder => {
+        const sanitizedFolder = sanitizeFolder(folder, false);
+        sanitizedFolder.name = getUniqueFolderName(sanitizedFolder.name, usedActiveFolderNameKeys);
+        return sanitizedFolder;
+    });
 
     const sanitizedTrash = Array.isArray(data.trash)
         ? data.trash.reduce((acc, item) => {
@@ -1317,12 +1366,25 @@ const restoreImportBackupPayload = async (backupPayload) => {
         : backupPayload.appState != null;
 
     if (hadAppState && backupPayload.appState) {
-        await storageSet({ appState: backupPayload.appState });
+        const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(backupPayload.appState)));
+        await storageSet({ appState: verification.sanitizedData });
+        if (verification.wasSanitized) {
+            console.warn('[Import Rollback] Backup appState required sanitization before restoration.');
+        }
     } else {
         await storageRemove('appState');
     }
 
-    restoreLocalStorageValue(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
+    if (typeof backupPayload.settings === 'string') {
+        try {
+            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizeSettings(JSON.parse(backupPayload.settings))));
+        } catch (settingsError) {
+            console.warn('[Import Rollback] Backup settings were invalid and have been reset.', settingsError);
+            localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+        }
+    } else {
+        localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+    }
     restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
     restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
     restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);

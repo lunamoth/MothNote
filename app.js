@@ -46,6 +46,40 @@ import {
 let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
 let isSavingSettings = false;
 
+// CSS.escape가 없는 환경에서도 data-id 기반 선택자가 깨지지 않도록 안전한 폴백을 제공합니다.
+// MothNote는 ID를 내부에서 생성하지만, 백업 가져오기/복구 경로에서는 예외적인 값이 유입될 수 있습니다.
+const escapeCssAttributeValue = (value) => {
+    const stringValue = String(value ?? '');
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(stringValue);
+    }
+    return stringValue
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/[\n\r\f]/g, ' ');
+};
+
+const ensureThemeApplied = () => {
+    document.body?.classList.add('theme-applied');
+};
+
+const applyStoredTheme = (themeToggleBtn = null, { reveal = true } = {}) => {
+    try {
+        const currentTheme = localStorage.getItem('theme');
+        const isDarkMode = currentTheme === 'dark';
+        document.body?.classList.toggle('dark-mode', isDarkMode);
+        if (themeToggleBtn) {
+            themeToggleBtn.textContent = isDarkMode ? '☀️' : '🌙';
+        }
+    } catch (error) {
+        console.warn('Saved theme could not be applied. Continuing with the default theme.', error);
+    } finally {
+        // style.css는 body.theme-applied 전까지 화면을 숨깁니다.
+        // 테마 버튼이 없거나 초기화 중 예외가 나도 앱/오류 메시지가 보이도록 호출부에서 반드시 해제합니다.
+        if (reveal) ensureThemeApplied();
+    }
+};
+
 const settingsCol1Input = document.getElementById('settings-col1-input');
 const settingsCol2Input = document.getElementById('settings-col2-input');
 const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
@@ -912,7 +946,7 @@ const setupDragAndDrop = (listElement, type) => {
 const setupNoteToFolderDrop = () => { if (!folderList) return; let currentDropTarget = null; folderList.addEventListener('dragenter', e => { if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return; const targetFolderLi = e.target.closest('.item-list-entry'); if (currentDropTarget && currentDropTarget !== targetFolderLi) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } if (targetFolderLi) { const folderId = targetFolderLi.dataset.id; const { ALL, RECENT } = CONSTANTS.VIRTUAL_FOLDERS; if (folderId !== draggedItemInfo.sourceFolderId && ![ALL.id, RECENT.id].includes(folderId)) { e.preventDefault(); targetFolderLi.classList.add(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = targetFolderLi; } } }); folderList.addEventListener('dragleave', e => { if (currentDropTarget && !e.currentTarget.contains(e.relatedTarget)) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } }); folderList.addEventListener('dragover', e => { if (draggedItemInfo.type === CONSTANTS.ITEM_TYPE.NOTE && currentDropTarget) e.preventDefault(); }); folderList.addEventListener('drop', async e => { e.preventDefault(); if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE || !currentDropTarget) return; const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id; currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; if (!(await saveCurrentNoteIfChanged())) { showToast("변경사항 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR); return; } const { TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS; if (targetFolderId === TRASH.id) { await performDeleteItem(noteId, CONSTANTS.ITEM_TYPE.NOTE); } else if (targetFolderId === FAVORITES.id) { const { item: note } = findNote(noteId); if (note && !state.favorites.has(noteId)) await handleToggleFavorite(noteId); } else { await performTransactionalUpdate((latestData) => { const { folders } = latestData; let noteToMove, sourceFolder; for (const folder of folders) { const noteIndex = folder.notes.findIndex(n => n.id === noteId); if (noteIndex > -1) { [noteToMove] = folder.notes.splice(noteIndex, 1); sourceFolder = folder; break; } } const targetFolder = folders.find(f => f.id === targetFolderId); if (!noteToMove || !targetFolder || sourceFolder.id === targetFolder.id) return null; const now = Date.now(); noteToMove.updatedAt = now; targetFolder.notes.unshift(noteToMove); sourceFolder.updatedAt = now; targetFolder.updatedAt = now; return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name), postUpdateState: {} }; }); } }); };
 const _focusAndScrollToListItem = (listElement, itemId) => {
     // [BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
-    const safeItemId = typeof itemId === 'string' ? CSS.escape(itemId) : itemId;
+    const safeItemId = escapeCssAttributeValue(itemId);
     const itemEl = listElement.querySelector(`[data-id="${safeItemId}"]`);
     if (itemEl) {
         itemEl.focus();
@@ -1031,16 +1065,9 @@ const setupFeatureToggles = () => {
         });
     }
 
+    applyStoredTheme(themeToggleBtn);
+
     if(themeToggleBtn) {
-        const currentTheme = localStorage.getItem('theme');
-        if (currentTheme === 'dark') {
-            document.body.classList.add('dark-mode');
-            themeToggleBtn.textContent = '☀️';
-        }
-
-        // [수정] FOUC 방지를 위해 테마 적용이 완료되었음을 알리는 클래스를 추가합니다.
-        document.body.classList.add('theme-applied');
-
         themeToggleBtn.addEventListener('click', () => {
             document.body.classList.toggle('dark-mode');
             const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
@@ -1109,7 +1136,7 @@ const setupGlobalEventListeners = () => {
 
                 if (isRenaming) {
                     // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
-                    const safeRenamingId = typeof state.renamingItemId === 'string' ? CSS.escape(state.renamingItemId) : state.renamingItemId;
+                    const safeRenamingId = escapeCssAttributeValue(state.renamingItemId);
                     const renamingElement = document.querySelector(`.item-list-entry[data-id="${safeRenamingId}"]`);
                     const nameSpan = renamingElement?.querySelector('.item-name');
                     if (renamingElement && nameSpan) {
@@ -1155,6 +1182,7 @@ const setupGlobalEventListeners = () => {
 const init = async () => {
     try {
         window.isInitializing = true;
+        applyStoredTheme(document.getElementById('theme-toggle-btn'), { reveal: false });
         
         // --- 1. 핵심 경로 초기화 (실패 시 앱 전체 중단) ---
         // 이 블록의 기능들은 앱의 기본 동작을 위해 반드시 성공해야 합니다.
@@ -1170,6 +1198,7 @@ const init = async () => {
 
     } catch (e) {
         // 핵심 경로 실패는 복구가 거의 불가능하므로 사용자에게 심각한 오류를 알립니다.
+        ensureThemeApplied();
         console.error("Critical initialization failed, app cannot start:", e);
         showToast("앱의 핵심 기능을 불러오는 데 실패했습니다. 확장 프로그램을 재설치해야 할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
         // finally 블록에서 isInitializing 플래그가 설정되도록 여기서 함수를 종료합니다.
@@ -1177,6 +1206,7 @@ const init = async () => {
     } finally {
         // 성공하든 실패하든 초기화 상태 플래그는 해제합니다.
         window.isInitializing = false;
+        ensureThemeApplied();
     }
 
     // --- 2. 부가 기능 초기화 (개별 실패 처리) ---
