@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         elements: {},
+        _hadDataLoadError: false,
 
         init() {
             this.cacheElements();
@@ -56,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // --- MODIFIED: 사용자가 데이터를 초기화한 후 새로고침 시 기본 습관이 추가되는 것을 방지 ---
             const hasBeenInitialized = localStorage.getItem('habitTrackerInitialized') === 'true';
-            if (this.state.habits.length === 0 && !hasBeenInitialized) {
+            if (this.state.habits.length === 0 && !hasBeenInitialized && !this._hadDataLoadError) {
                 this.setupDefaultHabits();
                 localStorage.setItem('habitTrackerInitialized', 'true');
             }
@@ -277,6 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         loadData() {
+            this._hadDataLoadError = false;
+
             // [수정] MothNote와 통합된 키에서 데이터를 로드
             const data = localStorage.getItem('habitTrackerDataV2_integrated');
             const oldData = localStorage.getItem('habitTrackerDataV2'); // 이전 버전 키
@@ -294,8 +297,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 기존 state에 덮어씌우되, 손상/조작된 로컬 데이터는 먼저 정규화합니다.
                     this.state = { ...this.state, ...this.sanitizeLoadedState(parsedData), chartInstances: {} };
                 } catch (error) {
-                    console.error('Habit tracker data load failed. Starting with a safe empty state.', error);
-                    localStorage.removeItem('habitTrackerDataV2_integrated');
+                    this._hadDataLoadError = true;
+                    console.error('Habit tracker data load failed. Starting with a safe empty state without deleting the original data.', error);
+                    try {
+                        localStorage.setItem('habitTrackerDataV2_integrated_corrupt_backup', JSON.stringify({
+                            timestamp: Date.now(),
+                            data
+                        }));
+                    } catch (backupError) {
+                        console.warn('Failed to preserve corrupt habit tracker data backup.', backupError);
+                    }
+                    // 원본 키를 삭제하지 않습니다. 기본 습관 자동 생성도 막아 손상 원본을 샘플 데이터로 덮어쓰지 않습니다.
                     this.state = { ...this.state, ...this.sanitizeLoadedState({}), chartInstances: {} };
                 }
                 
@@ -313,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.state.currentDate = today;
             }
             
-            if ((!this.state.habits || this.state.habits.length === 0) && (oldData || veryOldData)) {
+            if (!this._hadDataLoadError && (!this.state.habits || this.state.habits.length === 0) && (oldData || veryOldData)) {
                 console.log("Old data found and no new data exists. Migrating...");
                 this.migrateData(oldData || veryOldData);
             }

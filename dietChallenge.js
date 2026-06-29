@@ -5700,11 +5700,12 @@
             if(dayTot[i] > 0) {
                 const avg = dayLoss[i] / dayTot[i];
                 const win = (dayWin[i] / dayTot[i] * 100).toFixed(0);
+                const winRate = Number(win);
                 let grade = 'C';
-                if(avg < -0.2 && win > 60) grade = 'A';
+                if(avg < -0.2 && winRate > 60) grade = 'A';
                 else if(avg < 0) grade = 'B';
-                else if(avg > 0.2) grade = 'D';
                 else if(avg > 0.5) grade = 'F';
+                else if(avg > 0.2) grade = 'D';
                 
                 gRows.push(`<tr><td>${n}요일</td><td>${avg.toFixed(2)}</td><td>${win}%</td><td>${grade}</td></tr>`);
             }

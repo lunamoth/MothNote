@@ -1160,10 +1160,21 @@ const sanitizeContentData = data => {
         })
         .filter(finalId => activeNoteIds.has(finalId));
 
-    return {
+    const sanitizedPayloadForReferences = {
         folders: sanitizedFolders,
         trash: sanitizedTrash,
         favorites: Array.from(new Set(sanitizedFavorites))
+    };
+
+    const sanitizedLastActiveNotePerFolder = sanitizeLastActiveNoteMap(
+        data.lastActiveNotePerFolder || {},
+        sanitizedPayloadForReferences,
+        { folderIdUpdateMap: folderIdMap, noteIdUpdateMap: noteIdMap }
+    );
+
+    return {
+        ...sanitizedPayloadForReferences,
+        lastActiveNotePerFolder: sanitizedLastActiveNotePerFolder
     };
 };
 export const sanitizeSettings = (settingsData) => {
@@ -1246,6 +1257,7 @@ export const handleExport = async (settings) => {
                 folders: state.folders,
                 trash: state.trash,
                 favorites: Array.from(state.favorites),
+                lastActiveNotePerFolder: state.lastActiveNotePerFolder || {},
                 lastSavedTimestamp: state.lastSavedTimestamp
             };
 
@@ -1295,6 +1307,7 @@ export const handleExport = async (settings) => {
             folders: exportState.folders || [],
             trash: exportState.trash || [],
             favorites: Array.isArray(exportState.favorites) ? exportState.favorites : [],
+            lastActiveNotePerFolder: exportState.lastActiveNotePerFolder || state.lastActiveNotePerFolder || {},
             lastSavedTimestamp: exportState.lastSavedTimestamp || Date.now(),
             // [기능 추가] 습관 트래커 데이터가 있으면 포함시킵니다.
             habitTrackerData: habitTrackerDataForExport,
@@ -1566,8 +1579,11 @@ export const setupImportHandler = () => {
                 if (!(await flushPendingChangesForDataOperation('데이터 가져오기'))) return;
 
                 const importPayload = {
-                    folders: sanitizedContent.folders, trash: sanitizedContent.trash,
-                    favorites: Array.from(new Set(sanitizedContent.favorites)), lastSavedTimestamp: Date.now()
+                    folders: sanitizedContent.folders,
+                    trash: sanitizedContent.trash,
+                    favorites: Array.from(new Set(sanitizedContent.favorites)),
+                    lastActiveNotePerFolder: sanitizedContent.lastActiveNotePerFolder || {},
+                    lastSavedTimestamp: Date.now()
                 };
 
                 // 가져오기 전체를 탭 간 appState 락 안에서 수행합니다.
