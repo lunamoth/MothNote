@@ -1577,8 +1577,11 @@ document.addEventListener('DOMContentLoaded', () => {
             this.render();
         },
         escapeHTML(str) {
+            if (window.MothNoteSanitizer?.escapeHtml) {
+                return window.MothNoteSanitizer.escapeHtml(str);
+            }
             if (typeof str !== 'string') return '';
-            return str.replace(/[&<>'"]/g, 
+            return str.replace(/[&<>'"]/g,
                 tag => ({
                     '&': '&amp;',
                     '<': '&lt;',

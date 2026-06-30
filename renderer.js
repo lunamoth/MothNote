@@ -8,7 +8,7 @@ import {
     formatDate, sortNotes, showToast
 } from './components.js';
 import { toYYYYMMDD } from './itemActions.js';
-import { sanitizeHtml } from './sanitizer.js';
+import { setSanitizedHtml } from './sanitizer.js';
 // [수정] 정적 임포트를 제거합니다. 이제 동적으로 불러올 것입니다.
 // import { marked } from './marked.esm.js';
 
@@ -554,10 +554,14 @@ export const renderEditor = async () => {
 
         // marked 로드에 성공한 경우에만 파싱을 실행합니다.
         if (marked) {
-            noteContentView.innerHTML = sanitizeHtml(marked.parse(activeNote.content ?? ''));
+            setSanitizedHtml(noteContentView, marked.parse(activeNote.content ?? ''));
         } else {
             // 실패 시 사용자에게 알림 (getMarkedParser 내부에서 처리)
-            noteContentView.innerHTML = '<p style="color: var(--danger-color);">미리보기 기능을 로드하는 데 실패했습니다.</p>';
+            noteContentView.replaceChildren();
+            const errorMessage = document.createElement('p');
+            errorMessage.className = 'markdown-preview-error';
+            errorMessage.textContent = '미리보기 기능을 로드하는 데 실패했습니다.';
+            noteContentView.appendChild(errorMessage);
         }
     }
     

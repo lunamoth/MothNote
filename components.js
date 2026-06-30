@@ -1,7 +1,7 @@
 // components.js
 
 import { state, CONSTANTS } from './state.js';
-import { sanitizeHtml } from './sanitizer.js';
+import { setSanitizedHtml } from './sanitizer.js';
 
 // --- DOM 요소 캐싱 ---
 const getEl = id => document.getElementById(id);
@@ -127,7 +127,7 @@ const _showSingleModal = ({ type, title, message = '', placeholder = '', initial
         modalTitle.textContent = title;
         modalMessage.innerHTML = '';
         if (message instanceof Node) modalMessage.appendChild(message);
-        else if (isHtml) modalMessage.innerHTML = sanitizeHtml(message);
+        else if (isHtml) setSanitizedHtml(modalMessage, message);
         else modalMessage.textContent = message;
 
         modalErrorMessage.textContent = '';

@@ -417,6 +417,9 @@
 
     const DomUtil = {
         escapeHtml: (text) => {
+            if (window.MothNoteSanitizer?.escapeHtml) {
+                return window.MothNoteSanitizer.escapeHtml(text);
+            }
             if (text === null || text === undefined) return '';
             return String(text)
                 .replace(/&/g, "&amp;")
@@ -424,6 +427,21 @@
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
+        },
+        setSafeHtml: (element, html) => {
+            if (!element) return;
+            const value = String(html ?? '');
+            if (!value) {
+                element.textContent = '';
+                return;
+            }
+            if (window.MothNoteSanitizer?.setSanitizedRichHtml) {
+                window.MothNoteSanitizer.setSanitizedRichHtml(element, value);
+                return;
+            }
+            // Fallback for very old environments. Callers pass static markup or
+            // values escaped through DomUtil.escapeHtml().
+            element.innerHTML = value;
         },
         getChartColors: () => {
             const styles = getComputedStyle(document.body);
@@ -1838,7 +1856,7 @@
 
 	function renderAdvancedText(s) {
         if(AppState.records.length < 5) {
-            AppState.getEl('advancedAnalysisList').innerHTML = '<li class="insight-item">데이터가 5개 이상 쌓이면 분석을 제공합니다.</li>';
+            DomUtil.setSafeHtml(AppState.getEl('advancedAnalysisList'), '<li class="insight-item">데이터가 5개 이상 쌓이면 분석을 제공합니다.</li>');
             return;
         }
 
@@ -2715,7 +2733,7 @@
              htmlLines.push(`<li class="insight-item"><span class="insight-label">🎰 잭팟 (77):</span> "체중에 행운의 숫자 77이 들어있습니다. 오늘은 운 좋은 하루가 될 거예요!"</li>`);
         }
 
-        AppState.getEl('advancedAnalysisList').innerHTML = htmlLines.join('');
+        DomUtil.setSafeHtml(AppState.getEl('advancedAnalysisList'), htmlLines.join(''));
     }
 
     function renderPlateauHelper(s) {
@@ -2743,7 +2761,7 @@
             if (lastW < firstW) msg = CONFIG.MESSAGES.PLATEAU.GOOD;
             else msg = CONFIG.MESSAGES.PLATEAU.WARN;
         }
-        phEl.innerHTML = msg;
+        DomUtil.setSafeHtml(phEl, msg);
     }
 
     function renderPeriodComparison() {
@@ -3846,11 +3864,11 @@
         const summaryEl = AppState.getEl('medicalNarrativeSummary');
         if (!reportEl || !summaryEl) return;
         const report = buildMedicalNarrativeReport(s);
-        reportEl.innerHTML = report.html;
+        DomUtil.setSafeHtml(reportEl, report.html);
         AppState.state.medicalNarrativePlainText = report.plainText;
 
         if (!report.ctx) {
-            summaryEl.innerHTML = '';
+            summaryEl.textContent = '';
             setMedicalNarrativeButtons(false);
             if (manual) showToast('먼저 체중 기록을 입력해주세요.');
             return;
@@ -3862,13 +3880,13 @@
             { label: '기록 성실도', value: formatPercent(ctx.quality.recentAdherence, 1), note: '최근 30일 기준' },
             { label: '체성분 신호', value: ctx.bodyComp.status || '보류', note: ctx.bodyComp.hasData ? `체지방률 ${ctx.bodyComp.fatRecordCount}개` : '체지방률 추가 필요' }
         ];
-        summaryEl.innerHTML = summaryItems.map(item => `
+        DomUtil.setSafeHtml(summaryEl, summaryItems.map(item => `
             <div class="narrative-summary-item">
                 <div class="narrative-summary-label">${DomUtil.escapeHtml(item.label)}</div>
                 <div class="narrative-summary-value">${DomUtil.escapeHtml(item.value)}</div>
                 <div class="narrative-summary-note">${DomUtil.escapeHtml(item.note)}</div>
             </div>
-        `).join('');
+        `).join(''));
         setMedicalNarrativeButtons(true);
         if (manual) showToast('의학 근거 기반 서술형 분석 리포트를 갱신했습니다.');
     }

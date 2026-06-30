@@ -322,6 +322,9 @@
     }
 
     function escapeHTML(value) {
+        if (window.MothNoteSanitizer?.escapeHtml) {
+            return window.MothNoteSanitizer.escapeHtml(value);
+        }
         return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
             '&': '&amp;',
             '<': '&lt;',
@@ -329,6 +332,20 @@
             '"': '&quot;',
             "'": '&#039;'
         }[ch]));
+    }
+
+    function setSafeHTML(target, html) {
+        if (!target) return;
+        const value = String(html ?? '');
+        if (!value) {
+            target.textContent = '';
+            return;
+        }
+        if (window.MothNoteSanitizer?.setSanitizedRichHtml) {
+            window.MothNoteSanitizer.setSanitizedRichHtml(target, value);
+            return;
+        }
+        target.innerHTML = value;
     }
 
     function toFiniteNumber(value) {
@@ -565,23 +582,23 @@
     function renderOutfitList(list, target) {
         if (!target) return;
         const emojis = ['✅', '🧥', '🌡️', '🌬️', '☔', '✨'];
-        target.innerHTML = list.map((text, index) => `<li><span class="bullet">${emojis[index % emojis.length]}</span><span>${escapeHTML(text)}</span></li>`).join('');
+        setSafeHTML(target, list.map((text, index) => `<li><span class="bullet">${emojis[index % emojis.length]}</span><span>${escapeHTML(text)}</span></li>`).join(''));
     }
 
     function renderOutfitTags(tags) {
         if (!DOM.outfitTagChips) return;
-        DOM.outfitTagChips.innerHTML = tags.map((tag) => `<span class="outfit-chip">${escapeHTML(tag)}</span>`).join('');
+        setSafeHTML(DOM.outfitTagChips, tags.map((tag) => `<span class="outfit-chip">${escapeHTML(tag)}</span>`).join(''));
     }
 
     function renderOutfitCloset(pieceKeys) {
         if (!DOM.outfitClosetGrid) return;
         if (!pieceKeys.length) {
-            DOM.outfitClosetGrid.innerHTML = '<div class="empty-closet">추천 의류가 없습니다. 🧦</div>';
+            setSafeHTML(DOM.outfitClosetGrid, '<div class="empty-closet">추천 의류가 없습니다. 🧦</div>');
             if (DOM.outfitPieceCount) DOM.outfitPieceCount.textContent = '👚 0개';
             return;
         }
 
-        DOM.outfitClosetGrid.innerHTML = pieceKeys.map((key) => {
+        setSafeHTML(DOM.outfitClosetGrid, pieceKeys.map((key) => {
             const item = OUTFIT_GARMENTS[key];
             return `
                 <article class="clothing-card" aria-label="${escapeHTML(item.label)}">
@@ -591,7 +608,7 @@
                     <div><strong>${item.emoji} ${escapeHTML(item.label)}</strong><span class="note">${escapeHTML(item.note)}</span></div>
                 </article>
             `;
-        }).join('');
+        }).join(''));
         if (DOM.outfitPieceCount) DOM.outfitPieceCount.textContent = `👚 ${pieceKeys.length}개`;
     }
 
@@ -1203,7 +1220,7 @@
 
     function renderError(message, url = null) {
         DOM.errorMessage.style.display = 'block';
-        DOM.errorMessage.innerHTML = '';
+        DOM.errorMessage.textContent = '';
 
         const icon = document.createElement('span');
         icon.textContent = '⚠️';
@@ -1231,37 +1248,37 @@
 
     function clearError() {
         DOM.errorMessage.style.display = 'none';
-        DOM.errorMessage.innerHTML = '';
+        DOM.errorMessage.textContent = '';
     }
     
     function renderCurrentWeather(current, hourly, timezone) {
         if (!current) {
             console.warn("Current weather data is missing.");
             DOM.currentWeatherIcon.textContent = 'N/A';
-            DOM.currentTemp.innerHTML = 'N/A&deg;C';
+            DOM.currentTemp.textContent = 'N/A°C';
             DOM.currentWeatherDesc.textContent = 'N/A';
-            if (DOM.detailedObservationGrid) DOM.detailedObservationGrid.innerHTML = '<div class="observation-item"><span class="label">자료 없음</span><span class="value">—</span><span class="hint">현재 날씨 데이터를 불러오지 못했습니다.</span></div>';
+            if (DOM.detailedObservationGrid) setSafeHTML(DOM.detailedObservationGrid, '<div class="observation-item"><span class="label">자료 없음</span><span class="value">—</span><span class="hint">현재 날씨 데이터를 불러오지 못했습니다.</span></div>');
             return;
         }
 
         const weatherDetails = getWeatherDetails(current.weathercode, current.is_day === 1);
         DOM.currentWeatherIcon.textContent = weatherDetails.icon;
-        DOM.currentTemp.innerHTML = `${Math.round(current.temperature)}&deg;C`;
+        DOM.currentTemp.textContent = `${Math.round(current.temperature)}°C`;
         DOM.currentWeatherDesc.textContent = weatherDetails.description;
-        if (DOM.currentWindSpeed) DOM.currentWindSpeed.innerHTML = `${current.windspeed?.toFixed(1) ?? 'N/A'} km/h`;
+        if (DOM.currentWindSpeed) DOM.currentWindSpeed.textContent = `${current.windspeed?.toFixed(1) ?? 'N/A'} km/h`;
         if (DOM.currentWindDir) DOM.currentWindDir.textContent = degreesToCardinal(current.winddirection);
         if (DOM.currentTime) DOM.currentTime.textContent = `${formatTime(current.time)} (${timezone || 'KST'})`;
         applySpecificIconAnimation(DOM.currentWeatherIcon, weatherDetails.icon);
 
         const closestTimeIndex = getClosestHourlyIndex(current.time, hourly);
         if (closestTimeIndex >= 0) {
-            if (DOM.currentApparentTemp) DOM.currentApparentTemp.innerHTML = `${formatNumber(getHourlyValue(hourly, 'apparent_temperature', closestTimeIndex), 0, 'N/A')}&deg;C`;
-            if (DOM.currentHumidity) DOM.currentHumidity.innerHTML = `${formatNumber(getHourlyValue(hourly, 'relative_humidity_2m', closestTimeIndex), 0, 'N/A')}%`;
-            if (DOM.currentPrecipitation) DOM.currentPrecipitation.innerHTML = `${formatNumber(getHourlyValue(hourly, 'precipitation', closestTimeIndex), 1, '0')} mm`;
+            if (DOM.currentApparentTemp) DOM.currentApparentTemp.textContent = `${formatNumber(getHourlyValue(hourly, 'apparent_temperature', closestTimeIndex), 0, 'N/A')}°C`;
+            if (DOM.currentHumidity) DOM.currentHumidity.textContent = `${formatNumber(getHourlyValue(hourly, 'relative_humidity_2m', closestTimeIndex), 0, 'N/A')}%`;
+            if (DOM.currentPrecipitation) DOM.currentPrecipitation.textContent = `${formatNumber(getHourlyValue(hourly, 'precipitation', closestTimeIndex), 1, '0')} mm`;
         } else {
-            if (DOM.currentApparentTemp) DOM.currentApparentTemp.innerHTML = 'N/A&deg;C';
-            if (DOM.currentHumidity) DOM.currentHumidity.innerHTML = 'N/A%';
-            if (DOM.currentPrecipitation) DOM.currentPrecipitation.innerHTML = '0 mm';
+            if (DOM.currentApparentTemp) DOM.currentApparentTemp.textContent = 'N/A°C';
+            if (DOM.currentHumidity) DOM.currentHumidity.textContent = 'N/A%';
+            if (DOM.currentPrecipitation) DOM.currentPrecipitation.textContent = '0 mm';
         }
     }
 
@@ -1276,7 +1293,7 @@
     function renderDetailedObservations(current, hourly) {
         if (!DOM.detailedObservationGrid) return;
         if (!current) {
-            DOM.detailedObservationGrid.innerHTML = observationItem('⚠️', '자료 없음', '—', '현재 관측값을 불러오지 못했습니다.');
+            setSafeHTML(DOM.detailedObservationGrid, observationItem('⚠️', '자료 없음', '—', '현재 관측값을 불러오지 못했습니다.'));
             return;
         }
 
@@ -1294,14 +1311,14 @@
         const dewPoint = calculateDewPoint(temp, humidity);
         const windChill = calculateWindChill(temp, windSpeed);
 
-        DOM.detailedObservationGrid.innerHTML = [
+        setSafeHTML(DOM.detailedObservationGrid, [
             observationItem('🌡️', '체감온도', formatWithUnit(apparent, 0, '°C'), windChill === null ? '체감온도 API 기준입니다' : `바람냉각 추정 ${formatWithUnit(windChill, 0, '°C')}`),
             observationItem('💧', '상대습도', formatWithUnit(humidity, 0, '%'), `이슬점 약 ${formatWithUnit(dewPoint, 1, '°C')}`),
             observationItem('🍃', '바람', formatWithUnit(windSpeed, 1, ' km/h'), `${degreesToCardinal(windDirection)} · 돌풍 ${formatWithUnit(windGust, 1, ' km/h')}`),
             observationItem('☔', '강수', formatWithUnit(precipitation, 1, ' mm'), `시간당 강수확률 ${formatWithUnit(precipitationProbability, 0, '%')}`),
             observationItem('☁️', '구름량', formatWithUnit(cloudCover, 0, '%'), cloudHint(cloudCover)),
             observationItem('🧭', '기압', formatWithUnit(pressure, 0, ' hPa'), pressureHint(pressure))
-        ].join('');
+        ].join(''));
     }
 
     function renderAirQuality(aqiData, dailyData) {
@@ -1362,8 +1379,8 @@
         if (!DOM.weatherBriefingList) return;
         const TOP_BRIEFING_ITEM_COUNT = 5;
         if (!current) {
-            DOM.weatherBriefingList.innerHTML = briefingItem('⚠️', '브리핑을 만들 수 없습니다', '현재 날씨 데이터가 부족합니다.');
-            if (DOM.weatherBriefingMoreList) DOM.weatherBriefingMoreList.innerHTML = '';
+            setSafeHTML(DOM.weatherBriefingList, briefingItem('⚠️', '브리핑을 만들 수 없습니다', '현재 날씨 데이터가 부족합니다.'));
+            if (DOM.weatherBriefingMoreList) DOM.weatherBriefingMoreList.textContent = '';
             setBriefingRemainderVisible(false);
             return;
         }
@@ -1431,9 +1448,9 @@
         const primaryItems = items.slice(0, TOP_BRIEFING_ITEM_COUNT);
         const remainderItems = items.slice(TOP_BRIEFING_ITEM_COUNT);
 
-        DOM.weatherBriefingList.innerHTML = primaryItems.join('');
+        setSafeHTML(DOM.weatherBriefingList, primaryItems.join(''));
         if (DOM.weatherBriefingMoreList) {
-            DOM.weatherBriefingMoreList.innerHTML = remainderItems.join('');
+            setSafeHTML(DOM.weatherBriefingMoreList, remainderItems.join(''));
         }
         setBriefingRemainderVisible(remainderItems.length > 0);
     }
@@ -1441,7 +1458,7 @@
     function renderNext24Hours(current, hourly) {
         if (!DOM.next24HoursList) return;
         if (!hourly?.time?.length) {
-            DOM.next24HoursList.innerHTML = '<div class="next-24h-card"><span class="time">자료 없음</span><span class="icon">⚠️</span><span class="temp">—</span><small>시간별 예보를 불러오지 못했습니다.</small></div>';
+            setSafeHTML(DOM.next24HoursList, '<div class="next-24h-card"><span class="time">자료 없음</span><span class="icon">⚠️</span><span class="temp">—</span><small>시간별 예보를 불러오지 못했습니다.</small></div>');
             return;
         }
         const startIndex = getHourlyStartIndex(hourly, current?.time);
@@ -1463,7 +1480,7 @@
                 <small>${escapeHTML(weatherDetails.description)}<br>체감 ${formatWithUnit(apparent, 0, '°C')} · ☔ ${formatWithUnit(precipProb, 0, '%')}<br>💨 ${formatWithUnit(windSpeed, 1, ' km/h')} · ☁️ ${formatWithUnit(cloudCover, 0, '%')}</small>
             </article>`);
         }
-        DOM.next24HoursList.innerHTML = cards.join('');
+        setSafeHTML(DOM.next24HoursList, cards.join(''));
     }
 
     function renderWeeklyTempChart(dailyData) {
@@ -1559,7 +1576,7 @@
         card.dataset.monthDay = monthDay;
         if (isTrendCard) card.dataset.forecastType = 'trend';
         
-        card.innerHTML = `
+        setSafeHTML(card, `
             <div class="card-header">
                 <div class="date-wrapper">
                     <span class="month-day">${monthDay}</span>
@@ -1584,7 +1601,7 @@
                 <div class="detail-item wind"><span class="label">바람</span><span class="value">${windMax}<span class="unit">km/h</span> (${windDir})</span></div>
                 <div class="detail-item sunrise-sunset"><span class="label">일출/일몰</span><span class="value">${sunriseTime} / ${sunsetTime}</span></div>
                 <div class="detail-item uv-index"><span class="label">자외선</span><span class="value">${uvMax}</span></div>
-            </div>`;
+            </div>`);
         
         const iconEl = card.querySelector('.card-main-weather .icon');
         if (iconEl) applySpecificIconAnimation(iconEl, weatherDetails.icon);
@@ -1592,7 +1609,7 @@
     }
 
     function renderDailyForecasts(dailyData, hourlyAqiData) {
-        DOM.forecastContainer.innerHTML = '';
+        DOM.forecastContainer.textContent = '';
         if (!dailyData?.time?.length) {
             console.warn("Daily forecast data is missing.");
             if (DOM.forecastTrendNotice) DOM.forecastTrendNotice.style.display = 'none';
@@ -1710,7 +1727,7 @@
 
     function renderTwoWeekTrend(dailyData) {
         if (DOM.twoWeekTrendSection) DOM.twoWeekTrendSection.style.display = 'none';
-        if (DOM.twoWeekTrendList) DOM.twoWeekTrendList.innerHTML = '';
+        if (DOM.twoWeekTrendList) DOM.twoWeekTrendList.textContent = '';
     }
 
     function createHourlyForecastItemHTML(hourlyData, index) {
@@ -1725,7 +1742,7 @@
         if (!hourlyFullData?.time) {
             console.error("Hourly data for modal is not available in app state.");
             DOM.modalTitle.textContent = "오류";
-            DOM.hourlyForecastList.innerHTML = "<div class='hourly-item'>시간별 예보 데이터를 불러올 수 없습니다.</div>";
+            setSafeHTML(DOM.hourlyForecastList, "<div class='hourly-item'>시간별 예보 데이터를 불러올 수 없습니다.</div>");
             if (_appState.hourlyTempChartInstance) { _appState.hourlyTempChartInstance.destroy(); _appState.hourlyTempChartInstance = null; }
             DOM.hourlyTempChartCanvas.getContext('2d').clearRect(0,0,DOM.hourlyTempChartCanvas.width, DOM.hourlyTempChartCanvas.height);
             DOM.hourlyModal.classList.add(CONFIG.MODAL_ACTIVE_CLASS);
@@ -1747,7 +1764,7 @@
                 chartPrecipProbs.push(hourlyFullData.precipitation_probability[index]);
             }
         });
-        DOM.hourlyForecastList.innerHTML = hourlyItemsHTML;
+        setSafeHTML(DOM.hourlyForecastList, hourlyItemsHTML);
 
         const chartColors = getChartColors();
         const baseOptions = getBaseChartOptions();

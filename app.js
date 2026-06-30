@@ -704,6 +704,24 @@ class Dashboard {
     
     _animateAnalogClock() { let lastMinute = -1; const animate = () => { const now = new Date(); const currentMinute = now.getMinutes(); if (currentMinute !== lastMinute) { this._drawHandsOnTop(); lastMinute = currentMinute; } this.internalState.analogClockAnimationId = requestAnimationFrame(animate); }; this._drawHandsOnTop(); animate(); }
     
+    _setDashboardWeatherContent(icon, temp = null) {
+        if (!this.dom.weatherContainer) return;
+        this.dom.weatherContainer.replaceChildren();
+
+        const iconSpan = document.createElement('span');
+        iconSpan.id = 'weather-icon';
+        iconSpan.textContent = String(icon ?? '');
+        this.dom.weatherContainer.appendChild(iconSpan);
+
+        if (temp !== null && temp !== undefined) {
+            this.dom.weatherContainer.appendChild(document.createTextNode(' '));
+            const tempSpan = document.createElement('span');
+            tempSpan.id = 'weather-temp';
+            tempSpan.textContent = `${temp}°C`;
+            this.dom.weatherContainer.appendChild(tempSpan);
+        }
+    }
+
     // [버그 수정] 날씨 위젯의 title 속성을 동적으로 업데이트하도록 수정
     async fetchWeather() {
         if (!this.dom.weatherContainer) return;
@@ -718,7 +736,7 @@ class Dashboard {
             const isSameLocation = cachedData?.lat === lat && cachedData?.lon === lon;
             if (cachedData && isSameLocation && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) {
                 const { weather, temp } = cachedData.data;
-                this.dom.weatherContainer.innerHTML = `<span id="weather-icon">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
+                this._setDashboardWeatherContent(weather.icon, temp);
                 this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
                 return;
             }
@@ -731,11 +749,11 @@ class Dashboard {
         }
         this.internalState.weatherFetchController = new AbortController();
         const signal = this.internalState.weatherFetchController.signal;
-        this.dom.weatherContainer.innerHTML = `<span>⏳</span>`;
+        this._setDashboardWeatherContent('⏳');
 
         try {
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-                this.dom.weatherContainer.innerHTML = `<span id="weather-icon">⚠️</span>`;
+                this._setDashboardWeatherContent('⚠️');
                 this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
                 showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
                 return;
@@ -760,7 +778,7 @@ class Dashboard {
             const weather = this._getWeatherInfo(weather_code, is_day === 1);
             const temp = Math.round(temperature_2m);
 
-            this.dom.weatherContainer.innerHTML = `<span id="weather-icon">${weather.icon}</span> <span id="weather-temp">${temp}°C</span>`;
+            this._setDashboardWeatherContent(weather.icon, temp);
             this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
 
             try {
@@ -776,7 +794,7 @@ class Dashboard {
 
         } catch (error) {
             if (error.name !== 'AbortError') {
-                this.dom.weatherContainer.innerHTML = `<span id="weather-icon">⚠️</span>`;
+                this._setDashboardWeatherContent('⚠️');
                 this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
             }
         }

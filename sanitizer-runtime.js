@@ -1,3 +1,7 @@
+// sanitizer-runtime.js
+// Classic-script wrapper of sanitizer.js for standalone iframe pages.
+(function () {
+'use strict';
 // sanitizer.js
 // Shared HTML helpers for extension pages. Native Sanitizer API is used when
 // available; the existing strict allow-list sanitizer remains as a fallback.
@@ -364,12 +368,4 @@ const api = Object.freeze({
 if (typeof window !== 'undefined') {
     window.MothNoteSanitizer = api;
 }
-
-export {
-    escapeHtml,
-    hardenSanitizedTree,
-    sanitizeHtml,
-    sanitizeRichHtml,
-    setSanitizedHtml,
-    setSanitizedRichHtml
-};
+})();

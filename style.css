@@ -906,3 +906,7 @@ body.theme-applied {
         box-shadow: 0 0 10px var(--danger-color);
     }
 }
+.markdown-preview-error {
+    color: var(--danger-color);
+    font-weight: 600;
+}
