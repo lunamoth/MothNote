@@ -261,17 +261,21 @@ function sanitizeHtmlWithProfile(dirtyHtml, profileName) {
 
 function buildNativeSanitizerConfig(profileName) {
     const profile = getProfile(profileName);
-    const elements = Array.from(profile.allowedTags).map((tagName) => {
-        const attrs = new Set(profile.globalAttrs);
-        for (const attr of (profile.tagAttrs[tagName] || [])) attrs.add(attr);
-        return attrs.size ? { name: tagName, attributes: Array.from(attrs).sort() } : tagName;
-    });
+    const attributes = new Set(profile.globalAttrs);
+
+    for (const tagAttrs of Object.values(profile.tagAttrs)) {
+        for (const attr of tagAttrs) attributes.add(attr);
+    }
 
     return {
-        // SanitizerConfig cannot mix an allow-list (elements) with a remove-list
-        // (removeElements). The app-specific drop-with-content list is enforced
-        // by hardenSanitizedTree() after native insertion and by the fallback path.
-        elements,
+        // Keep the native config deliberately simple and spec-valid:
+        // per-element attributes combined with repeated global attributes can be
+        // rejected by some Chromium Sanitizer implementations after
+        // canonicalization. MothNote applies its stricter per-tag URL/class/media
+        // policy in parseAndHardenHtml() before live DOM insertion, and again in
+        // hardenSanitizedTree() after native setHTML().
+        elements: Array.from(profile.allowedTags).sort(),
+        attributes: Array.from(attributes).sort(),
         comments: false,
         dataAttributes: false
     };
@@ -292,8 +296,11 @@ function getNativeSanitizer(profileName) {
         const sanitizer = new window.Sanitizer(buildNativeSanitizerConfig(profileName));
         nativeSanitizerCache.set(profileName, sanitizer);
         return sanitizer;
-    } catch (error) {
-        console.warn('Native Sanitizer initialization failed. Falling back to local sanitizer.', error);
+    } catch {
+        // Native Sanitizer API is still evolving across browser versions. A
+        // config rejected by one implementation must be a quiet capability miss,
+        // not a user-visible console warning; the local allow-list sanitizer is
+        // the supported fallback path.
         nativeSanitizerCache.set(profileName, null);
         return null;
     }
@@ -318,25 +325,30 @@ function setSanitizedHtml(target, dirtyHtml, options = {}) {
         return;
     }
 
-    const nativeSanitizer = getNativeSanitizer(profileName);
-    if (nativeSanitizer && typeof target.setHTML === 'function') {
-        try {
-            target.setHTML(html, { sanitizer: nativeSanitizer });
-            // Native Sanitizer handles XSS-safe insertion. MothNote-specific
-            // policies, such as same-origin images and link rel/target hardening,
-            // still run afterwards.
-            hardenSanitizedTree(target, { profile: profileName });
-            return;
-        } catch (error) {
-            console.warn('Native Sanitizer application failed. Falling back to local sanitizer.', error);
-        }
-    }
-
+    // First apply MothNote's local policy in an inert document. This prevents
+    // remote image beacons and other app-policy violations before any live DOM
+    // insertion can trigger resource loads.
     const doc = parseAndHardenHtml(html, profileName);
     if (!doc) {
         target.textContent = html;
         return;
     }
+
+    const safeHtml = doc.body.innerHTML;
+    const nativeSanitizer = getNativeSanitizer(profileName);
+    if (nativeSanitizer && typeof target.setHTML === 'function') {
+        try {
+            target.setHTML(safeHtml, { sanitizer: nativeSanitizer });
+            // Re-apply the app policy after native sanitization because the
+            // native config is intentionally broad for cross-version validity.
+            hardenSanitizedTree(target, { profile: profileName });
+            return;
+        } catch {
+            // Treat native setHTML failures as a silent fallback. The already
+            // hardened inert document below remains the source of truth.
+        }
+    }
+
     replaceChildrenSafely(target, Array.from(doc.body.childNodes));
 }
 
