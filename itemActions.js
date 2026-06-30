@@ -137,6 +137,58 @@ export const setCalendarRenderer = (renderer) => {
     calendarRenderer = renderer;
 };
 
+
+const EMERGENCY_BACKUP_CONTENT_KEYS = ['noteUpdate', 'itemRename'];
+
+const clearEmergencyChangesBackupEntry = (entryKey, shouldClearEntry) => {
+    if (typeof localStorage === 'undefined') return;
+
+    try {
+        const backupKey = CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP;
+        const rawBackup = localStorage.getItem(backupKey);
+        if (!rawBackup) return;
+
+        const backup = JSON.parse(rawBackup);
+        if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
+            localStorage.removeItem(backupKey);
+            return;
+        }
+
+        const entry = backup[entryKey];
+        if (!entry || (typeof shouldClearEntry === 'function' && !shouldClearEntry(entry))) {
+            return;
+        }
+
+        delete backup[entryKey];
+
+        const hasRemainingEmergencyData = EMERGENCY_BACKUP_CONTENT_KEYS.some(key => backup[key]);
+        if (hasRemainingEmergencyData) {
+            localStorage.setItem(backupKey, JSON.stringify(backup));
+        } else {
+            localStorage.removeItem(backupKey);
+        }
+    } catch (error) {
+        console.warn('Emergency changes backup cleanup failed. Removing malformed backup to prevent stale restores.', error);
+        try { localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP); } catch (_) { /* noop */ }
+    }
+};
+
+const clearSavedNoteEmergencyBackup = (noteId) => {
+    const normalizedNoteId = String(noteId ?? '');
+    if (!normalizedNoteId) return;
+    clearEmergencyChangesBackupEntry('noteUpdate', entry => String(entry?.noteId ?? '') === normalizedNoteId);
+};
+
+const clearRenameEmergencyBackup = (id, type) => {
+    const normalizedId = String(id ?? '');
+    if (!normalizedId) return;
+    clearEmergencyChangesBackupEntry('itemRename', entry => {
+        const sameId = String(entry?.id ?? '') === normalizedId;
+        const sameType = !type || !entry?.type || entry.type === type;
+        return sameId && sameType;
+    });
+};
+
 // appState 전체를 저장하는 모든 일반 작업은 탭 간 배타 락 안에서
 // "최신 스토리지 읽기 -> 변경 -> 저장" 순서로 수행합니다.
 // 각 탭의 오래된 메모리 사본으로 전체 appState를 덮어쓰는 데이터 유실을 방지합니다.
@@ -567,6 +619,14 @@ const _withNoteAction = (noteId, actionFn) => {
     });
 };
 
+const ensurePendingEditorStateSaved = async (actionName) => {
+    if (!(await saveCurrentNoteIfChanged())) {
+        showToast(`변경사항 저장에 실패하여 ${actionName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+    return true;
+};
+
 const prepareForImmediateNoteMutation = async (actionName) => {
     if (!(await finishPendingRename())) {
         showToast(`이름 변경 저장에 실패하여 ${actionName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
@@ -575,11 +635,7 @@ const prepareForImmediateNoteMutation = async (actionName) => {
 
     // 고정/즐겨찾기 변경도 appState 전체를 다시 렌더링합니다. 편집 버퍼를 먼저 저장하지 않으면
     // 저장 실패 직후 메타데이터 작업이 성공하면서 화면의 미저장 본문을 덮어쓸 수 있습니다.
-    if (!(await saveCurrentNoteIfChanged())) {
-        showToast(`변경사항 저장에 실패하여 ${actionName} 작업을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
-        return false;
-    }
-    return true;
+    return ensurePendingEditorStateSaved(actionName);
 };
 
 export const handlePinNote = async (id) => {
@@ -637,6 +693,8 @@ export const handleDelete = async (id, type) => {
         showToast("이름 변경 저장에 실패하여 삭제를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
+
+    if (!(await ensurePendingEditorStateSaved('삭제'))) return;
     
     const { item } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
     if (!item) return;
@@ -959,6 +1017,8 @@ export const handlePermanentlyDeleteItem = async (id, type) => {
         return;
     }
 
+    if (!(await ensurePendingEditorStateSaved('영구 삭제'))) return;
+
     const item = state.trash.find(i => i.id === id);
     if (!item) return;
 
@@ -1024,6 +1084,7 @@ export const handleEmptyTrash = async () => {
         showToast("이름 변경 저장에 실패하여 휴지통 비우기를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
+    if (!(await ensurePendingEditorStateSaved('휴지통 비우기'))) return;
     if (state.trash.length === 0) return;
 
     const message = CONSTANTS.MESSAGES.CONFIRM.EMPTY_TRASH(state.trash.length);
@@ -1168,6 +1229,8 @@ export async function saveCurrentNoteIfChanged() {
         return false;
     }
 
+    clearSavedNoteEmergencyBackup(payload?.savedNoteId ?? noteIdToSave);
+
     let liveTitle = noteTitleInput?.value ?? titleToSave;
     const liveContent = noteContentTextarea?.value ?? contentToSave;
     const titleChangedDuringSave = liveTitle !== titleToSave;
@@ -1271,6 +1334,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
     const newName = nameSpan.textContent.trim();
 
     if (!shouldSave || newName === originalName) {
+        clearRenameEmergencyBackup(id, type);
         setState({ renamingItemId: null });
         if (nameSpan) nameSpan.textContent = originalName;
         return true;
@@ -1317,7 +1381,9 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
     });
 
-    if (!success) {
+    if (success) {
+        clearRenameEmergencyBackup(id, type);
+    } else {
         setState({ renamingItemId: null });
         if(nameSpan) nameSpan.textContent = originalName;
     }

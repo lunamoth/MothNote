@@ -48,14 +48,21 @@ const isSafeUrl = (value, attrName) => {
     if (raw.startsWith('#')) return true;
 
     try {
-        const base = (typeof window !== 'undefined' && window.location) ? window.location.href : 'https://invalid.local/';
+        const currentLocation = (typeof window !== 'undefined' && window.location) ? window.location : null;
+        const base = currentLocation ? currentLocation.href : 'https://invalid.local/';
         const parsed = new URL(raw, base);
-        if (SAFE_URL_PROTOCOLS.has(parsed.protocol)) return true;
-        if (typeof window !== 'undefined' && window.location && parsed.origin === window.location.origin) return true;
+        const isSameOrigin = !!currentLocation && (
+            parsed.origin === currentLocation.origin
+            || (parsed.protocol === currentLocation.protocol && parsed.host === currentLocation.host)
+        );
 
-        // Images are intentionally restricted to network/same-origin URLs. This blocks
-        // javascript:, data: SVG payloads, and other executable or ambiguous schemes.
-        if (attrName === 'src') return false;
+        // Markdown image loads can make silent requests as soon as a note is previewed.
+        // Keep links flexible, but restrict rendered image sources to same-origin URLs
+        // so a pasted/imported note cannot beacon to arbitrary remote hosts.
+        if (attrName === 'src') return isSameOrigin;
+
+        if (SAFE_URL_PROTOCOLS.has(parsed.protocol)) return true;
+        if (isSameOrigin) return true;
         return false;
     } catch {
         return false;

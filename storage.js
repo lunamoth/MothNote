@@ -620,148 +620,200 @@ export const loadData = async () => {
                 }
                 // --- [버그 수정 끝] ---
 
-                let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
-                
-                if(backupChanges.noteUpdate) {
-                    const safeTitle = escapeHtml(String(backupChanges.noteUpdate.title ?? '').slice(0, 20));
-                    confirmMessage += `<strong>📝 노트 수정:</strong> '${safeTitle}...'<br>`;
-                }
-                if(backupChanges.itemRename) {
-                    const itemTypeStr = backupChanges.itemRename.type === 'folder' ? '📁 폴더' : '📝 노트';
-                    const safeNewName = escapeHtml(String(backupChanges.itemRename.newName ?? '').slice(0, 20));
-                    confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr} → '${safeNewName}...'<br>`;
-                }
-                confirmMessage += "<br>이 변경사항을 복원하시겠습니까?";
+                const noteExistsForEmergencyRecovery = (noteId, data) => {
+                    const normalizedNoteId = String(noteId ?? '');
+                    if (!normalizedNoteId || !data) return false;
 
-                const userConfirmed = await showConfirm({
-                    title: '📝 저장되지 않은 변경사항 복원',
-                    message: confirmMessage,
-                    isHtml: true,
-                    confirmText: '✅ 예, 복원합니다',
-                    cancelText: '❌ 아니요, 버립니다'
-                });
-
-                if (userConfirmed) {
-                    // --- [CRITICAL BUG FIX] START ---
-                    // 트랜잭션 실행 전, 이름 변경 충돌을 미리 확인하고 사용자에게 해결을 요청합니다.
-                    if (backupChanges.itemRename) {
-                        const { id, type, newName } = backupChanges.itemRename;
-                        const foldersToCheck = authoritativeData?.folders || [];
-                        const isConflict = foldersToCheck.some(f => 
-                            (type === 'folder' && f.id !== id && f.name.toLowerCase() === newName.toLowerCase())
-                        );
-
-                        if (isConflict) {
-                            const resolvedName = await showPrompt({
-                                title: '✏️ 이름 충돌 해결',
-                                message: CONSTANTS.MESSAGES.ERROR.RENAME_CONFLICT_ON_RECOVERY(newName),
-                                initialValue: `${newName} (복사본)`,
-                                validationFn: (value) => {
-                                    const trimmedValue = value.trim();
-                                    if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
-                                    if (foldersToCheck.some(f => f.name.toLowerCase() === trimmedValue.toLowerCase())) {
-                                        return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
-                                    }
-                                    return { isValid: true };
-                                }
-                            });
-
-                            if (resolvedName) {
-                                // 사용자가 새 이름을 입력하면 백업 객체를 수정하여 복원을 계속합니다.
-                                backupChanges.itemRename.newName = resolvedName.trim();
-                            } else {
-                                // 사용자가 취소하면 이름 변경 복원만 제외하고 나머지는 계속 진행합니다.
-                                showToast(CONSTANTS.MESSAGES.ERROR.RENAME_RECOVERY_CANCELED, CONSTANTS.TOAST_TYPE.ERROR);
-                                delete backupChanges.itemRename;
-                            }
-                        }
+                    const activeFolders = Array.isArray(data.folders) ? data.folders : [];
+                    if (activeFolders.some(folder => (Array.isArray(folder.notes) ? folder.notes : []).some(note => String(note?.id ?? '') === normalizedNoteId))) {
+                        return true;
                     }
-                    // --- [CRITICAL BUG FIX] END ---
 
-                    const { performTransactionalUpdate } = await import('./itemActions.js');
-                    const { success } = await performTransactionalUpdate(latestData => {
-                        const now = Date.now();
-                        let changesApplied = false;
-
-                        // 1. 노트 내용 업데이트 복원
-                        if (backupChanges.noteUpdate) {
-                            const { noteId, title, content } = backupChanges.noteUpdate;
-                            for (const folder of latestData.folders) {
-                                const noteToUpdate = folder.notes.find(n => n.id === noteId);
-                                if (noteToUpdate) {
-                                    noteToUpdate.title = title;
-                                    noteToUpdate.content = content;
-                                    noteToUpdate.updatedAt = now;
-                                    folder.updatedAt = now;
-                                    changesApplied = true;
-                                    break;
-                                }
-                            }
+                    const trashItems = Array.isArray(data.trash) ? data.trash : [];
+                    return trashItems.some(item => {
+                        if (String(item?.id ?? '') === normalizedNoteId && (!Array.isArray(item?.notes) || item.type === CONSTANTS.ITEM_TYPE.NOTE)) {
+                            return true;
                         }
+                        return Array.isArray(item?.notes) && item.notes.some(note => String(note?.id ?? '') === normalizedNoteId);
+                    });
+                };
 
-                        // [CRITICAL BUG FIX & COMMENT FIX] 2. 이름 변경 복원 (활성 폴더 및 휴지통 모두 검색)
+                const itemExistsForEmergencyRecovery = (id, type, data) => {
+                    const normalizedId = String(id ?? '');
+                    if (!normalizedId || !data) return false;
+
+                    if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                        const activeFolders = Array.isArray(data.folders) ? data.folders : [];
+                        const trashItems = Array.isArray(data.trash) ? data.trash : [];
+                        return activeFolders.some(folder => String(folder?.id ?? '') === normalizedId)
+                            || trashItems.some(item => String(item?.id ?? '') === normalizedId && (item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item?.notes)));
+                    }
+
+                    return noteExistsForEmergencyRecovery(normalizedId, data);
+                };
+
+                if (backupChanges.noteUpdate && !noteExistsForEmergencyRecovery(backupChanges.noteUpdate.noteId, authoritativeData)) {
+                    console.warn('Emergency backup note target no longer exists. Dropping stale note recovery entry.');
+                    delete backupChanges.noteUpdate;
+                }
+                if (backupChanges.itemRename && !itemExistsForEmergencyRecovery(backupChanges.itemRename.id, backupChanges.itemRename.type, authoritativeData)) {
+                    console.warn('Emergency backup rename target no longer exists. Dropping stale rename recovery entry.');
+                    delete backupChanges.itemRename;
+                }
+
+                if (!backupChanges.noteUpdate && !backupChanges.itemRename) {
+                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                    console.warn('Emergency backup had no applicable changes and was removed to prevent repeated recovery prompts.');
+                } else {
+                    let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
+                    
+                    if(backupChanges.noteUpdate) {
+                        const safeTitle = escapeHtml(String(backupChanges.noteUpdate.title ?? '').slice(0, 20));
+                        confirmMessage += `<strong>📝 노트 수정:</strong> '${safeTitle}...'<br>`;
+                    }
+                    if(backupChanges.itemRename) {
+                        const itemTypeStr = backupChanges.itemRename.type === 'folder' ? '📁 폴더' : '📝 노트';
+                        const safeNewName = escapeHtml(String(backupChanges.itemRename.newName ?? '').slice(0, 20));
+                        confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr} → '${safeNewName}...'<br>`;
+                    }
+                    confirmMessage += "<br>이 변경사항을 복원하시겠습니까?";
+
+                    const userConfirmed = await showConfirm({
+                        title: '📝 저장되지 않은 변경사항 복원',
+                        message: confirmMessage,
+                        isHtml: true,
+                        confirmText: '✅ 예, 복원합니다',
+                        cancelText: '❌ 아니요, 버립니다'
+                    });
+
+                    if (userConfirmed) {
+                        // --- [CRITICAL BUG FIX] START ---
+                        // 트랜잭션 실행 전, 이름 변경 충돌을 미리 확인하고 사용자에게 해결을 요청합니다.
                         if (backupChanges.itemRename) {
                             const { id, type, newName } = backupChanges.itemRename;
-                            let itemToRename = null;
-                            let parentFolder = null;
+                            const foldersToCheck = authoritativeData?.folders || [];
+                            const isConflict = foldersToCheck.some(f => 
+                                (type === 'folder' && f.id !== id && f.name.toLowerCase() === newName.toLowerCase())
+                            );
 
-                            if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-                                // 활성 폴더 또는 휴지통에서 폴더 찾기
-                                itemToRename = latestData.folders.find(f => f.id === id) || latestData.trash.find(item => item.id === id && item.type === 'folder');
-                                if (itemToRename) {
-                                    itemToRename.name = newName;
-                                    itemToRename.updatedAt = now;
-                                    changesApplied = true;
-                                }
-                            } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
-                                // 활성 폴더들의 노트에서 먼저 검색
-                                for (const folder of latestData.folders) {
-                                    const note = folder.notes.find(n => n.id === id);
-                                    if (note) { itemToRename = note; parentFolder = folder; break; }
-                                }
-                                
-                                // 활성 폴더에 없으면 휴지통에서 검색 (휴지통의 최상위 또는 폴더 내부 노트)
-                                if (!itemToRename) {
-                                    for (const trashItem of latestData.trash) {
-                                        if (trashItem.id === id && (trashItem.type === 'note' || !trashItem.type)) {
-                                            itemToRename = trashItem;
-                                            break;
+                            if (isConflict) {
+                                const resolvedName = await showPrompt({
+                                    title: '✏️ 이름 충돌 해결',
+                                    message: CONSTANTS.MESSAGES.ERROR.RENAME_CONFLICT_ON_RECOVERY(newName),
+                                    initialValue: `${newName} (복사본)`,
+                                    validationFn: (value) => {
+                                        const trimmedValue = value.trim();
+                                        if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
+                                        if (foldersToCheck.some(f => f.name.toLowerCase() === trimmedValue.toLowerCase())) {
+                                            return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
                                         }
-                                        if (trashItem.type === 'folder' && Array.isArray(trashItem.notes)) {
-                                            const noteInTrashFolder = trashItem.notes.find(n => n.id === id);
-                                            if (noteInTrashFolder) {
-                                                itemToRename = noteInTrashFolder;
-                                                break;
-                                            }
-                                        }
+                                        return { isValid: true };
                                     }
-                                }
-                                
-                                if (itemToRename) {
-                                    itemToRename.title = newName;
-                                    itemToRename.updatedAt = now;
-                                    if (parentFolder) parentFolder.updatedAt = now;
-                                    changesApplied = true;
+                                });
+
+                                if (resolvedName) {
+                                    // 사용자가 새 이름을 입력하면 백업 객체를 수정하여 복원을 계속합니다.
+                                    backupChanges.itemRename.newName = resolvedName.trim();
+                                } else {
+                                    // 사용자가 취소하면 이름 변경 복원만 제외하고 나머지는 계속 진행합니다.
+                                    showToast(CONSTANTS.MESSAGES.ERROR.RENAME_RECOVERY_CANCELED, CONSTANTS.TOAST_TYPE.ERROR);
+                                    delete backupChanges.itemRename;
                                 }
                             }
                         }
+                        // --- [CRITICAL BUG FIX] END ---
 
-                        if (changesApplied) {
-                            return { newData: latestData, successMessage: '✅ 변경사항이 성공적으로 복원되었습니다.' };
+                        if (!backupChanges.noteUpdate && !backupChanges.itemRename) {
+                            localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                            showToast('복원할 수 있는 변경사항이 없어 비상 백업을 정리했습니다.', CONSTANTS.TOAST_TYPE.SUCCESS);
+                        } else {
+                            const { performTransactionalUpdate } = await import('./itemActions.js');
+                            const { success } = await performTransactionalUpdate(latestData => {
+                                const now = Date.now();
+                                let changesApplied = false;
+
+                                // 1. 노트 내용 업데이트 복원
+                                if (backupChanges.noteUpdate) {
+                                    const { noteId, title, content } = backupChanges.noteUpdate;
+                                    for (const folder of latestData.folders) {
+                                        const noteToUpdate = folder.notes.find(n => n.id === noteId);
+                                        if (noteToUpdate) {
+                                            noteToUpdate.title = title;
+                                            noteToUpdate.content = content;
+                                            noteToUpdate.updatedAt = now;
+                                            folder.updatedAt = now;
+                                            changesApplied = true;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // [CRITICAL BUG FIX & COMMENT FIX] 2. 이름 변경 복원 (활성 폴더 및 휴지통 모두 검색)
+                                if (backupChanges.itemRename) {
+                                    const { id, type, newName } = backupChanges.itemRename;
+                                    let itemToRename = null;
+                                    let parentFolder = null;
+
+                                    if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                                        // 활성 폴더 또는 휴지통에서 폴더 찾기
+                                        itemToRename = latestData.folders.find(f => f.id === id) || latestData.trash.find(item => item.id === id && item.type === 'folder');
+                                        if (itemToRename) {
+                                            itemToRename.name = newName;
+                                            itemToRename.updatedAt = now;
+                                            changesApplied = true;
+                                        }
+                                    } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
+                                        // 활성 폴더들의 노트에서 먼저 검색
+                                        for (const folder of latestData.folders) {
+                                            const note = folder.notes.find(n => n.id === id);
+                                            if (note) { itemToRename = note; parentFolder = folder; break; }
+                                        }
+                                        
+                                        // 활성 폴더에 없으면 휴지통에서 검색 (휴지통의 최상위 또는 폴더 내부 노트)
+                                        if (!itemToRename) {
+                                            for (const trashItem of latestData.trash) {
+                                                if (trashItem.id === id && (trashItem.type === 'note' || !trashItem.type)) {
+                                                    itemToRename = trashItem;
+                                                    break;
+                                                }
+                                                if (trashItem.type === 'folder' && Array.isArray(trashItem.notes)) {
+                                                    const noteInTrashFolder = trashItem.notes.find(n => n.id === id);
+                                                    if (noteInTrashFolder) {
+                                                        itemToRename = noteInTrashFolder;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        if (itemToRename) {
+                                            itemToRename.title = newName;
+                                            itemToRename.updatedAt = now;
+                                            if (parentFolder) parentFolder.updatedAt = now;
+                                            changesApplied = true;
+                                        }
+                                    }
+                                }
+
+                                if (changesApplied) {
+                                    return { newData: latestData, successMessage: '✅ 변경사항이 성공적으로 복원되었습니다.' };
+                                }
+                                return null; // 적용할 변경이 없으면 업데이트 취소
+                            });
+                            
+                            if (success) {
+                               // 복원에 성공했을 때만 비상 백업을 제거합니다.
+                               localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                            } else {
+                               localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                               showToast("복원 대상이 현재 데이터에 없어 비상 백업을 정리했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                            }
                         }
-                        return null; // 적용할 변경이 없으면 업데이트 취소
-                    });
-                    
-                    if (success) {
-                       // 복원에 성공했을 때만 비상 백업을 제거합니다.
-                       localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
                     } else {
-                       showToast("복원 중 오류가 발생했습니다. 일부 변경사항이 적용되지 않았을 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                        // [CRITICAL BUG FIX] 사용자가 복원을 거부했으므로 비상 백업을 반드시 제거하여 무한 루프를 방지합니다.
+                        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                        showToast("저장되지 않았던 변경사항을 버렸습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                     }
-                } else {
-                    // [CRITICAL BUG FIX] 사용자가 복원을 거부했으므로 비상 백업을 반드시 제거하여 무한 루프를 방지합니다.
-                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
-                    showToast("저장되지 않았던 변경사항을 버렸습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                 }
                 
                 const updatedStorageResult = await storageGet('appState');
@@ -1368,6 +1420,35 @@ const restoreLocalStorageValue = (key, value) => {
     else localStorage.removeItem(key);
 };
 
+
+const getImportableSimplenoteNotes = (notes) => {
+    if (!Array.isArray(notes)) return [];
+    return notes.filter(note => note && typeof note === 'object' && !Array.isArray(note));
+};
+
+const normalizeSimplenoteContent = (note) => String(note?.content ?? '');
+
+const getSimplenoteTitle = (content, createdAt) => {
+    const firstNonEmptyLine = String(content ?? '').split('\n').find(line => line.trim() !== '');
+    return (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null)
+        || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
+};
+
+const appendSimplenoteTags = (content, tags) => {
+    const safeTags = Array.isArray(tags)
+        ? tags
+            .map(tag => String(tag ?? '').trim())
+            .filter(Boolean)
+            .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+        : [];
+
+    if (safeTags.length === 0) return content;
+    const tagString = safeTags.join(' ');
+    return String(content ?? '').trim().length > 0
+        ? `${content}\n\n${tagString}`
+        : tagString;
+};
+
 const restoreImportBackupPayload = async (backupPayload) => {
     if (!backupPayload || typeof backupPayload !== 'object') {
         throw new Error('가져오기 백업 데이터가 없습니다.');
@@ -1427,9 +1508,22 @@ export const setupImportHandler = () => {
 
                 // [기능 추가] Simplenote 백업 파일인지 확인
                 if (importedData && Array.isArray(importedData.activeNotes)) {
+                    const activeSimplenoteNotes = getImportableSimplenoteNotes(importedData.activeNotes);
+                    const trashedSimplenoteNotes = getImportableSimplenoteNotes(importedData.trashedNotes);
+
+                    if (activeSimplenoteNotes.length === 0 && trashedSimplenoteNotes.length === 0) {
+                        showAlert({
+                            title: '📥 Simplenote 가져오기 실패',
+                            message: '가져올 수 있는 Simplenote 노트가 없습니다. 백업 파일의 activeNotes 또는 trashedNotes 항목을 확인해주세요.',
+                            confirmText: '✅ 확인'
+                        });
+                        e.target.value = '';
+                        return;
+                    }
+
                     const confirmSimpleImport = await showConfirm({
                         title: '📥 Simplenote 백업 가져오기',
-                        message: "Simplenote 백업 파일이 감지되었습니다. 'Simplenote' 폴더를 생성하고 노트를 가져올까요? (기존 데이터는 유지됩니다)",
+                        message: `Simplenote 백업 파일이 감지되었습니다. 가져올 수 있는 노트 ${activeSimplenoteNotes.length + trashedSimplenoteNotes.length}개를 변환할까요? (기존 데이터는 유지됩니다)`,
                         isHtml: true, confirmText: '📥 예, 가져옵니다', confirmButtonType: 'confirm'
                     });
 
@@ -1476,24 +1570,12 @@ export const setupImportHandler = () => {
                         };
 
                         // 3. activeNotes를 새 폴더로 변환
-                        importedData.activeNotes.forEach(note => {
-                            let content = note.content || '';
-                            
-                            // [BUG FIX] 공백만 있는 줄을 건너뛰고 첫 번째 실제 텍스트 줄을 제목으로 사용합니다.
+                        activeSimplenoteNotes.forEach(note => {
+                            let content = normalizeSimplenoteContent(note);
                             const createdAt = parseSimplenoteTimestamp(note.creationDate, now);
                             const updatedAt = parseSimplenoteTimestamp(note.lastModified, createdAt);
-                            const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
-                            const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
-                            
-                            // [수정] Simplenote 태그(Tag) 정보 보존
-                            if (note.tags && Array.isArray(note.tags) && note.tags.length > 0) {
-                                const tagString = note.tags.map(tag => `#${tag}`).join(' ');
-                                if (content.trim().length > 0) {
-                                    content += `\n\n${tagString}`;
-                                } else {
-                                    content = tagString;
-                                }
-                            }
+                            const title = getSimplenoteTitle(content, createdAt);
+                            content = appendSimplenoteTags(content, note.tags);
 
                             const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
                             allExistingIds.add(newNoteId);
@@ -1508,35 +1590,34 @@ export const setupImportHandler = () => {
                                 isPinned: note.pinned === true
                             });
                         });
-                        latestData.folders.push(newFolder);
+
+                        if (newFolder.notes.length > 0) {
+                            latestData.folders.push(newFolder);
+                        }
 
                         // 4. trashedNotes를 휴지통으로 변환
-                        if (Array.isArray(importedData.trashedNotes)) {
-                            importedData.trashedNotes.forEach(note => {
-                                const content = note.content || '';
-                                
-                                // [BUG FIX] 여기에도 동일한 제목 생성 로직을 적용합니다.
-                                const createdAt = parseSimplenoteTimestamp(note.creationDate, now);
-                                const updatedAt = parseSimplenoteTimestamp(note.lastModified, createdAt);
-                                const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
-                                const title = (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null) || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
+                        trashedSimplenoteNotes.forEach(note => {
+                            let content = normalizeSimplenoteContent(note);
+                            const createdAt = parseSimplenoteTimestamp(note.creationDate, now);
+                            const updatedAt = parseSimplenoteTimestamp(note.lastModified, createdAt);
+                            const title = getSimplenoteTitle(content, createdAt);
+                            content = appendSimplenoteTags(content, note.tags);
 
-                                const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
-                                allExistingIds.add(newNoteId);
+                            const newNoteId = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, allExistingIds);
+                            allExistingIds.add(newNoteId);
 
-                                latestData.trash.unshift({
-                                    id: newNoteId,
-                                    title: title,
-                                    content: content,
-                                    createdAt: createdAt,
-                                    updatedAt: updatedAt,
-                                    isPinned: false,
-                                    type: 'note',
-                                    deletedAt: now,
-                                    originalFolderId: null
-                                });
+                            latestData.trash.unshift({
+                                id: newNoteId,
+                                title: title,
+                                content: content,
+                                createdAt: createdAt,
+                                updatedAt: updatedAt,
+                                isPinned: note.pinned === true,
+                                type: 'note',
+                                deletedAt: now,
+                                originalFolderId: null
                             });
-                        }
+                        });
                         
                         return { newData: latestData, successMessage: null };
                     });
