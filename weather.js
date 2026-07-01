@@ -31,9 +31,15 @@
     };
     
     const urlParams = new URLSearchParams(window.location.search);
-    const LAT = parseFloat(urlParams.get('lat'));
-    const LON = parseFloat(urlParams.get('lon'));
-    const THEME = urlParams.get('theme');
+    const parseCoordinateParam = (value, min, max) => {
+        const rawValue = String(value ?? '').trim();
+        if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawValue)) return null;
+        const numberValue = Number(rawValue);
+        return Number.isFinite(numberValue) && numberValue >= min && numberValue <= max ? numberValue : null;
+    };
+    const LAT = parseCoordinateParam(urlParams.get('lat'), -90, 90);
+    const LON = parseCoordinateParam(urlParams.get('lon'), -180, 180);
+    const THEME = urlParams.get('theme') === 'dark' ? 'dark' : 'light';
 
     const ICON_ANIMATION_MAP = {
         '☀️': ['sun'],
@@ -345,7 +351,11 @@
             window.MothNoteSanitizer.setSanitizedRichHtml(target, value);
             return;
         }
-        target.innerHTML = value;
+        if (!setSafeHTML.warnedAboutMissingSanitizer) {
+            console.warn('MothNote sanitizer is unavailable; rendering HTML content as plain text.');
+            setSafeHTML.warnedAboutMissingSanitizer = true;
+        }
+        target.textContent = value;
     }
 
     function toFiniteNumber(value) {
@@ -1900,7 +1910,7 @@
     }
 
     async function loadWeatherData() {
-        if (isNaN(LAT) || isNaN(LON) || LAT < -90 || LAT > 90 || LON < -180 || LON > 180) { renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다."); renderSkeleton(false); return; }
+        if (LAT === null || LON === null) { renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다."); renderSkeleton(false); return; }
         let cachedWeather = null; let cachedAqi = null; const now = Date.now();
         try { const cachedWeatherString = localStorage.getItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); if (cachedWeatherString) { const parsed = JSON.parse(cachedWeatherString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedWeather = parsed; } } const cachedAqiString = localStorage.getItem(CONFIG.AIR_QUALITY_CACHE_KEY); if (cachedAqiString) { const parsed = JSON.parse(cachedAqiString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedAqi = parsed; } } } catch (e) { console.warn("캐시를 읽는 중 오류 발생:", e); localStorage.removeItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); localStorage.removeItem(CONFIG.AIR_QUALITY_CACHE_KEY); }
         if (cachedWeather && cachedAqi) { processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp); renderSkeleton(false); return; }
@@ -1924,7 +1934,7 @@
         DOM.closeModalButton.onclick = () => DOM.hourlyModal.classList.remove(CONFIG.MODAL_ACTIVE_CLASS);
         window.onclick = event => { if (event.target === DOM.hourlyModal) DOM.hourlyModal.classList.remove(CONFIG.MODAL_ACTIVE_CLASS); };
         window.addEventListener('resize', () => { setupWeatherEffectsCanvas(); if (_appState.weatherEffect.currentEffectType) { startWeatherEffect(_appState.weatherEffect.currentEffectType); } });
-        window.addEventListener('message', (event) => { if (event.origin !== window.location.origin || event.source !== window.parent) { console.warn('Blocked a message from an untrusted source:', event.origin); return; } if (event.data && event.data.type === 'setTheme') { applyTheme(event.data.theme); } });
+        window.addEventListener('message', (event) => { if (event.origin !== window.location.origin || event.source !== window.parent) { console.warn('Blocked a message from an untrusted source:', event.origin); return; } if (event.data && event.data.type === 'setTheme') { applyTheme(event.data.theme === 'dark' ? 'dark' : 'light'); } });
         DOM.forecastContainer.addEventListener('click', event => { const card = event.target.closest('.weather-card'); if (card?.dataset.dateStr && card.dataset.dayName && card.dataset.monthDay) { renderHourlyDataInModal(card.dataset.dateStr, card.dataset.dayName, card.dataset.monthDay); } });
         document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadWeatherData(); } });
     }

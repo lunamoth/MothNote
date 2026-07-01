@@ -585,6 +585,96 @@
         };
     };
 
+    const VALID_CHART_FILTER_MODES = new Set(['1M', '3M', '6M', '1Y', 'ALL', 'CUSTOM']);
+
+    const sanitizeChartFilterMode = (mode) => VALID_CHART_FILTER_MODES.has(mode) ? mode : 'ALL';
+
+    const cloneDietRecords = (records) => sanitizeDietRecords(records).map(record => ({ ...record }));
+
+    const escapeCssAttributeValue = (value) => {
+        const stringValue = String(value ?? '');
+        if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+            return CSS.escape(stringValue);
+        }
+        return stringValue.split('').map((char) => {
+            if (char === '\\') return '\\\\';
+            if (char === '"') return '\\"';
+            if (char === '\n' || char === '\r' || char === '\f') return ' ';
+            return char;
+        }).join('');
+    };
+
+    const rollbackLocalStorageEntries = (previousEntries) => {
+        previousEntries.forEach(({ key, hadValue, value }) => {
+            try {
+                if (hadValue) localStorage.setItem(key, value);
+                else localStorage.removeItem(key);
+            } catch (rollbackError) {
+                console.error('Diet localStorage rollback failed:', rollbackError);
+            }
+        });
+    };
+
+    const persistLocalStorageEntriesAtomically = (entries, errorMessage = '데이터를 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.') => {
+        const previousEntries = [];
+        try {
+            entries.forEach(({ key }) => {
+                const previousValue = localStorage.getItem(key);
+                previousEntries.push({ key, hadValue: previousValue !== null, value: previousValue });
+            });
+            entries.forEach(({ key, value }) => localStorage.setItem(key, String(value)));
+            return true;
+        } catch (error) {
+            console.error('Diet localStorage persistence failed:', error);
+            rollbackLocalStorageEntries(previousEntries);
+            showToast(errorMessage);
+            return false;
+        }
+    };
+
+    const persistDietRecordsImmediate = (records = AppState.records) => {
+        const safeRecords = sanitizeDietRecords(records);
+        return persistLocalStorageEntriesAtomically([
+            { key: AppState.STORAGE_KEY, value: JSON.stringify(safeRecords) }
+        ], '체중 기록을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.');
+    };
+
+    const persistDietSettingsImmediate = (settings = AppState.settings) => {
+        const safeSettings = sanitizeDietSettings(settings);
+        return persistLocalStorageEntriesAtomically([
+            { key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) }
+        ], '다이어트 설정을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.');
+    };
+
+    const persistDietStateSnapshot = (records, settings) => {
+        const safeRecords = sanitizeDietRecords(records);
+        const safeSettings = sanitizeDietSettings(settings);
+        return persistLocalStorageEntriesAtomically([
+            { key: AppState.STORAGE_KEY, value: JSON.stringify(safeRecords) },
+            { key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) }
+        ], '가져온 다이어트 데이터를 저장하지 못했습니다. 기존 데이터를 유지합니다.');
+    };
+
+    const persistRawLocalStorageValue = (key, value, errorMessage) => persistLocalStorageEntriesAtomically([
+        { key, value: String(value) }
+    ], errorMessage);
+
+    const removeLocalStorageItemSafely = (key, errorMessage) => {
+        let previousValue = null;
+        try {
+            previousValue = localStorage.getItem(key);
+            localStorage.removeItem(key);
+            return true;
+        } catch (error) {
+            console.error('Diet localStorage remove failed:', error);
+            if (previousValue !== null) {
+                try { localStorage.setItem(key, previousValue); } catch (rollbackError) { console.error('Diet localStorage remove rollback failed:', rollbackError); }
+            }
+            showToast(errorMessage || '데이터 삭제를 저장소에 반영하지 못했습니다.');
+            return false;
+        }
+    };
+
 
     const loadPersistedDietState = (storage, currentSettings) => {
         let records = [];
@@ -592,7 +682,12 @@
 
         // 기록과 설정을 독립적으로 읽습니다. 설정 JSON 하나가 손상됐다는 이유로
         // 정상적인 전체 체중 기록까지 빈 배열로 교체하면 다음 저장 시 실제 데이터가 유실될 수 있습니다.
-        const storedRecords = storage.getItem(AppState.STORAGE_KEY);
+        let storedRecords = null;
+        try {
+            storedRecords = storage.getItem(AppState.STORAGE_KEY);
+        } catch (recordReadError) {
+            console.error('Diet record storage read error. Continuing with empty records.', recordReadError);
+        }
         if (storedRecords) {
             try {
                 records = sanitizeDietRecords(JSON.parse(storedRecords) || []);
@@ -601,7 +696,12 @@
             }
         }
 
-        const storedSettings = storage.getItem(AppState.SETTINGS_KEY);
+        let storedSettings = null;
+        try {
+            storedSettings = storage.getItem(AppState.SETTINGS_KEY);
+        } catch (settingsReadError) {
+            console.error('Diet settings storage read error. Continuing with safe defaults.', settingsReadError);
+        }
         if (storedSettings) {
             try {
                 settings = sanitizeDietSettings(JSON.parse(storedSettings));
@@ -736,14 +836,25 @@
         AppState.records = persistedDietState.records;
         AppState.settings = persistedDietState.settings;
 
-        AppState.chartFilterMode = localStorage.getItem(AppState.FILTER_KEY) || 'ALL';
+        try {
+            AppState.chartFilterMode = sanitizeChartFilterMode(localStorage.getItem(AppState.FILTER_KEY));
+        } catch (filterReadError) {
+            console.error('Diet chart filter storage read error. Falling back to ALL.', filterReadError);
+            AppState.chartFilterMode = 'ALL';
+        }
         
         // [기능 추가] 부모 창(MothNote)의 테마 설정 확인 (URL 파라미터)
         const urlParams = new URLSearchParams(window.location.search);
-        const theme = urlParams.get('theme');
+        const theme = urlParams.get('theme') === 'dark' ? 'dark' : 'light';
+        let persistedDarkMode = false;
+        try {
+            persistedDarkMode = localStorage.getItem('diet_pro_dark_mode') === 'true';
+        } catch (themeReadError) {
+            console.warn('Diet theme storage read failed. Continuing with the URL/default theme.', themeReadError);
+        }
         if (theme === 'dark') {
             document.body.classList.add('dark-mode');
-        } else if (localStorage.getItem('diet_pro_dark_mode') === 'true') {
+        } else if (persistedDarkMode) {
             document.body.classList.add('dark-mode');
         }
 
@@ -807,10 +918,10 @@
             if (event.data && event.data.type === 'setTheme') {
                 if (event.data.theme === 'dark') {
                     document.body.classList.add('dark-mode');
-                    localStorage.setItem('diet_pro_dark_mode', 'true');
+                    persistRawLocalStorageValue('diet_pro_dark_mode', 'true', '테마 설정을 저장하지 못했습니다.');
                 } else {
                     document.body.classList.remove('dark-mode');
-                    localStorage.setItem('diet_pro_dark_mode', 'false');
+                    persistRawLocalStorageValue('diet_pro_dark_mode', 'false', '테마 설정을 저장하지 못했습니다.');
                 }
                 updateUI(); // 테마 변경 후 UI(차트 등) 업데이트
             }
@@ -822,11 +933,11 @@
 	
     // --- 3. 기본 기능 ---
     const debouncedSaveRecords = debounce(() => {
-        localStorage.setItem(AppState.STORAGE_KEY, JSON.stringify(AppState.records));
+        persistDietRecordsImmediate();
     }, 500);
 
     const debouncedSaveSettings = debounce(() => {
-        localStorage.setItem(AppState.SETTINGS_KEY, JSON.stringify(AppState.settings));
+        persistDietSettingsImmediate();
     }, 500);
 
     const flushPendingStorageWrites = () => {
@@ -863,7 +974,7 @@
 
     function toggleDarkMode() {
         document.body.classList.toggle('dark-mode');
-        localStorage.setItem('diet_pro_dark_mode', document.body.classList.contains('dark-mode'));
+        persistRawLocalStorageValue('diet_pro_dark_mode', document.body.classList.contains('dark-mode') ? 'true' : 'false', '테마 설정을 저장하지 못했습니다.');
         updateUI(); 
     }
 
@@ -878,13 +989,11 @@
         if (isNaN(goal1) || goal1 <= 0 || goal1 > 500) return showToast('유효한 목표 체중을 입력해주세요.');
         if (!Number.isFinite(intake) || intake < 1 || intake > 10000) return showToast('유효한 하루 섭취 칼로리를 입력해주세요 (1~10000kcal).');
 
-        AppState.settings.height = height;
-        AppState.settings.startWeight = startWeight;
-        AppState.settings.goal1 = goal1;
-        AppState.settings.intake = Math.round(intake);
-        
+        const nextSettings = sanitizeDietSettings({ height, startWeight, goal1, intake: Math.round(intake) });
+        if (!persistDietSettingsImmediate(nextSettings)) return;
+
+        AppState.settings = nextSettings;
         AppState.state.isDirty = true;
-        debouncedSaveSettings();
         toggleSettings();
         updateUI();
         showToast('설정이 저장되었습니다.');
@@ -929,6 +1038,7 @@
 
         // [수정 핵심] 유효성 검사를 통과했다면 즉시 버튼을 잠급니다.
         btn.disabled = true;
+        const previousRecords = cloneDietRecords(AppState.records);
 
         try {
             const record = { date, weight: MathUtil.round(weight) };
@@ -969,9 +1079,13 @@
             }
 
             // 데이터 정렬 및 저장
-            AppState.records = sanitizeDietRecords(AppState.records);
+            const nextRecords = sanitizeDietRecords(AppState.records);
+            if (!persistDietRecordsImmediate(nextRecords)) {
+                AppState.records = previousRecords;
+                return;
+            }
+            AppState.records = nextRecords;
             AppState.state.isDirty = true;
-            debouncedSaveRecords();
             
             // 입력창 초기화 및 UI 업데이트
             resetForm(date); 
@@ -1006,9 +1120,10 @@
 
     function deleteRecord(date) {
         if(confirm('이 날짜의 기록을 삭제하시겠습니까?')) {
-            AppState.records = AppState.records.filter(r => r.date !== date);
+            const nextRecords = sanitizeDietRecords(AppState.records.filter(r => r.date !== date));
+            if (!persistDietRecordsImmediate(nextRecords)) return;
+            AppState.records = nextRecords;
             AppState.state.isDirty = true;
-            debouncedSaveRecords();
             updateUI();
             showToast('삭제되었습니다.');
         }
@@ -1039,7 +1154,7 @@
     function safeResetData() {
         const input = AppState.getEl('resetConfirmInput');
         if (input.value === "초기화") {
-            localStorage.removeItem(AppState.STORAGE_KEY);
+            if (!removeLocalStorageItemSafely(AppState.STORAGE_KEY, '초기화를 저장소에 반영하지 못했습니다. 기존 데이터를 유지합니다.')) return;
             AppState.records = [];
             AppState.state.isDirty = true;
             input.value = '';
@@ -1060,13 +1175,13 @@
             try {
                 const data = JSON.parse(content);
                 if(data.records && Array.isArray(data.records)) {
-                    AppState.records = sanitizeDietRecords(data.records);
-                    if(data.settings) AppState.settings = sanitizeDietSettings(data.settings);
-                    
+                    const nextRecords = sanitizeDietRecords(data.records);
+                    const nextSettings = data.settings ? sanitizeDietSettings(data.settings) : AppState.settings;
+                    if (!persistDietStateSnapshot(nextRecords, nextSettings)) return;
+
+                    AppState.records = nextRecords;
+                    AppState.settings = nextSettings;
                     AppState.state.isDirty = true;
-                    
-                    localStorage.setItem(AppState.STORAGE_KEY, JSON.stringify(AppState.records));
-                    localStorage.setItem(AppState.SETTINGS_KEY, JSON.stringify(AppState.settings));
                     
                     updateUI();
                     showToast(`데이터(JSON) 복원 완료: ${AppState.records.length}건`);
@@ -1090,6 +1205,7 @@
             const lines = content.split(/\r?\n/);
             let count = 0;
             const csvRegex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
+            const nextRecords = cloneDietRecords(AppState.records);
             
             for(let i=0; i<lines.length; i++) {
                 const line = lines[i].trim();
@@ -1106,18 +1222,18 @@
                     const w = parseFloat(matches[1]);
                     const rec = sanitizeDietRecord({ date: d, weight: w, fat: matches[2] });
                     if(rec) {
-                        const idx = AppState.records.findIndex(r => r.date === rec.date);
-                        if(idx >= 0) AppState.records[idx] = rec;
-                        else AppState.records.push(rec);
+                        const idx = nextRecords.findIndex(r => r.date === rec.date);
+                        if(idx >= 0) nextRecords[idx] = rec;
+                        else nextRecords.push(rec);
                         count++;
                     }
                 }
                 csvRegex.lastIndex = 0;
             }
-            AppState.records = sanitizeDietRecords(AppState.records);
+            const sanitizedRecords = sanitizeDietRecords(nextRecords);
+            if (!persistDietRecordsImmediate(sanitizedRecords)) return;
+            AppState.records = sanitizedRecords;
             AppState.state.isDirty = true;
-            
-            localStorage.setItem(AppState.STORAGE_KEY, JSON.stringify(AppState.records));
             
             updateUI();
             showToast(`${count}건의 데이터(CSV)를 불러왔습니다.`);
@@ -4005,8 +4121,9 @@
     }
 
     function setChartFilter(mode) {
-        AppState.chartFilterMode = mode;
-        localStorage.setItem(AppState.FILTER_KEY, mode);
+        const safeMode = sanitizeChartFilterMode(mode);
+        if (!persistRawLocalStorageValue(AppState.FILTER_KEY, safeMode, '차트 필터 설정을 저장하지 못했습니다.')) return;
+        AppState.chartFilterMode = safeMode;
         updateFilterButtons();
         updateUI(); 
     }
@@ -4015,9 +4132,11 @@
         const s = AppState.getEl('chartStartDate').value;
         const e = AppState.getEl('chartEndDate').value;
         if(s && e) {
+            if (!DateUtil.isValidDateString(s) || !DateUtil.isValidDateString(e)) return showToast('유효한 날짜 범위를 선택해주세요.');
+            if (DateUtil.parse(s) > DateUtil.parse(e)) return showToast('시작일은 종료일보다 늦을 수 없습니다.');
+            if (!persistRawLocalStorageValue(AppState.FILTER_KEY, 'CUSTOM', '차트 필터 설정을 저장하지 못했습니다.')) return;
             AppState.chartFilterMode = 'CUSTOM';
             AppState.customStart = s; AppState.customEnd = e;
-            localStorage.setItem(AppState.FILTER_KEY, 'CUSTOM');
             document.querySelectorAll('.filter-group .filter-btn').forEach(b=>b.classList.remove('active'));
             updateUI();
         }
@@ -6432,7 +6551,9 @@
         printMedicalNarrativeReport,
         
         enableInlineEdit: function(date) {
-            const btn = document.querySelector(`button[data-date="${date}"][data-action="edit"]`);
+            if (!DateUtil.isValidDateString(date)) return;
+            const safeDateSelector = escapeCssAttributeValue(date);
+            const btn = document.querySelector(`button[data-date="${safeDateSelector}"][data-action="edit"]`);
             if(!btn) return;
             const tr = btn.closest('tr');
             const record = AppState.records.find(r => r.date === date);
@@ -6465,12 +6586,16 @@
 
             const recordIndex = AppState.records.findIndex(r => r.date === date);
             if(recordIndex >= 0) {
-                AppState.records[recordIndex].weight = MathUtil.round(newWeight);
-                if(!isNaN(newFat)) AppState.records[recordIndex].fat = MathUtil.round(newFat);
-                else delete AppState.records[recordIndex].fat; 
-                
+                const nextRecords = cloneDietRecords(AppState.records);
+                nextRecords[recordIndex].weight = MathUtil.round(newWeight);
+                if(!isNaN(newFat)) nextRecords[recordIndex].fat = MathUtil.round(newFat);
+                else delete nextRecords[recordIndex].fat; 
+                nextRecords[recordIndex] = sanitizeDietRecord(nextRecords[recordIndex]);
+                if (!nextRecords[recordIndex]) return showToast('수정된 기록이 유효하지 않습니다.');
+                if (!persistDietRecordsImmediate(nextRecords)) return;
+
+                AppState.records = sanitizeDietRecords(nextRecords);
                 AppState.state.isDirty = true;
-                debouncedSaveRecords();
                 updateUI();
                 showToast('수정되었습니다.');
             }

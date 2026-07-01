@@ -808,8 +808,10 @@ export const handleRestoreItem = async (id, type) => {
     let finalFolderName = itemToRestore.name;
     let targetFolderId = null;
 
+    const normalizeFolderNameForCompare = (name) => String(name ?? '').trim().toLowerCase();
+
     if (effectiveType === 'folder') {
-        if (state.folders.some(f => f.name === itemToRestore.name)) {
+        if (state.folders.some(f => normalizeFolderNameForCompare(f.name) === normalizeFolderNameForCompare(itemToRestore.name))) {
             const newName = await showPrompt({
                 title: '📁 폴더 이름 중복',
                 message: `'${itemToRestore.name}' 폴더가 이미 존재합니다. 복원할 폴더의 새 이름을 입력해주세요.`,
@@ -817,7 +819,7 @@ export const handleRestoreItem = async (id, type) => {
                 validationFn: (value) => {
                     const trimmedValue = value.trim();
                     if (!trimmedValue) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR };
-                    if (state.folders.some(f => f.name === trimmedValue)) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
+                    if (state.folders.some(f => normalizeFolderNameForCompare(f.name) === normalizeFolderNameForCompare(trimmedValue))) return { isValid: false, message: CONSTANTS.MESSAGES.ERROR.FOLDER_EXISTS(trimmedValue) };
                     return { isValid: true };
                 }
             });
@@ -861,7 +863,8 @@ export const handleRestoreItem = async (id, type) => {
         const noteIdUpdateMap = new Map();
 
         if (txEffectiveType === 'folder') {
-            if (folders.some(f => f.name === finalFolderName)) {
+            const finalFolderNameKey = normalizeFolderNameForCompare(finalFolderName);
+            if (folders.some(f => normalizeFolderNameForCompare(f.name) === finalFolderNameKey)) {
                 showAlert({ title: '오류', message: `'${finalFolderName}' 폴더가 방금 다른 곳에서 생성되었습니다. 다른 이름으로 다시 시도해주세요.`});
                 return null;
             }

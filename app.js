@@ -43,8 +43,35 @@ import {
     handleClearSearch, handleSortChange, confirmNavigation 
 } from './navigationActions.js';
 
-let appSettings = { ...CONSTANTS.DEFAULT_SETTINGS };
+let appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
 let isSavingSettings = false;
+
+const persistAppSettings = (settingsToPersist) => {
+    const sanitizedSettings = sanitizeSettings(settingsToPersist);
+    try {
+        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+        return sanitizedSettings;
+    } catch (error) {
+        console.error('Settings persistence failed:', error);
+        showToast('설정을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return null;
+    }
+};
+
+const clearDashboardWeatherCache = () => {
+    try {
+        localStorage.removeItem(CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY);
+    } catch (error) {
+        console.warn('Weather cache removal failed:', error);
+    }
+};
+
+const parseStrictNumberInput = (value) => {
+    const rawValue = String(value ?? '').trim();
+    if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawValue)) return null;
+    const numberValue = Number(rawValue);
+    return Number.isFinite(numberValue) ? numberValue : null;
+};
 
 // CSS.escape가 없는 환경에서도 data-id 기반 선택자가 깨지지 않도록 안전한 폴백을 제공합니다.
 // MothNote는 ID를 내부에서 생성하지만, 백업 가져오기/복구 경로에서는 예외적인 값이 유입될 수 있습니다.
@@ -191,19 +218,19 @@ const handleSettingsSave = () => {
         settingsEditorFontFamily.value = finalFontFamily;
     }
 
-    let lat = parseFloat(settingsWeatherLat.value);
-    let lon = parseFloat(settingsWeatherLon.value);
+    let lat = parseStrictNumberInput(settingsWeatherLat.value);
+    let lon = parseStrictNumberInput(settingsWeatherLon.value);
 
-    if (isNaN(lat) || lat < -90 || lat > 90) {
+    if (lat === null || lat < -90 || lat > 90) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR); isSavingSettings = false; return;
     }
-    if (isNaN(lon) || lon < -180 || lon > 180) {
+    if (lon === null || lon < -180 || lon > 180) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR); isSavingSettings = false; return;
     }
 
     // HTML의 min/max는 직접 입력·가져오기·스크립트 변경을 완전히 막지 못하므로
     // 저장 직전에도 중앙 정제 함수를 거쳐 안전한 범위만 영구 저장합니다.
-    appSettings = sanitizeSettings({
+    const persistedSettings = persistAppSettings({
         layout: {
             col1: settingsCol1Input.value,
             col2: settingsCol2Input.value
@@ -218,6 +245,12 @@ const handleSettingsSave = () => {
         weather: { lat, lon }
     });
 
+    if (!persistedSettings) {
+        isSavingSettings = false;
+        return;
+    }
+
+    appSettings = persistedSettings;
     settingsCol1Width.value = appSettings.layout.col1;
     settingsCol1Input.value = appSettings.layout.col1;
     settingsCol2Width.value = appSettings.layout.col2;
@@ -225,12 +258,12 @@ const handleSettingsSave = () => {
     settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
     settingsZenMaxInput.value = appSettings.zenMode.maxWidth;
     settingsEditorFontSize.value = appSettings.editor.fontSize;
-    localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
-    localStorage.removeItem(CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY);
+    clearDashboardWeatherCache();
     applySettings(appSettings);
     
     showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_SAVED);
     settingsModal.close();
+    isSavingSettings = false;
     
     setTimeout(() => { if (dashboard) dashboard.fetchWeather(); }, 100);
 };
@@ -241,8 +274,11 @@ const handleSettingsReset = async () => {
         confirmText: '🔄 초기화 및 저장', confirmButtonType: 'danger'
     });
     if (ok) {
-        appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
-        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings));
+        const persistedSettings = persistAppSettings(CONSTANTS.DEFAULT_SETTINGS);
+        if (!persistedSettings) return;
+
+        appSettings = persistedSettings;
+        clearDashboardWeatherCache();
         
         settingsCol1Width.value = appSettings.layout.col1; settingsCol1Input.value = appSettings.layout.col1;
         settingsCol2Width.value = appSettings.layout.col2; settingsCol2Input.value = appSettings.layout.col2;
@@ -1008,8 +1044,8 @@ const handleGlobalKeyDown = async (e) => {
     }
 };
 const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
-const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { appSettings.layout[settingsKey] = parseInt(sliderElement.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
-const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); appSettings.zenMode.maxWidth = parseInt(settingsZenMaxWidth.value, 10); localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(appSettings)); }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
+const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { const persistedSettings = persistAppSettings({ ...appSettings, layout: { ...appSettings.layout, [settingsKey]: parseInt(sliderElement.value, 10) } }); if (persistedSettings) appSettings = persistedSettings; } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
+const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); const persistedSettings = persistAppSettings({ ...appSettings, zenMode: { ...appSettings.zenMode, maxWidth: parseInt(settingsZenMaxWidth.value, 10) } }); if (persistedSettings) appSettings = persistedSettings; }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
 const setupEventListeners = () => {
     // [BUG FIX] 모든 이벤트 리스너 바인딩 전에 null 체크를 일관되게 적용합니다.
     if (folderList) {
