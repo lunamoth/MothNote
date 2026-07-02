@@ -52,7 +52,7 @@ export const changeActiveNote = async (newNoteId) => {
 
 export const changeActiveFolder = async (newFolderId, options = {}) => {
     // [수정] 이미 다른 폴더로 전환하는 작업이 진행 중이라면, 새로운 요청을 무시합니다.
-    if (isChangingFolder) return;
+    if (isChangingFolder) return false;
     isChangingFolder = true; // 잠금을 설정하여 중복 실행을 방지합니다.
 
     try {
@@ -60,12 +60,17 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
         const renameSuccess = await finishPendingRename();
         if (!renameSuccess) {
             showToast("이름 변경 저장에 실패하여 폴더 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-            return; // 이름 변경 실패 시 작업 중단
+            return false; // 이름 변경 실패 시 작업 중단
         }
 
-        if (state.activeFolderId === newFolderId && !state.dateFilter) return;
+        if (state.activeFolderId === newFolderId && !state.dateFilter) {
+            // [MAJOR BUG FIX] 새 폴더 생성 직후 postUpdateState로 이미 활성 폴더가 바뀐 경우에도
+            // no-op 반환 전에 세션을 저장해, 즉시 새로고침해도 방금 만든 폴더 선택이 유지되게 합니다.
+            saveSession();
+            return true;
+        }
 
-        if (!options.force && !(await confirmNavigation())) return;
+        if (!options.force && !(await confirmNavigation())) return false;
         
         const { item: folder } = findFolder(newFolderId);
         const notesInFolder = folder?.notes ?? [];
@@ -94,6 +99,7 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
         
         if (searchInput) searchInput.value = '';
         saveSession();
+        return true;
     } finally {
         // [수정] try 블록의 코드가 어떤 경로로 종료되든(성공, return, 에러 발생 등)
         // 항상 잠금을 해제하여 다음 요청을 받을 수 있도록 보장합니다.

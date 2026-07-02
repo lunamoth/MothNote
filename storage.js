@@ -733,17 +733,45 @@ export const loadData = async () => {
                                 let changesApplied = false;
 
                                 // 1. 노트 내용 업데이트 복원
+                                // [CRITICAL BUG FIX] 비상 복구 대상 검증은 활성 폴더와 휴지통을 모두 인정하지만,
+                                // 실제 적용은 활성 폴더만 검색하고 있어 휴지통으로 이동된 노트의 미저장 내용이 사라질 수 있었습니다.
+                                // 활성 폴더, 휴지통 최상위 노트, 휴지통 폴더 내부 노트까지 동일하게 복구합니다.
                                 if (backupChanges.noteUpdate) {
                                     const { noteId, title, content } = backupChanges.noteUpdate;
+                                    const normalizedNoteId = String(noteId ?? '');
+                                    const applyRecoveredNoteUpdate = (note, parentFolder = null) => {
+                                        if (!note || String(note.id ?? '') !== normalizedNoteId) return false;
+                                        note.title = String(title ?? '');
+                                        note.content = String(content ?? '');
+                                        note.updatedAt = now;
+                                        if (parentFolder) parentFolder.updatedAt = now;
+                                        return true;
+                                    };
+
                                     for (const folder of latestData.folders) {
-                                        const noteToUpdate = folder.notes.find(n => n.id === noteId);
-                                        if (noteToUpdate) {
-                                            noteToUpdate.title = title;
-                                            noteToUpdate.content = content;
-                                            noteToUpdate.updatedAt = now;
-                                            folder.updatedAt = now;
+                                        const noteToUpdate = (Array.isArray(folder.notes) ? folder.notes : []).find(n => String(n?.id ?? '') === normalizedNoteId);
+                                        if (applyRecoveredNoteUpdate(noteToUpdate, folder)) {
                                             changesApplied = true;
                                             break;
+                                        }
+                                    }
+
+                                    if (!changesApplied) {
+                                        for (const trashItem of latestData.trash) {
+                                            const isTopLevelTrashNote = String(trashItem?.id ?? '') === normalizedNoteId
+                                                && (!Array.isArray(trashItem?.notes) || trashItem.type === CONSTANTS.ITEM_TYPE.NOTE);
+                                            if (isTopLevelTrashNote && applyRecoveredNoteUpdate(trashItem)) {
+                                                changesApplied = true;
+                                                break;
+                                            }
+
+                                            if (Array.isArray(trashItem?.notes)) {
+                                                const noteInTrashFolder = trashItem.notes.find(n => String(n?.id ?? '') === normalizedNoteId);
+                                                if (applyRecoveredNoteUpdate(noteInTrashFolder, trashItem)) {
+                                                    changesApplied = true;
+                                                    break;
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1005,7 +1033,9 @@ export const loadData = async () => {
                     activeFolderId: lastFolderId,
                     activeNoteId: welcomeNoteId,
                     totalNoteCount: 2,
-                    lastActiveNotePerFolder: { [lastFolderId]: lunaFlowNoteId }
+                    // [MAJOR BUG FIX] 최초 실행 직후 저장되는 세션의 마지막 활성 노트가 화면의 활성 노트와 달라
+                    // 첫 새로고침에서 사용자가 보던 환영 노트가 다른 노트로 바뀌는 문제를 막습니다.
+                    lastActiveNotePerFolder: { [lastFolderId]: welcomeNoteId }
                 });
             } else {
                 const latestData = initializationResult.appState;

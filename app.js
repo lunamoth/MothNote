@@ -176,8 +176,14 @@ const updateStorageUsageDisplay = async () => {
 
 
 const openSettingsModal = async () => {
-    await finishPendingRename();
-    await saveCurrentNoteIfChanged();
+    if (!(await finishPendingRename())) {
+        showToast('이름 변경 저장에 실패하여 설정을 열지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
+    if (!(await saveCurrentNoteIfChanged())) {
+        showToast('노트 저장에 실패하여 설정을 열지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
 
     // [기능 추가] 모달이 열릴 때마다 저장소 사용량을 업데이트합니다.
     updateStorageUsageDisplay();
@@ -997,7 +1003,127 @@ const setupDragAndDrop = (listElement, type) => {
         draggedItemInfo = { id: null, type: null, sourceFolderId: null };
     });
 };
-const setupNoteToFolderDrop = () => { if (!folderList) return; let currentDropTarget = null; folderList.addEventListener('dragenter', e => { if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return; const targetFolderLi = e.target.closest('.item-list-entry'); if (currentDropTarget && currentDropTarget !== targetFolderLi) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } if (targetFolderLi) { const folderId = targetFolderLi.dataset.id; const { ALL, RECENT } = CONSTANTS.VIRTUAL_FOLDERS; if (folderId !== draggedItemInfo.sourceFolderId && ![ALL.id, RECENT.id].includes(folderId)) { e.preventDefault(); targetFolderLi.classList.add(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = targetFolderLi; } } }); folderList.addEventListener('dragleave', e => { if (currentDropTarget && !e.currentTarget.contains(e.relatedTarget)) { currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; } }); folderList.addEventListener('dragover', e => { if (draggedItemInfo.type === CONSTANTS.ITEM_TYPE.NOTE && currentDropTarget) e.preventDefault(); }); folderList.addEventListener('drop', async e => { e.preventDefault(); if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE || !currentDropTarget) return; const targetFolderId = currentDropTarget.dataset.id, noteId = draggedItemInfo.id; currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET); currentDropTarget = null; if (!(await saveCurrentNoteIfChanged())) { showToast("변경사항 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR); return; } const { TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS; if (targetFolderId === TRASH.id) { await performDeleteItem(noteId, CONSTANTS.ITEM_TYPE.NOTE); } else if (targetFolderId === FAVORITES.id) { const { item: note } = findNote(noteId); if (note && !state.favorites.has(noteId)) await handleToggleFavorite(noteId); } else { await performTransactionalUpdate((latestData) => { const { folders } = latestData; let noteToMove, sourceFolder; for (const folder of folders) { const noteIndex = folder.notes.findIndex(n => n.id === noteId); if (noteIndex > -1) { [noteToMove] = folder.notes.splice(noteIndex, 1); sourceFolder = folder; break; } } const targetFolder = folders.find(f => f.id === targetFolderId); if (!noteToMove || !targetFolder || sourceFolder.id === targetFolder.id) return null; const now = Date.now(); noteToMove.updatedAt = now; targetFolder.notes.unshift(noteToMove); sourceFolder.updatedAt = now; targetFolder.updatedAt = now; return { newData: latestData, successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name), postUpdateState: {} }; }); } }); };
+const setupNoteToFolderDrop = () => {
+    if (!folderList) return;
+
+    let currentDropTarget = null;
+
+    const clearNoteDropTarget = () => {
+        if (currentDropTarget) {
+            currentDropTarget.classList.remove(CONSTANTS.CLASSES.DROP_TARGET);
+            currentDropTarget = null;
+        }
+    };
+
+    const getValidNoteDropTarget = (eventTarget) => {
+        if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return null;
+        const targetElement = eventTarget?.nodeType === 3
+            ? eventTarget.parentElement
+            : eventTarget;
+        const targetFolderLi = targetElement?.closest?.('.item-list-entry');
+        if (!targetFolderLi || !folderList.contains(targetFolderLi)) return null;
+
+        const folderId = targetFolderLi.dataset.id;
+        const { ALL, RECENT } = CONSTANTS.VIRTUAL_FOLDERS;
+        if (!folderId || folderId === draggedItemInfo.sourceFolderId || [ALL.id, RECENT.id].includes(folderId)) {
+            return null;
+        }
+
+        return targetFolderLi;
+    };
+
+    const markDropTarget = (targetFolderLi) => {
+        if (!targetFolderLi) {
+            clearNoteDropTarget();
+            return;
+        }
+        if (currentDropTarget && currentDropTarget !== targetFolderLi) {
+            clearNoteDropTarget();
+        }
+        currentDropTarget = targetFolderLi;
+        currentDropTarget.classList.add(CONSTANTS.CLASSES.DROP_TARGET);
+    };
+
+    folderList.addEventListener('dragenter', e => {
+        const targetFolderLi = getValidNoteDropTarget(e.target);
+        if (!targetFolderLi) return;
+        e.preventDefault();
+        markDropTarget(targetFolderLi);
+    });
+
+    folderList.addEventListener('dragleave', e => {
+        if (!currentDropTarget) return;
+        const nextTarget = getValidNoteDropTarget(e.relatedTarget);
+        if (nextTarget !== currentDropTarget) {
+            clearNoteDropTarget();
+        }
+    });
+
+    folderList.addEventListener('dragover', e => {
+        const targetFolderLi = getValidNoteDropTarget(e.target) || currentDropTarget;
+        if (!targetFolderLi) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        markDropTarget(targetFolderLi);
+    });
+
+    folderList.addEventListener('drop', async e => {
+        e.preventDefault();
+
+        // [MAJOR BUG FIX] dragenter에서 남은 오래된 currentDropTarget을 그대로 쓰면
+        // 사용자가 실제로 놓은 위치와 다른 폴더로 노트가 이동할 수 있습니다. drop 시점의 타깃을 다시 검증합니다.
+        const dropTarget = getValidNoteDropTarget(e.target);
+        const targetFolderId = dropTarget?.dataset?.id;
+        const noteId = draggedItemInfo.id;
+        clearNoteDropTarget();
+
+        if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE || !dropTarget || !targetFolderId || !noteId) return;
+
+        // 노트 이동/휴지통 이동/즐겨찾기 추가는 전체 appState를 다시 렌더링하므로,
+        // 인라인 이름 변경과 편집 버퍼를 먼저 확정해 드롭 직전 입력값 유실을 방지합니다.
+        if (!(await finishPendingRename())) {
+            showToast('이름 변경 저장에 실패하여 노트 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+        if (!(await saveCurrentNoteIfChanged())) {
+            showToast("변경사항 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+
+        const { TRASH, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
+        if (targetFolderId === TRASH.id) {
+            await performDeleteItem(noteId, CONSTANTS.ITEM_TYPE.NOTE);
+        } else if (targetFolderId === FAVORITES.id) {
+            const { item: note } = findNote(noteId);
+            if (note && !state.favorites.has(noteId)) await handleToggleFavorite(noteId);
+        } else {
+            await performTransactionalUpdate((latestData) => {
+                const { folders } = latestData;
+                let noteToMove, sourceFolder;
+                for (const folder of folders) {
+                    const noteIndex = (Array.isArray(folder.notes) ? folder.notes : []).findIndex(n => n.id === noteId);
+                    if (noteIndex > -1) {
+                        [noteToMove] = folder.notes.splice(noteIndex, 1);
+                        sourceFolder = folder;
+                        break;
+                    }
+                }
+                const targetFolder = folders.find(f => f.id === targetFolderId);
+                if (!noteToMove || !sourceFolder || !targetFolder || sourceFolder.id === targetFolder.id) return null;
+                const now = Date.now();
+                noteToMove.updatedAt = now;
+                targetFolder.notes.unshift(noteToMove);
+                sourceFolder.updatedAt = now;
+                targetFolder.updatedAt = now;
+                return {
+                    newData: latestData,
+                    successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name),
+                    postUpdateState: {}
+                };
+            });
+        }
+    });
+};
 const _focusAndScrollToListItem = (listElement, itemId) => {
     // [BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
     const safeItemId = escapeCssAttributeValue(itemId);
@@ -1158,8 +1284,10 @@ const setupGlobalEventListeners = () => {
     // [BUG FIX] visibilitychange 이벤트 핸들러를 async로 만들고 내부 함수들을 await 합니다.
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
-            await saveCurrentNoteIfChanged();
+            // [MAJOR BUG FIX] 다른 데이터 조작 경로와 같은 순서로 인라인 이름 변경을 먼저 확정합니다.
+            // 편집 저장으로 목록이 다시 렌더링된 뒤 이름 변경 DOM이 사라지는 경합을 피합니다.
             await finishPendingRename();
+            await saveCurrentNoteIfChanged();
         }
     });
     
