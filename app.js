@@ -425,6 +425,20 @@ const _closeAllIFrames = () => {
     dashboard._restoreMainPanels();
 };
 
+const prepareForDashboardNavigation = async (actionName = '화면 전환') => {
+    if (!(await finishPendingRename())) {
+        showToast(`이름 변경 저장에 실패하여 ${actionName}을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+
+    if (!(await confirmNavigation())) {
+        showToast(`변경사항 저장에 실패하여 ${actionName}을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+
+    return true;
+};
+
 
 class Dashboard {
     constructor() {
@@ -505,7 +519,9 @@ class Dashboard {
         if (zenModeBtn) zenModeBtn.style.removeProperty('display');
     }
 
-    _openWeatherView() {
+    async _openWeatherView() {
+        if (!(await prepareForDashboardNavigation('날씨 화면 열기'))) return;
+
         const { lat, lon } = appSettings.weather;
         
         console.log("Opening weather view with settings:", appSettings.weather);
@@ -535,7 +551,9 @@ class Dashboard {
     }
 
     // [기능 추가] 습관 트래커 열기 함수
-    _openHabitTracker() {
+    async _openHabitTracker() {
+        if (!(await prepareForDashboardNavigation('습관 트래커 열기'))) return;
+
         const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
         
         // 다른 iframe 뷰가 열려있으면 닫습니다.
@@ -557,7 +575,9 @@ class Dashboard {
     }
 
     // [기능 추가] 다이어트 챌린지 열기 함수
-    _openDietChallenge() {
+    async _openDietChallenge() {
+        if (!(await prepareForDashboardNavigation('다이어트 챌린지 열기'))) return;
+
         const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
         
         // 다른 iframe 뷰가 열려있으면 닫습니다.
@@ -583,7 +603,7 @@ class Dashboard {
         if (this.dom.weatherContainer) {
             this.dom.weatherContainer.style.cursor = 'pointer';
             this.dom.weatherContainer.title = '날씨 정보 불러오는 중...';
-            this.dom.weatherContainer.addEventListener('click', () => this._openWeatherView());
+            this.dom.weatherContainer.addEventListener('click', () => { void this._openWeatherView(); });
         }
         if (this.dom.closeWeatherViewBtn) {
             this.dom.closeWeatherViewBtn.addEventListener('click', () => this._closeWeatherView());
@@ -593,7 +613,7 @@ class Dashboard {
     // [기능 추가] 습관 트래커 이벤트 리스너 설정
     _setupHabitTrackerEvents() {
         if (this.dom.habitTrackerBtn) {
-            this.dom.habitTrackerBtn.addEventListener('click', () => this._openHabitTracker());
+            this.dom.habitTrackerBtn.addEventListener('click', () => { void this._openHabitTracker(); });
         }
         if (this.dom.closeHabitTrackerBtn) {
             this.dom.closeHabitTrackerBtn.addEventListener('click', () => this._closeHabitTracker());
@@ -603,7 +623,7 @@ class Dashboard {
     // [기능 추가] 다이어트 챌린지 이벤트 리스너 설정
     _setupDietChallengeEvents() {
         if (this.dom.dietChallengeBtn) {
-            this.dom.dietChallengeBtn.addEventListener('click', () => this._openDietChallenge());
+            this.dom.dietChallengeBtn.addEventListener('click', () => { void this._openDietChallenge(); });
         }
         if (this.dom.closeDietChallengeBtn) {
             this.dom.closeDietChallengeBtn.addEventListener('click', () => this._closeDietChallenge());
@@ -846,7 +866,71 @@ class Dashboard {
     _drawCalendarGrid() { if (!this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.calendarGrid.innerHTML = ''; const year = this.internalState.currentDate.getFullYear(), month = this.internalState.currentDate.getMonth(); this.dom.calendarMonthYear.textContent = `🗓️ ${year}년 ${month + 1}월`; ['일', '월', '화', '수', '목', '금', '토'].forEach(day => { const el = document.createElement('div'); el.className = 'calendar-day day-name'; el.textContent = day; this.dom.calendarGrid.appendChild(el); }); const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate(); for (let i = 0; i < firstDay; i++) this.dom.calendarGrid.appendChild(document.createElement('div')); const today = new Date(), todayYear = today.getFullYear(), todayMonth = today.getMonth(), todayDate = today.getDate(); for (let i = 1; i <= daysInMonth; i++) { const el = document.createElement('div'); el.className = 'calendar-day date-cell current-month ripple-effect'; el.textContent = i; if (i === todayDate && year === todayYear && month === todayMonth) el.classList.add('today'); el.dataset.date = toYYYYMMDD(new Date(year, month, i)); this.dom.calendarGrid.appendChild(el); } }
     renderCalendar(forceRedraw = false) { const newMonthIdentifier = `${this.internalState.currentDate.getFullYear()}-${this.internalState.currentDate.getMonth()}`; if (forceRedraw || this.internalState.displayedMonth !== newMonthIdentifier) { this._drawCalendarGrid(); this.internalState.displayedMonth = newMonthIdentifier; } this._updateCalendarHighlights(); }
     resetCalendarDate() { this.internalState.currentDate = new Date(); }
-    _setupCalendarEvents() { if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return; this.dom.prevMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1); this.renderCalendar(); }; this.dom.nextMonthBtn.onclick = () => { this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1); this.renderCalendar(); }; this.dom.calendarMonthYear.onclick = async () => { const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate }); if (result) { this.internalState.currentDate = new Date(result.year, result.month, 1); this.renderCalendar(); } }; this.dom.calendarGrid.onclick = async e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { if (!(await confirmNavigation())) return; const newFilterDate = parseYYYYMMDDLocal(target.dataset.date); if (!newFilterDate) return; const isSameDate = state.dateFilter && toYYYYMMDD(state.dateFilter) === target.dataset.date; searchInput.value = ''; if (isSameDate) { setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' }); } else { this.internalState.currentDate = newFilterDate; const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date); const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder); setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' }); this.renderCalendar(); } } }; this.dom.calendarGrid.addEventListener('mouseover', e => { const target = e.target.closest('.date-cell.has-notes'); if (target) { const notesOnDate = Array.from(state.noteMap.values()).map(e => e.note).filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date).map(n => n.title || '📝 제목 없음'); if (notesOnDate.length > 0) target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`; } }); }
+    _setupCalendarEvents() {
+        if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return;
+
+        this.dom.prevMonthBtn.onclick = () => {
+            this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1);
+            this.renderCalendar();
+        };
+
+        this.dom.nextMonthBtn.onclick = () => {
+            this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1);
+            this.renderCalendar();
+        };
+
+        this.dom.calendarMonthYear.onclick = async () => {
+            const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate });
+            if (result) {
+                this.internalState.currentDate = new Date(result.year, result.month, 1);
+                this.renderCalendar();
+            }
+        };
+
+        this.dom.calendarGrid.onclick = async e => {
+            const target = e.target.closest('.date-cell.has-notes');
+            if (!target) return;
+
+            if (!(await finishPendingRename())) {
+                showToast('이름 변경 저장에 실패하여 날짜 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+                return;
+            }
+
+            if (!(await confirmNavigation())) return;
+
+            const newFilterDate = parseYYYYMMDDLocal(target.dataset.date);
+            if (!newFilterDate) return;
+
+            const isSameDate = state.dateFilter && toYYYYMMDD(state.dateFilter) === target.dataset.date;
+            if (searchInput) searchInput.value = '';
+
+            if (isSameDate) {
+                setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
+            } else {
+                this.internalState.currentDate = newFilterDate;
+                const notesOnDate = Array.from(state.noteMap.values())
+                    .map(e => e.note)
+                    .filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date);
+                const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
+                setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' });
+                this.renderCalendar();
+            }
+        };
+
+        this.dom.calendarGrid.addEventListener('mouseover', e => {
+            const target = e.target.closest('.date-cell.has-notes');
+            if (!target) return;
+
+            const notesOnDate = Array.from(state.noteMap.values())
+                .map(e => e.note)
+                .filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date)
+                .map(n => n.title || '📝 제목 없음');
+
+            if (notesOnDate.length > 0) {
+                target.title = `작성된 노트 (${notesOnDate.length}개):\n- ${notesOnDate.join('\n- ')}`;
+            }
+        });
+    }
 }
 
 window.isInitializing = true;
@@ -865,7 +949,7 @@ const handleItemActionClick = async (button, id, type) => {
 };
 
 // [버그 수정] 클릭 시 즉시 키보드 탐색이 가능하도록 포커스를 설정합니다.
-const handleListClick = (e, type) => {
+const handleListClick = async (e, type) => {
     const li = e.target.closest('.item-list-entry');
     if (!li) return;
     const id = li.dataset.id;
@@ -876,13 +960,13 @@ const handleListClick = (e, type) => {
     }
 
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-        changeActiveFolder(id);
+        const changed = await changeActiveFolder(id);
         // 상태 변경 후 DOM 업데이트가 완료될 다음 프레임에 포커스를 설정합니다.
-        requestAnimationFrame(() => folderList?.focus());
+        if (changed) requestAnimationFrame(() => folderList?.focus());
     } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
-        changeActiveNote(id);
+        const changed = await changeActiveNote(id);
         // 노트 리스트도 동일하게 수정하여 일관성을 유지합니다.
-        requestAnimationFrame(() => noteList?.focus());
+        if (changed) requestAnimationFrame(() => noteList?.focus());
     }
 };
 
@@ -1133,7 +1217,41 @@ const _focusAndScrollToListItem = (listElement, itemId) => {
         itemEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 };
-const _navigateList = async (type, direction) => { if (isListNavigating) return; isListNavigating = true; try { await finishPendingRename(); const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList; if (!list) return; const items = Array.from(list.querySelectorAll('.item-list-entry')); if (items.length === 0) return; const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId; const currentIndex = items.findIndex(item => item.dataset.id === activeId); const nextIndex = currentIndex === -1 ? (direction === 1 ? 0 : items.length - 1) : (currentIndex + direction + items.length) % items.length; const nextId = items[nextIndex]?.dataset.id; if (!nextId) return; if (type === CONSTANTS.ITEM_TYPE.FOLDER) await changeActiveFolder(nextId); else await changeActiveNote(nextId); setTimeout(() => _focusAndScrollToListItem(list, nextId), 50); } finally { clearTimeout(keyboardNavDebounceTimer); keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV); setTimeout(() => { isListNavigating = false; }, 50); } };
+const _navigateList = async (type, direction) => {
+    if (isListNavigating) return;
+    isListNavigating = true;
+
+    try {
+        if (!(await finishPendingRename())) {
+            showToast('이름 변경 저장에 실패하여 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+
+        const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
+        if (!list) return;
+
+        const items = Array.from(list.querySelectorAll('.item-list-entry'));
+        if (items.length === 0) return;
+
+        const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId;
+        const currentIndex = items.findIndex(item => item.dataset.id === activeId);
+        const nextIndex = currentIndex === -1
+            ? (direction === 1 ? 0 : items.length - 1)
+            : (currentIndex + direction + items.length) % items.length;
+        const nextId = items[nextIndex]?.dataset.id;
+        if (!nextId) return;
+
+        const changed = type === CONSTANTS.ITEM_TYPE.FOLDER
+            ? await changeActiveFolder(nextId)
+            : await changeActiveNote(nextId);
+
+        if (changed) setTimeout(() => _focusAndScrollToListItem(list, nextId), 50);
+    } finally {
+        clearTimeout(keyboardNavDebounceTimer);
+        keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV);
+        setTimeout(() => { isListNavigating = false; }, 50);
+    }
+};
 const handleListKeyDown = async (e, type) => { if (state.renamingItemId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); return; } if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1); } else if (e.key === 'Enter') { e.preventDefault(); if (type === CONSTANTS.ITEM_TYPE.FOLDER) { const firstNote = noteList?.querySelector('.item-list-entry'); if (firstNote) firstNote.focus(); else searchInput?.focus(); } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) { noteTitleInput?.focus(); } } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) { if (state.activeNoteId && noteContentTextarea) { e.preventDefault(); noteContentTextarea.focus(); } } };
 const handleGlobalKeyDown = async (e) => {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
@@ -1194,8 +1312,12 @@ const setupEventListeners = () => {
         noteTitleInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter' || e.key === 'Tab') {
                 e.preventDefault();
-                await saveCurrentNoteIfChanged();
-                noteContentTextarea.focus();
+                const saved = await saveCurrentNoteIfChanged();
+                if (saved && noteContentTextarea) {
+                    noteContentTextarea.focus();
+                } else if (!saved) {
+                    showToast('제목 저장에 실패하여 본문으로 이동하지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+                }
             }
         });
     }
@@ -1239,7 +1361,7 @@ const setupFeatureToggles = () => {
         zenModeToggleBtn.addEventListener('click', async () => {
             if (!(await confirmNavigation())) return;
             const isActive = document.body.classList.toggle('zen-mode');
-            localStorage.setItem('mothnote-zen-mode', isActive);
+            localStorage.setItem('mothnote-zen-mode', String(isActive));
             zenModeToggleBtn.textContent = isActive ? '↔️' : '🧘';
             zenModeToggleBtn.title = isActive ? '↔️ 젠 모드 종료' : '🧘 젠 모드';
         });

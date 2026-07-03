@@ -381,16 +381,27 @@ export const clearSortedNotesCache = () => { sortedNotesCache.sourceNotes = null
 export const sortTrashNotesForDisplay = (notes) =>
     [...(Array.isArray(notes) ? notes : [])].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
 
+const formatDateFilterLabel = (dateInput) => {
+    const dateStr = toYYYYMMDD(dateInput);
+    if (!dateStr) return '선택한 날짜';
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const localDate = new Date(year, month - 1, day);
+    if (Number.isNaN(localDate.getTime())) return '선택한 날짜';
+
+    return localDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+};
+
 const getPlaceholderMessage = (viewData) => {
     if (state.searchTerm) {
         if (viewData.isDateFilteredView) {
-             const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+             const dateString = formatDateFilterLabel(state.dateFilter);
              return `🤷‍♂️<br>${dateString} 내에서<br>검색 결과가 없어요.`;
         }
         return '🤷‍♂️<br>검색 결과가 없어요.';
     }
     if (viewData.isDateFilteredView) {
-        const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+        const dateString = formatDateFilterLabel(state.dateFilter);
         return `🤷‍♂️<br>${dateString}에 작성된 노트가 없습니다.`;
     }
     if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.ALL.id && state.folders.length === 0) return '✨<br>첫 폴더를 만들고<br>생각을 기록해보세요!';
@@ -402,7 +413,7 @@ const getPlaceholderMessage = (viewData) => {
 
 const getActiveViewData = () => {
     if (state.dateFilter) {
-        const dateString = new Date(state.dateFilter).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+        const dateString = formatDateFilterLabel(state.dateFilter);
         const sourceNotes = Array.from(state.noteMap.values()).map(e => e.note).filter(note => toYYYYMMDD(note.createdAt) === toYYYYMMDD(state.dateFilter));
         return { name: `📅 ${dateString}`, notes: sourceNotes, isSortable: true, canAddNote: false, isTrashView: false, isDateFilteredView: true };
     }

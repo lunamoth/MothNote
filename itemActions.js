@@ -76,6 +76,7 @@ export const updateNoteCreationDates = () => {
 };
 
 let pendingRenamePromise = null;
+let pendingRenameCompletionPromise = null;
 let resolvePendingRename = null;
 let pendingRenameCleanup = null;
 let isStartingRename = false;
@@ -92,11 +93,16 @@ export const forceResolvePendingRename = () => {
     if (resolvePendingRename) resolvePendingRename(false);
     resolvePendingRename = null;
     pendingRenamePromise = null;
+    pendingRenameCompletionPromise = null;
 };
 
 // [BUG FIX] 이름 변경 중 다른 작업 실행 시, 변경 사항이 유실되는 'Major' 버그를 수정합니다.
 // .blur() 이벤트에 의존하는 대신, 이름 변경 완료 로직을 직접 호출하여 이벤트 경합(Race Condition)을 원천적으로 차단합니다.
 export const finishPendingRename = async () => {
+    if (pendingRenameCompletionPromise) {
+        return await pendingRenameCompletionPromise;
+    }
+
     // 현재 이름 변경 작업이 진행 중인지 확인합니다.
     if (state.renamingItemId && pendingRenamePromise) {
         const id = state.renamingItemId;
@@ -1304,94 +1310,119 @@ export async function handleUserInput() {
 }
 
 const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
+    if (pendingRenameCompletionPromise) {
+        return await pendingRenameCompletionPromise;
+    }
+
     if (state.renamingItemId !== id || !pendingRenamePromise) {
         return true;
     }
 
-    // contentEditable을 끄면 blur가 발생할 수 있으므로, 저장용 blur 리스너를 먼저 제거합니다.
-    // Escape 취소가 blur 저장과 경합해 새 이름을 커밋하는 문제를 방지합니다.
-    if (pendingRenameCleanup) {
-        pendingRenameCleanup();
-        pendingRenameCleanup = null;
-    }
-    nameSpan.contentEditable = false;
-    
-    if (resolvePendingRename) {
-        resolvePendingRename();
-        resolvePendingRename = null;
-    }
-    pendingRenamePromise = null;
+    pendingRenameCompletionPromise = (async () => {
+        let result = false;
 
-    if (!nameSpan.isConnected) {
-        setState({ renamingItemId: null });
-        return true;
-    }
-
-    const { item: currentItem } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
-    if (!currentItem) {
-        setState({ renamingItemId: null }); 
-        return true;
-    }
-
-    const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
-    const newName = nameSpan.textContent.trim();
-
-    if (!shouldSave || newName === originalName) {
-        clearRenameEmergencyBackup(id, type);
-        setState({ renamingItemId: null });
-        if (nameSpan) nameSpan.textContent = originalName;
-        return true;
-    }
-
-    // 목록 이름 변경도 전체 상태를 다시 렌더링할 수 있으므로, 현재 편집 버퍼를 먼저 확정합니다.
-    // 특히 검색 결과에서 제목을 바꾸면 활성 노트가 목록에서 사라질 수 있어 저장 실패 상태에서는 데이터 유실로 이어집니다.
-    if (!(await saveCurrentNoteIfChanged())) {
-        setState({ renamingItemId: null });
-        if (nameSpan) nameSpan.textContent = originalName;
-        showToast('변경사항 저장에 실패하여 이름 변경을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
-        return false;
-    }
-    
-    const { success } = await performTransactionalUpdate(latestData => {
-        let itemToRename, parentFolder, isDuplicate = false;
-        const now = Date.now();
-        
-        if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
-            itemToRename = latestData.folders.find(f => f.id === id);
-            if (!itemToRename) return null;
-            isDuplicate = latestData.folders.some(f => f.id !== id && f.name.toLowerCase() === newName.toLowerCase());
-        } else {
-            for (const folder of latestData.folders) {
-                const note = folder.notes.find(n => n.id === id);
-                if (note) { itemToRename = note; parentFolder = folder; break; }
+        try {
+            // contentEditable을 끄면 blur가 발생할 수 있으므로, 저장용 blur 리스너를 먼저 제거합니다.
+            // Escape 취소가 blur 저장과 경합해 새 이름을 커밋하는 문제를 방지합니다.
+            if (pendingRenameCleanup) {
+                pendingRenameCleanup();
+                pendingRenameCleanup = null;
             }
-            if (!itemToRename) return null;
-        }
+            nameSpan.contentEditable = false;
 
-        if (!newName) {
-            showToast(CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR, CONSTANTS.TOAST_TYPE.ERROR); return null;
-        }
-        if (isDuplicate) {
-            showToast(CONSTANTS.MESSAGES.ERROR.DUPLICATE_NAME_ERROR(newName), CONSTANTS.TOAST_TYPE.ERROR); return null;
-        }
+            if (!nameSpan.isConnected) {
+                setState({ renamingItemId: null });
+                result = true;
+                return result;
+            }
 
-        if (type === CONSTANTS.ITEM_TYPE.FOLDER) itemToRename.name = newName;
-        else itemToRename.title = newName;
-        
-        itemToRename.updatedAt = now;
-        if (parentFolder) parentFolder.updatedAt = now;
-        
-        return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
-    });
+            const { item: currentItem } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
+            if (!currentItem) {
+                setState({ renamingItemId: null });
+                result = true;
+                return result;
+            }
 
-    if (success) {
-        clearRenameEmergencyBackup(id, type);
-    } else {
-        setState({ renamingItemId: null });
-        if(nameSpan) nameSpan.textContent = originalName;
-    }
-    
-    return success;
+            const originalName = (type === CONSTANTS.ITEM_TYPE.FOLDER) ? currentItem.name : currentItem.title;
+            const newName = nameSpan.textContent.trim();
+
+            if (!shouldSave || newName === originalName) {
+                clearRenameEmergencyBackup(id, type);
+                setState({ renamingItemId: null });
+                if (nameSpan) nameSpan.textContent = originalName;
+                result = true;
+                return result;
+            }
+
+            // 목록 이름 변경도 전체 상태를 다시 렌더링할 수 있으므로, 현재 편집 버퍼를 먼저 확정합니다.
+            // 특히 검색 결과에서 제목을 바꾸면 활성 노트가 목록에서 사라질 수 있어 저장 실패 상태에서는 데이터 유실로 이어집니다.
+            if (!(await saveCurrentNoteIfChanged())) {
+                setState({ renamingItemId: null });
+                if (nameSpan) nameSpan.textContent = originalName;
+                showToast('변경사항 저장에 실패하여 이름 변경을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+                result = false;
+                return result;
+            }
+
+            const updateResult = await performTransactionalUpdate(latestData => {
+                let itemToRename, parentFolder, isDuplicate = false;
+                const now = Date.now();
+
+                if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+                    itemToRename = latestData.folders.find(f => f.id === id);
+                    if (!itemToRename) return null;
+                    isDuplicate = latestData.folders.some(f => f.id !== id && f.name.toLowerCase() === newName.toLowerCase());
+                } else {
+                    for (const folder of latestData.folders) {
+                        const note = folder.notes.find(n => n.id === id);
+                        if (note) { itemToRename = note; parentFolder = folder; break; }
+                    }
+                    if (!itemToRename) return null;
+                }
+
+                if (!newName) {
+                    showToast(CONSTANTS.MESSAGES.ERROR.EMPTY_NAME_ERROR, CONSTANTS.TOAST_TYPE.ERROR);
+                    return null;
+                }
+                if (isDuplicate) {
+                    showToast(CONSTANTS.MESSAGES.ERROR.DUPLICATE_NAME_ERROR(newName), CONSTANTS.TOAST_TYPE.ERROR);
+                    return null;
+                }
+
+                if (type === CONSTANTS.ITEM_TYPE.FOLDER) itemToRename.name = newName;
+                else itemToRename.title = newName;
+
+                itemToRename.updatedAt = now;
+                if (parentFolder) parentFolder.updatedAt = now;
+
+                return { newData: latestData, successMessage: null, postUpdateState: { renamingItemId: null } };
+            });
+
+            result = updateResult.success;
+            if (result) {
+                clearRenameEmergencyBackup(id, type);
+            } else {
+                setState({ renamingItemId: null });
+                if (nameSpan) nameSpan.textContent = originalName;
+            }
+
+            return result;
+        } catch (error) {
+            console.error('Rename finalization failed:', error);
+            showToast('이름 변경 저장 중 오류가 발생했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            result = false;
+            return result;
+        } finally {
+            if (resolvePendingRename) {
+                resolvePendingRename(result);
+                resolvePendingRename = null;
+            }
+            pendingRenamePromise = null;
+            pendingRenameCompletionPromise = null;
+        }
+    })();
+
+    return await pendingRenameCompletionPromise;
 };
 
 export const startRename = async (liElement, type) => {
