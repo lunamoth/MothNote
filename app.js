@@ -45,6 +45,8 @@ import {
 
 let appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
 let isSavingSettings = false;
+let weatherCitySearchRequestId = 0;
+let weatherCitySearchAbortController = null;
 
 const persistAppSettings = (settingsToPersist) => {
     const sanitizedSettings = sanitizeSettings(settingsToPersist);
@@ -71,6 +73,14 @@ const parseStrictNumberInput = (value) => {
     if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawValue)) return null;
     const numberValue = Number(rawValue);
     return Number.isFinite(numberValue) ? numberValue : null;
+};
+
+const isSupportedFontFamily = (fontFamily) => {
+    if (!fontFamily) return false;
+    if (typeof CSS === 'undefined' || typeof CSS.supports !== 'function') {
+        return true;
+    }
+    return CSS.supports('font-family', fontFamily);
 };
 
 // CSS.escape가 없는 환경에서도 data-id 기반 선택자가 깨지지 않도록 안전한 폴백을 제공합니다.
@@ -212,7 +222,7 @@ const handleSettingsSave = () => {
     const newFontFamily = settingsEditorFontFamily.value.trim();
     let finalFontFamily = appSettings.editor.fontFamily; 
 
-    if (newFontFamily && typeof CSS.supports === 'function' && CSS.supports('font-family', newFontFamily)) {
+    if (newFontFamily && isSupportedFontFamily(newFontFamily)) {
         finalFontFamily = newFontFamily;
     } else if (newFontFamily) {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_FONT_NAME, CONSTANTS.TOAST_TYPE.ERROR);
@@ -306,7 +316,16 @@ const handleSettingsReset = async () => {
 };
 
 const handleWeatherCitySearch = async () => {
+    if (!settingsWeatherCitySearch || !settingsWeatherCityResults) return;
+
     const query = settingsWeatherCitySearch.value.trim();
+    const requestId = ++weatherCitySearchRequestId;
+
+    if (weatherCitySearchAbortController) {
+        weatherCitySearchAbortController.abort();
+        weatherCitySearchAbortController = null;
+    }
+
     if (query.length < 2) {
         settingsWeatherCityResults.innerHTML = '';
         settingsWeatherCityResults.style.display = 'none';
@@ -317,10 +336,21 @@ const handleWeatherCitySearch = async () => {
     settingsWeatherCityResults.innerHTML = '';
     settingsWeatherCityResults.style.display = 'none';
 
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    weatherCitySearchAbortController = controller;
+
     try {
-        const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`);
+        const response = await fetch(
+            `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`,
+            controller ? { signal: controller.signal } : undefined
+        );
         if (!response.ok) throw new Error('Network response was not ok.');
         const data = await response.json();
+
+        // 느린 이전 요청이 늦게 도착해 최신 검색어 결과를 덮어쓰는 경합을 차단합니다.
+        if (requestId !== weatherCitySearchRequestId || settingsWeatherCitySearch.value.trim() !== query) {
+            return;
+        }
         
         if (data.results && data.results.length > 0) {
             data.results.forEach(city => {
@@ -345,8 +375,13 @@ const handleWeatherCitySearch = async () => {
             showToast(CONSTANTS.MESSAGES.ERROR.WEATHER_CITY_NOT_FOUND, CONSTANTS.TOAST_TYPE.ERROR);
         }
     } catch (error) {
+        if (error?.name === 'AbortError') return;
         console.error('Error fetching city data:', error);
         // 목록은 이미 함수 시작 시 초기화되었으므로 추가 작업이 필요 없습니다.
+    } finally {
+        if (requestId === weatherCitySearchRequestId) {
+            weatherCitySearchAbortController = null;
+        }
     }
 };
 
@@ -1288,8 +1323,91 @@ const handleGlobalKeyDown = async (e) => {
     }
 };
 const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
-const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => { const splitter = document.getElementById(splitterId); if (!splitter) return; const onMouseMove = (e) => { e.preventDefault(); const container = document.querySelector('.container'); const containerRect = container.getBoundingClientRect(); let newPanelWidth = (splitterId === 'splitter-1') ? e.clientX - containerRect.left : e.clientX - document.getElementById('folders-panel').getBoundingClientRect().right; let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50)); document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`); const roundedValue = Math.round(newPanelPercentage); if (sliderElement) sliderElement.value = roundedValue; if (inputElement) inputElement.value = roundedValue; }; const onMouseUp = () => { splitter.classList.remove('dragging'); document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', onMouseMove); if (sliderElement) { const persistedSettings = persistAppSettings({ ...appSettings, layout: { ...appSettings.layout, [settingsKey]: parseInt(sliderElement.value, 10) } }); if (persistedSettings) appSettings = persistedSettings; } }; splitter.addEventListener('mousedown', (e) => { e.preventDefault(); splitter.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); };
-const setupZenModeResize = () => { const leftHandle = document.getElementById('zen-resize-handle-left'); const rightHandle = document.getElementById('zen-resize-handle-right'); const mainContent = document.querySelector('.main-content'); if (!leftHandle || !rightHandle || !mainContent) return; const initResize = (handle) => { handle.addEventListener('mousedown', (e) => { e.preventDefault(); const startX = e.clientX, startWidth = mainContent.offsetWidth; const onMouseMove = (moveEvent) => { const deltaX = moveEvent.clientX - startX; let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2); newWidth = Math.max(parseInt(settingsZenMaxWidth.min, 10), Math.min(newWidth, parseInt(settingsZenMaxWidth.max, 10))); const roundedWidth = Math.round(newWidth); document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`); settingsZenMaxWidth.value = roundedWidth; settingsZenMaxInput.value = roundedWidth; }; const onMouseUp = () => { window.removeEventListener('mousemove', onMouseMove); const persistedSettings = persistAppSettings({ ...appSettings, zenMode: { ...appSettings.zenMode, maxWidth: parseInt(settingsZenMaxWidth.value, 10) } }); if (persistedSettings) appSettings = persistedSettings; }; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp, { once: true }); }); }; initResize(leftHandle); initResize(rightHandle); };
+const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => {
+    const splitter = document.getElementById(splitterId);
+    if (!splitter) return;
+
+    const onMouseMove = (e) => {
+        e.preventDefault();
+        const container = document.querySelector('.container');
+        const foldersPanel = document.getElementById('folders-panel');
+        if (!container || (splitterId !== 'splitter-1' && !foldersPanel)) return;
+
+        const containerRect = container.getBoundingClientRect();
+        if (!containerRect.width) return;
+
+        let newPanelWidth = splitterId === 'splitter-1'
+            ? e.clientX - containerRect.left
+            : e.clientX - foldersPanel.getBoundingClientRect().right;
+        let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50));
+        document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`);
+        const roundedValue = Math.round(newPanelPercentage);
+        if (sliderElement) sliderElement.value = roundedValue;
+        if (inputElement) inputElement.value = roundedValue;
+    };
+
+    const onMouseUp = () => {
+        splitter.classList.remove('dragging');
+        document.body.style.cursor = 'default';
+        document.body.style.userSelect = 'auto';
+        window.removeEventListener('mousemove', onMouseMove);
+        if (sliderElement) {
+            const persistedSettings = persistAppSettings({
+                ...appSettings,
+                layout: { ...appSettings.layout, [settingsKey]: parseInt(sliderElement.value, 10) }
+            });
+            if (persistedSettings) appSettings = persistedSettings;
+        }
+    };
+
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        splitter.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp, { once: true });
+    });
+};
+
+const setupZenModeResize = () => {
+    const leftHandle = document.getElementById('zen-resize-handle-left');
+    const rightHandle = document.getElementById('zen-resize-handle-right');
+    const mainContent = document.querySelector('.main-content');
+    if (!leftHandle || !rightHandle || !mainContent || !settingsZenMaxWidth || !settingsZenMaxInput) return;
+
+    const getZenMin = () => parseInt(settingsZenMaxWidth.min, 10) || 500;
+    const getZenMax = () => parseInt(settingsZenMaxWidth.max, 10) || 2000;
+
+    const initResize = (handle) => {
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startWidth = mainContent.offsetWidth;
+            const onMouseMove = (moveEvent) => {
+                const deltaX = moveEvent.clientX - startX;
+                let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2);
+                newWidth = Math.max(getZenMin(), Math.min(newWidth, getZenMax()));
+                const roundedWidth = Math.round(newWidth);
+                document.documentElement.style.setProperty('--zen-max-width', `${roundedWidth}px`);
+                settingsZenMaxWidth.value = roundedWidth;
+                settingsZenMaxInput.value = roundedWidth;
+            };
+            const onMouseUp = () => {
+                window.removeEventListener('mousemove', onMouseMove);
+                const persistedSettings = persistAppSettings({
+                    ...appSettings,
+                    zenMode: { ...appSettings.zenMode, maxWidth: parseInt(settingsZenMaxWidth.value, 10) }
+                });
+                if (persistedSettings) appSettings = persistedSettings;
+            };
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp, { once: true });
+        });
+    };
+    initResize(leftHandle);
+    initResize(rightHandle);
+};
 const setupEventListeners = () => {
     // [BUG FIX] 모든 이벤트 리스너 바인딩 전에 null 체크를 일관되게 적용합니다.
     if (folderList) {
@@ -1429,13 +1547,20 @@ const setupGlobalEventListeners = () => {
                 const changesToBackup = {};
                 let hasChanges = false;
 
-                if (isNoteDirty) {
+                if (isNoteDirty && state.activeNoteId === state.dirtyNoteId) {
                     changesToBackup.noteUpdate = {
                         noteId: state.dirtyNoteId,
-                        title: noteTitleInput.value,
-                        content: noteContentTextarea.value
+                        title: noteTitleInput?.value ?? '',
+                        content: noteContentTextarea?.value ?? ''
                     };
                     hasChanges = true;
+                } else if (isNoteDirty) {
+                    // dirtyNoteId와 현재 편집기가 다르면 DOM 값이 다른 노트의 내용일 수 있습니다.
+                    // 잘못된 비상 백업이 다음 실행에서 원래 노트를 덮어쓰지 않도록 기록하지 않습니다.
+                    console.warn('Skipped emergency note backup because dirtyNoteId and activeNoteId differ.', {
+                        dirtyNoteId: state.dirtyNoteId,
+                        activeNoteId: state.activeNoteId
+                    });
                 }
 
                 if (isRenaming) {

@@ -1442,6 +1442,11 @@ export const handleExport = async (settings) => {
 
 export const handleImport = async () => {
     // 실제 동작은 app.js에서 처리하므로, 여기서는 클릭 이벤트만 트리거
+    if (!importFileInput) {
+        console.error('Import failed: import file input element was not found.');
+        showToast('가져오기 입력 요소를 찾을 수 없어 작업을 시작하지 못했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     importFileInput.click();
 };
 
@@ -1515,6 +1520,11 @@ const restoreImportBackupPayload = async (backupPayload) => {
 };
 
 export const setupImportHandler = () => {
+    if (!importFileInput) {
+        console.error('Import handler was not registered: import file input element was not found.');
+        return;
+    }
+
     importFileInput.onchange = async e => {
         const file = e.target.files[0];
         if (!file) return;

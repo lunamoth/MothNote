@@ -186,14 +186,25 @@ const notify = () => {
 export const buildNoteMap = () => {
     state._virtualFolderCache = { all: null, recent: null, favorites: null, trash: null };
     state.noteMap.clear();
-    if (!Array.isArray(state.folders)) return;
+
+    let mappedNoteCount = 0;
+    if (!Array.isArray(state.folders)) {
+        state.totalNoteCount = 0;
+        return;
+    }
+
     for (const folder of state.folders) {
         if (!folder || !folder.id || !Array.isArray(folder.notes)) continue;
         for (const note of folder.notes) {
             if (!note || !note.id) continue;
             state.noteMap.set(note.id, { note, folderId: folder.id });
+            mappedNoteCount += 1;
         }
     }
+
+    // noteMap과 전체 노트 수는 같은 원본(folders)에서 함께 파생되어야 합니다.
+    // folders만 갱신한 호출부가 totalNoteCount를 빠뜨려도 가상 폴더/카운터가 낡지 않도록 보장합니다.
+    state.totalNoteCount = mappedNoteCount;
 };
 
 export const setState = (newState) => {

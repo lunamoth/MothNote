@@ -1255,14 +1255,28 @@ export async function saveCurrentNoteIfChanged() {
         liveTitle = savedTitle;
     }
 
-    if (draftChangedDuringSave && state.activeNoteId === noteIdToSave) {
+    const activeEditorStillOwnsSavedNote = state.activeNoteId === noteIdToSave;
+    const anotherNoteBecameDirty = state.isDirty && state.dirtyNoteId && state.dirtyNoteId !== noteIdToSave;
+
+    if (anotherNoteBecameDirty) {
+        // 저장 대기 중 사용자가 다른 노트를 편집하기 시작한 경우, 방금 저장한 노트의 완료 처리가
+        // 새 노트의 dirty 상태를 지워 데이터 유실을 만들지 않도록 그대로 보존합니다.
+        updateSaveStatus('dirty');
+        return true;
+    }
+
+    if (draftChangedDuringSave && activeEditorStillOwnsSavedNote) {
         // 저장 요청이 진행되는 동안 추가 입력이 있었다면 최신 입력을 다음 자동 저장 대상으로 유지합니다.
         setState({ isDirty: true, dirtyNoteId: noteIdToSave });
         updateSaveStatus('dirty');
         void handleUserInput();
     } else {
-        setState({ isDirty: false, dirtyNoteId: null });
-        if (state.activeNoteId === noteIdToSave) {
+        // 현재 dirty 상태가 방금 저장한 노트의 것일 때만 저장 완료로 정리합니다.
+        // activeNoteId가 이미 바뀐 상태에서도 다른 노트의 변경 플래그를 건드리지 않습니다.
+        if (!state.dirtyNoteId || state.dirtyNoteId === noteIdToSave) {
+            setState({ isDirty: false, dirtyNoteId: null });
+        }
+        if (activeEditorStillOwnsSavedNote) {
             if (noteTitleInput && noteTitleInput.value !== savedTitle) {
                 noteTitleInput.value = savedTitle;
             }
@@ -1270,7 +1284,7 @@ export async function saveCurrentNoteIfChanged() {
                 noteContentTextarea.value = savedContent;
             }
         }
-        updateSaveStatus('saved');
+        updateSaveStatus(state.isDirty ? 'dirty' : 'saved');
     }
 
     return true;
