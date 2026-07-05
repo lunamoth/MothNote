@@ -1,5 +1,10 @@
 // itemActions.js
 
+// [설계 전제 / 수정 금지선]
+// 이 앱은 여러 탭에서 동일한 문서를 동시에 편집하는 것 자체를 지원하지 않고, 가정하지도 않습니다.
+// itemActions.js의 트랜잭션 경계는 단일 활성 문서에서 발생하는 저장/렌더/이름변경 순서를 안정화하기 위한 것입니다.
+// cross-tab 동기화, 문서 컨텍스트 간 병합, localStorage lease lock, storage event 기반 조정 로직을 추가하지 않습니다.
+
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap, generateUniqueId } from './state.js';
 // [버그 수정] storage.js에 추가된 Promise 래퍼 함수를 가져옵니다.
@@ -112,7 +117,7 @@ export const finishPendingRename = async () => {
         const renamingElementWrapper = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
         
         if (!renamingElementWrapper) {
-            // 만약 요소가 사라졌다면(예: 다른 탭에서의 변경), 강제로 상태를 정리합니다.
+            // 만약 요소가 렌더 갱신 등으로 사라졌다면 강제로 상태를 정리합니다.
             forceResolvePendingRename();
             return true; // 요소가 없으면 더 이상 할 작업이 없으므로 성공으로 간주
         }
@@ -195,9 +200,11 @@ const clearRenameEmergencyBackup = (id, type) => {
     });
 };
 
-// appState 전체를 저장하는 모든 일반 작업은 탭 간 배타 락 안에서
-// "최신 스토리지 읽기 -> 변경 -> 저장" 순서로 수행합니다.
-// 각 탭의 오래된 메모리 사본으로 전체 appState를 덮어쓰는 데이터 유실을 방지합니다.
+// [설계 전제]
+// performTransactionalUpdate는 단일 활성 문서의 저장 경계입니다.
+// 현재 문서 컨텍스트 안의 연속 작업, 자동 저장, 이름 변경, 삭제/복원 흐름이
+// 서로 어긋나지 않도록 read-modify-write 순서를 명확히 합니다.
+// 멀티탭 동시 편집의 병합이나 상태 조정은 지원 범위가 아닙니다.
 export const performTransactionalUpdate = async (updateFn) => {
     const reportFailure = (error) => {
         console.error('Transactional update failed:', error);
@@ -226,7 +233,7 @@ export const performTransactionalUpdate = async (updateFn) => {
                     lastActiveNotePerFolder: state.lastActiveNotePerFolder
                 };
 
-                // 락을 획득한 뒤 읽어야 다른 탭이 직전에 저장한 변경을 포함할 수 있습니다.
+                // 저장 직전의 기준 appState를 읽어 연속 작업 간 read-modify-write 안정성을 유지합니다.
                 const storedResult = await storageGet('appState');
                 const storedData = storedResult?.appState;
                 const hasUsableStoredData = storedData

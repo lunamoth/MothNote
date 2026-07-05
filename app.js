@@ -1,6 +1,9 @@
 // app.js
 
-// [설계 전제] 이 앱은 여러 탭에서 동일한 문서를 동시에 편집하는 것 자체를 지원하지 않고, 가정하지도 않습니다.
+// [설계 전제 / 수정 금지선]
+// 이 앱은 여러 탭에서 동일한 문서를 동시에 편집하는 것 자체를 지원하지 않고, 가정하지도 않습니다.
+// 저장 안정화 코드는 단일 활성 문서의 비동기 작업 순서와 복구 안정성을 위한 것이며,
+// cross-tab 동기화, 문서 컨텍스트 간 병합, localStorage lease lock, storage event 기반 조정으로 확장하지 않습니다.
 
 import { state, subscribe, setState, findFolder, findNote, CONSTANTS, buildNoteMap } from './state.js';
 import { loadData, handleExport, handleImport, setupImportHandler, saveSession, sanitizeSettings } from './storage.js';

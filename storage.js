@@ -1,26 +1,34 @@
 // storage.js
 
+// [설계 전제 / 수정 금지선]
+// 이 앱은 여러 탭에서 동일한 문서를 동시에 편집하는 것 자체를 지원하지 않고, 가정하지도 않습니다.
+// storage.js의 저장/로드/복구 경계는 단일 활성 문서의 데이터 무결성을 위한 것이며,
+// cross-tab 동기화, 문서 컨텍스트 간 병합, localStorage lease lock, storage event 기반 조정으로 확장하지 않습니다.
+
 // [보안 수정] 프로토타입 오염(Prototype Pollution)을 방지하기 위한 재귀적 객체 정제 함수입니다.
 // 외부 JSON 데이터를 파싱한 직후 이 함수를 호출하여 '__proto__', 'constructor', 'prototype' 같은
 // 위험한 키가 전역 Object 프로토타입을 오염시키는 것을 원천적으로 차단합니다.
 const sanitizeObjectForPrototypePollution = (obj) => {
     if (obj === null || typeof obj !== 'object') {
-        return; // 객체가 아니면 재귀를 중단합니다.
+        return false; // 객체가 아니면 재귀를 중단합니다.
     }
 
+    let removedUnsafeKey = false;
     const dangerousKeys = ['__proto__', 'constructor', 'prototype'];
     for (const key of dangerousKeys) {
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
             delete obj[key];
+            removedUnsafeKey = true;
         }
     }
 
     // 객체의 모든 속성에 대해 재귀적으로 정제 함수를 호출합니다.
     for (const key in obj) {
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
-            sanitizeObjectForPrototypePollution(obj[key]);
+            removedUnsafeKey = sanitizeObjectForPrototypePollution(obj[key]) || removedUnsafeKey;
         }
     }
+    return removedUnsafeKey;
 };
 
 // [버그 수정] Chrome Storage API를 Promise 기반으로 사용하기 위한 래퍼 함수
@@ -134,7 +142,7 @@ const getFolderIdAfterSanitization = (folderId, folderIdUpdateMap = new Map()) =
 // 이 파일에 있던 함수 정의를 완전히 삭제합니다.
 
 
-// appState의 읽기-수정-쓰기는 storageLock.js의 Web Locks 기반 배타 락으로 직렬화합니다.
+// appState의 read-modify-write는 storageLock.js를 통해 현재 문서 컨텍스트 안의 비동기 작업 순서를 명확히 합니다.
 
 
 // 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)
@@ -252,7 +260,7 @@ const parseSimplenoteTimestamp = (value, fallback) => {
  * [CRITICAL FIX] 로드된 데이터의 무결성을 검증하고, 손상된 배열/객체/ID 참조를 자동 복구합니다.
  * 일반 폴더는 type 필드가 없으므로 notes 배열을 기준으로도 폴더를 판별합니다.
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
- * @returns {{sanitizedData: object, wasSanitized: boolean, folderIdUpdateMap: Map<string, string>, noteIdUpdateMap: Map<string, string>}}
+ * @returns {{sanitizedData: object, wasSanitized: boolean, shouldNotify: boolean, idUpdateMap: Map<string, string>, folderIdUpdateMap: Map<string, string>, noteIdUpdateMap: Map<string, string>}}
  */
 const verifyAndSanitizeLoadedData = (data) => {
     const emptyMaps = {
@@ -262,6 +270,11 @@ const verifyAndSanitizeLoadedData = (data) => {
     };
     if (!data || typeof data !== 'object') {
         return { sanitizedData: data, wasSanitized: false, shouldNotify: false, ...emptyMaps };
+    }
+
+    const unsafePrototypeKeysRemoved = sanitizeObjectForPrototypePollution(data);
+    if (unsafePrototypeKeysRemoved) {
+        console.warn('[Data Sanitization] Unsafe prototype-pollution keys were removed from appState.');
     }
 
     const folderIdUpdateMap = new Map();
@@ -278,6 +291,7 @@ const verifyAndSanitizeLoadedData = (data) => {
         if (shouldNotify) notifyChangesMade = true;
     };
     const markMinorChanged = () => markChanged(false);
+    if (unsafePrototypeKeysRemoved) markChanged();
     const ensureArray = (value) => {
         if (Array.isArray(value)) return value;
         if (value !== undefined) markChanged();
@@ -486,8 +500,8 @@ export const loadData = async () => {
     let noteIdUpdateMap = new Map();
 
     try {
-        // 미완료 가져오기 복구 역시 같은 appState 락 안에서 판정·복원·정리합니다.
-        // 여러 새 탭이 동시에 시작되어 같은 백업을 반복 복원하는 경합을 방지합니다.
+        // 미완료 가져오기 복구는 같은 appState 저장 경계 안에서 판정·복원·정리합니다.
+        // 목적은 초기화/복구 경로의 데이터 무결성을 지키는 것입니다.
         const importRecoveryMessage = await withAppStateWriteLock(async () => {
             const importStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
             const backupResult = await storageGet('appState_backup');
@@ -548,8 +562,8 @@ export const loadData = async () => {
 
         if (importRecoveryMessage) recoveryMessage = importRecoveryMessage;
 
-        // 2. 주 저장소를 탭 간 락 안에서 읽고, 무결성 보정이 필요하면 같은 락 안에서 저장합니다.
-        // 오래된 탭이 검증 직후 다른 탭의 신규 변경을 덮어쓰는 read-modify-write 경합을 막습니다.
+        // 2. 주 저장소를 단일 활성 문서의 저장 경계 안에서 읽고, 무결성 보정이 필요하면 같은 경계 안에서 저장합니다.
+        // 현재 문서 컨텍스트 안의 연속 작업 간 read-modify-write 안정성을 위한 처리입니다.
         const loadedResult = await withAppStateWriteLock(async () => {
             const mainStorageResult = await storageGet('appState');
             let loadedData = mainStorageResult.appState;
@@ -870,7 +884,7 @@ export const loadData = async () => {
         }
         // --- BUG-C-02 FIX END ---
         
-        // 3. [핵심 변경] '죽은 탭'의 비상 백업(localStorage)을 수집하고 복구하는 로직을 완전히 제거합니다.
+        // 3. [핵심 변경] 비정상 종료 후 남을 수 있던 비상 백업(localStorage) 수집/복구 로직을 완전히 제거합니다.
         
         // 4. 최종 상태(state) 설정 및 UI 초기화
         let finalState = { ...state };
@@ -883,7 +897,10 @@ export const loadData = async () => {
             let lastSession = null;
             try {
                 const sessionData = localStorage.getItem(CONSTANTS.LS_KEY);
-                if (sessionData) lastSession = JSON.parse(sessionData);
+                if (sessionData) {
+                    lastSession = JSON.parse(sessionData);
+                    sanitizeObjectForPrototypePollution(lastSession);
+                }
             } catch (e) {
                 console.warn("Could not parse last session from localStorage:", e);
                 localStorage.removeItem(CONSTANTS.LS_KEY);
@@ -1008,7 +1025,7 @@ export const loadData = async () => {
                 lastSavedTimestamp: now
             };
             
-            // 다른 새 탭의 초기화/첫 저장과 충돌하지 않도록 최초 데이터 생성도 같은 락을 사용합니다.
+            // 초기화/첫 저장도 같은 저장 경계를 사용해 현재 문서의 초기 데이터 생성 순서를 명확히 합니다.
             // 저장이 성공하기 전에 메모리 상태를 먼저 바꾸지 않아, 초기 저장 실패 시 '보이지만 저장되지 않은'
             // 기본 노트가 생기는 문제도 방지합니다.
             const initializationResult = await withAppStateWriteLock(async () => {
@@ -1018,7 +1035,7 @@ export const loadData = async () => {
                     return { appState: initialAppState, createdHere: true };
                 }
 
-                // 락을 기다리는 사이 다른 탭이 먼저 초기화했다면 그 데이터를 권위 있는 값으로 채택합니다.
+                // 저장 경계를 통과한 뒤 이미 영구 저장 데이터가 있으면 그 데이터를 권위 있는 값으로 채택합니다.
                 const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(latestResult.appState)));
                 const latestData = verification.sanitizedData;
                 if (verification.wasSanitized) await storageSet({ appState: latestData });
@@ -1107,6 +1124,7 @@ const sanitizeContentData = data => {
     if (!data || !Array.isArray(data.folders)) {
         throw new Error("유효하지 않은 파일 구조입니다.");
     }
+    sanitizeObjectForPrototypePollution(data);
 
     const usedIds = new Set(RESERVED_ITEM_IDS);
     const folderIdMap = new Map();
@@ -1266,6 +1284,9 @@ export const sanitizeSettings = (settingsData) => {
     if (!settingsData || typeof settingsData !== 'object') {
         return sanitized;
     }
+    if (sanitizeObjectForPrototypePollution(settingsData)) {
+        console.warn('[Settings Sanitization] Unsafe prototype-pollution keys were removed from settings data.');
+    }
 
     const parseFiniteNumber = (value, defaultValue, isFloat = false) => {
         const parsed = isFloat ? Number.parseFloat(value) : Number.parseInt(value, 10);
@@ -1329,8 +1350,8 @@ export const handleExport = async (settings) => {
     }
 
     try {
-        // 탭 간 쓰기가 끝난 시점의 영구 저장 데이터를 읽어 백업합니다.
-        // 현재 탭의 메모리가 오래됐더라도 다른 탭에서 만든 노트를 누락하지 않습니다.
+        // 백업은 현재 메모리 스냅샷이 아니라 영구 저장 데이터를 기준으로 생성합니다.
+        // 이를 통해 저장 직전의 기준 appState를 사용해 백업 누락 가능성을 줄입니다.
         const persistedResult = await withAppStateWriteLock(() => storageGet('appState'));
         const persistedState = persistedResult?.appState;
         const exportState = persistedState && Array.isArray(persistedState.folders)
@@ -1707,8 +1728,8 @@ export const setupImportHandler = () => {
                     lastSavedTimestamp: Date.now()
                 };
 
-                // 가져오기 전체를 탭 간 appState 락 안에서 수행합니다.
-                // 실패 시에도 락을 놓기 전에 원본으로 복구하여 다른 탭의 저장과 롤백이 교차하지 않게 합니다.
+                // 가져오기 전체를 하나의 appState 저장 경계 안에서 수행합니다.
+                // 실패 시 같은 경계 안에서 원본을 복원해 가져오기 실패 시 원본 복구 안정성을 유지합니다.
                 const importApplied = await withAppStateWriteLock(async () => {
                     const currentDataResult = await storageGet('appState');
                     const hasCurrentAppState = Object.prototype.hasOwnProperty.call(currentDataResult, 'appState')

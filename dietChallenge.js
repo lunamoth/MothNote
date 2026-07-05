@@ -415,6 +415,7 @@
         mean: (arr) => arr.length ? arr.reduce((a,b)=>a+b, 0) / arr.length : 0
     };
 
+    let warnedAboutMissingRichHtmlSanitizer = false;
     const DomUtil = {
         escapeHtml: (text) => {
             if (window.MothNoteSanitizer?.escapeHtml) {
@@ -439,9 +440,13 @@
                 window.MothNoteSanitizer.setSanitizedRichHtml(element, value);
                 return;
             }
-            // Fallback for very old environments. Callers pass static markup or
-            // values escaped through DomUtil.escapeHtml().
-            element.innerHTML = value;
+            // Sanitizer를 사용할 수 없는 환경에서는 HTML을 해석하지 않고 텍스트로 표시합니다.
+            // 리치 마크업은 사라지지만, 예외 상황에서도 스크립트 실행 가능성을 열어두지 않습니다.
+            if (!warnedAboutMissingRichHtmlSanitizer) {
+                console.warn('MothNoteSanitizer를 찾을 수 없어 리치 HTML을 텍스트로 표시합니다.');
+                warnedAboutMissingRichHtmlSanitizer = true;
+            }
+            element.textContent = value;
         },
         getChartColors: () => {
             const styles = getComputedStyle(document.body);
