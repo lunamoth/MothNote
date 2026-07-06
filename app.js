@@ -71,6 +71,92 @@ const clearDashboardWeatherCache = () => {
     }
 };
 
+const DASHBOARD_WEATHER_CACHE_DURATION_MS = 60 * 60 * 1000;
+const DASHBOARD_WEATHER_LAST_KNOWN_WARNING_MS = 12 * 60 * 60 * 1000;
+
+const normalizeWeatherCoordinateForCache = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(4)) : parsed;
+};
+
+const getWeatherLocationKey = (weather = {}) => {
+    const lat = normalizeWeatherCoordinateForCache(weather.lat);
+    const lon = normalizeWeatherCoordinateForCache(weather.lon);
+    return `${lat},${lon}`;
+};
+
+const isSameWeatherLocation = (a = {}, b = {}) => (
+    Number.isFinite(Number(a.lat))
+    && Number.isFinite(Number(a.lon))
+    && Number.isFinite(Number(b.lat))
+    && Number.isFinite(Number(b.lon))
+    && getWeatherLocationKey(a) === getWeatherLocationKey(b)
+);
+
+const readDashboardWeatherCache = (cacheKey, weatherSettings) => {
+    const rawCache = localStorage.getItem(cacheKey);
+    if (!rawCache) return null;
+
+    const cachedData = JSON.parse(rawCache);
+    const timestamp = Number(cachedData?.timestamp);
+    const temp = Number(cachedData?.data?.temp);
+    const weather = cachedData?.data?.weather;
+
+    if (!Number.isFinite(timestamp)
+        || !Number.isFinite(temp)
+        || !weather
+        || typeof weather.text !== 'string'
+        || weather.icon === undefined
+        || !isSameWeatherLocation(cachedData, weatherSettings)) {
+        return null;
+    }
+
+    return {
+        timestamp,
+        lat: Number(cachedData.lat),
+        lon: Number(cachedData.lon),
+        data: {
+            weather: { icon: String(weather.icon), text: weather.text },
+            temp: Math.round(temp)
+        }
+    };
+};
+
+const formatWeatherCacheAge = (ageMs) => {
+    const minutes = Math.max(1, Math.round(ageMs / (60 * 1000)));
+    if (minutes < 60) return `${minutes}분 전`;
+
+    const hours = Math.max(1, Math.round(minutes / 60));
+    if (hours < 24) return `${hours}시간 전`;
+
+    const days = Math.max(1, Math.round(hours / 24));
+    if (days < 30) return `${days}일 전`;
+
+    const months = Math.max(1, Math.round(days / 30));
+    return `${months}개월 전`;
+};
+
+const getDashboardWeatherRefreshStatus = (cacheAge) => {
+    const ageText = formatWeatherCacheAge(cacheAge);
+    if (cacheAge >= DASHBOARD_WEATHER_LAST_KNOWN_WARNING_MS) {
+        return `오래된 날씨(${ageText}) · 백그라운드에서 갱신 중`;
+    }
+    return `마지막 업데이트: ${ageText} · 백그라운드에서 갱신 중`;
+};
+
+const getDashboardWeatherRefreshFailureStatus = (cacheAge) => {
+    const ageText = formatWeatherCacheAge(cacheAge);
+    if (cacheAge >= DASHBOARD_WEATHER_LAST_KNOWN_WARNING_MS) {
+        return `최신 갱신 실패 · 오래된 날씨 표시 중 (${ageText})`;
+    }
+    return `최신 갱신 실패 · 이전 날씨 표시 중 (${ageText})`;
+};
+
+const buildDashboardWeatherTitle = (weather, temp, statusLine = '') => {
+    const status = statusLine ? `\n${statusLine}` : '';
+    return `${weather.text}, ${temp}°C${status}\n\n(클릭해서 상세 날씨 보기)`;
+};
+
 const parseStrictNumberInput = (value) => {
     const rawValue = String(value ?? '').trim();
     if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawValue)) return null;
@@ -125,7 +211,7 @@ const settingsCol2Input = document.getElementById('settings-col2-input');
 const settingsZenMaxWidth = document.getElementById('settings-zen-max-width');
 const settingsZenMaxInput = document.getElementById('settings-zen-max-input');
 
-const applySettings = (settings) => {
+const applySettings = (settings, { refreshWeather = false, forceWeatherRefresh = false } = {}) => {
     const root = document.documentElement;
     if (!settings) return;
     root.style.setProperty('--column-folders-width', `${settings.layout.col1}%`);
@@ -134,8 +220,10 @@ const applySettings = (settings) => {
     root.style.setProperty('--editor-font-family', settings.editor.fontFamily);
     root.style.setProperty('--editor-font-size', `${settings.editor.fontSize}px`);
 
-    if (dashboard) {
-        dashboard.fetchWeather();
+    // 레이아웃/글꼴 적용과 날씨 새로고침을 분리합니다.
+    // 기존처럼 설정 적용마다 fetchWeather()를 호출하면 저장/초기화 흐름에서 불필요한 로딩 표시가 반복될 수 있습니다.
+    if (dashboard && refreshWeather) {
+        dashboard.fetchWeather({ forceRefresh: forceWeatherRefresh });
     }
 };
 
@@ -247,6 +335,8 @@ const handleSettingsSave = () => {
         showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR); isSavingSettings = false; return;
     }
 
+    const previousWeather = appSettings.weather;
+
     // HTML의 min/max는 직접 입력·가져오기·스크립트 변경을 완전히 막지 못하므로
     // 저장 직전에도 중앙 정제 함수를 거쳐 안전한 범위만 영구 저장합니다.
     const persistedSettings = persistAppSettings({
@@ -277,14 +367,20 @@ const handleSettingsSave = () => {
     settingsZenMaxWidth.value = appSettings.zenMode.maxWidth;
     settingsZenMaxInput.value = appSettings.zenMode.maxWidth;
     settingsEditorFontSize.value = appSettings.editor.fontSize;
-    clearDashboardWeatherCache();
+
+    const weatherLocationChanged = !isSameWeatherLocation(previousWeather, appSettings.weather);
+    if (weatherLocationChanged) {
+        clearDashboardWeatherCache();
+    }
     applySettings(appSettings);
-    
+
     showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_SAVED);
     settingsModal.close();
     isSavingSettings = false;
-    
-    setTimeout(() => { if (dashboard) dashboard.fetchWeather(); }, 100);
+
+    if (weatherLocationChanged && dashboard) {
+        dashboard.fetchWeather({ forceRefresh: true });
+    }
 };
 
 const handleSettingsReset = async () => {
@@ -293,11 +389,15 @@ const handleSettingsReset = async () => {
         confirmText: '🔄 초기화 및 저장', confirmButtonType: 'danger'
     });
     if (ok) {
+        const previousWeather = appSettings.weather;
         const persistedSettings = persistAppSettings(CONSTANTS.DEFAULT_SETTINGS);
         if (!persistedSettings) return;
 
         appSettings = persistedSettings;
-        clearDashboardWeatherCache();
+        const weatherLocationChanged = !isSameWeatherLocation(previousWeather, appSettings.weather);
+        if (weatherLocationChanged) {
+            clearDashboardWeatherCache();
+        }
         
         settingsCol1Width.value = appSettings.layout.col1; settingsCol1Input.value = appSettings.layout.col1;
         settingsCol2Width.value = appSettings.layout.col2; settingsCol2Input.value = appSettings.layout.col2;
@@ -308,6 +408,9 @@ const handleSettingsReset = async () => {
         settingsWeatherLon.value = appSettings.weather.lon;
         
         applySettings(appSettings);
+        if (weatherLocationChanged && dashboard) {
+            dashboard.fetchWeather({ forceRefresh: true });
+        }
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
         
         // [BUG FIX] 브라우저가 CSS 변수 변경을 렌더링할 수 있도록 짧은 지연을 줍니다.
@@ -510,7 +613,7 @@ class Dashboard {
             dietChallengeIframe: document.getElementById('diet-challenge-iframe'),
             closeDietChallengeBtn: document.getElementById('close-diet-challenge-btn'),
         };
-        this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockAnimationId: null, digitalClockIntervalId: null, weatherFetchController: null, displayedMonth: null, clockFaceCache: null, };
+        this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockAnimationId: null, digitalClockIntervalId: null, weatherFetchController: null, weatherFetchPromise: null, weatherFetchKey: null, displayedMonth: null, clockFaceCache: null, };
         this.observer = null;
     }
     init() {
@@ -522,8 +625,8 @@ class Dashboard {
                 requestAnimationFrame(() => this._initAnalogClock(true));
             }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
         }
-        this.fetchWeather(); this.renderCalendar(); this._setupCalendarEvents();
         this._setupWeatherViewEvents();
+        this.fetchWeather(); this.renderCalendar(); this._setupCalendarEvents();
         // [기능 추가] 습관 트래커 이벤트 설정
         this._setupHabitTrackerEvents();
         // [기능 추가] 다이어트 챌린지 이벤트 설정
@@ -640,7 +743,9 @@ class Dashboard {
     _setupWeatherViewEvents() {
         if (this.dom.weatherContainer) {
             this.dom.weatherContainer.style.cursor = 'pointer';
-            this.dom.weatherContainer.title = '날씨 정보 불러오는 중...';
+            if (!this.dom.weatherContainer.title) {
+                this.dom.weatherContainer.title = '날씨 정보 불러오는 중...';
+            }
             this.dom.weatherContainer.addEventListener('click', () => { void this._openWeatherView(); });
         }
         if (this.dom.closeWeatherViewBtn) {
@@ -823,79 +928,136 @@ class Dashboard {
     }
 
     // [버그 수정] 날씨 위젯의 title 속성을 동적으로 업데이트하도록 수정
-    async fetchWeather() {
+    // [UX 안정화] 만료된 캐시가 있어도 먼저 표시하고 백그라운드에서 갱신하여 새 탭 진입 시 로딩 표시가 과도하게 보이지 않도록 합니다.
+    // 오래된 캐시도 동일 위치라면 마지막으로 확인된 날씨로 먼저 표시합니다. 이렇게 해야 매일 첫 새 탭에서 ⏳가 반복되는 기존 UX 문제가 줄어듭니다.
+    async fetchWeather({ forceRefresh = false } = {}) {
         if (!this.dom.weatherContainer) return;
 
         const WEATHER_CACHE_KEY = CONSTANTS.DASHBOARD.WEATHER_CACHE_KEY;
-        const CACHE_DURATION_MINUTES = 60;
-        const { lat, lon } = appSettings.weather;
+        const lat = Number(appSettings.weather.lat);
+        const lon = Number(appSettings.weather.lon);
+        const requestLocation = { lat, lon };
+        const requestKey = getWeatherLocationKey(requestLocation);
 
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            this._setDashboardWeatherContent('⚠️');
+            this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+            showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+
+        let cachedData = null;
         try {
-            const cachedData = JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY));
-            const now = new Date().getTime();
-            const isSameLocation = cachedData?.lat === lat && cachedData?.lon === lon;
-            if (cachedData && isSameLocation && (now - cachedData.timestamp < CACHE_DURATION_MINUTES * 60 * 1000)) {
-                const { weather, temp } = cachedData.data;
-                this._setDashboardWeatherContent(weather.icon, temp);
-                this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
-                return;
-            }
+            cachedData = readDashboardWeatherCache(WEATHER_CACHE_KEY, requestLocation);
         } catch (e) {
             console.warn("Could not read weather cache.", e);
         }
 
-        if (this.internalState.weatherFetchController) {
+        const now = Date.now();
+        const cacheAge = cachedData ? now - cachedData.timestamp : Infinity;
+        const isFreshCache = !forceRefresh && cachedData && cacheAge >= 0 && cacheAge < DASHBOARD_WEATHER_CACHE_DURATION_MS;
+
+        if (isFreshCache) {
+            const { weather, temp } = cachedData.data;
+            this._setDashboardWeatherContent(weather.icon, temp);
+            this.dom.weatherContainer.title = buildDashboardWeatherTitle(weather, temp);
+            return;
+        }
+
+        let displayedStaleCache = null;
+        const canDisplayStaleCache = !forceRefresh
+            && cachedData
+            && cacheAge >= 0;
+
+        if (canDisplayStaleCache) {
+            const { weather, temp } = cachedData.data;
+            displayedStaleCache = cachedData;
+            this._setDashboardWeatherContent(weather.icon, temp);
+            this.dom.weatherContainer.title = buildDashboardWeatherTitle(
+                weather,
+                temp,
+                getDashboardWeatherRefreshStatus(cacheAge)
+            );
+        }
+
+        if (this.internalState.weatherFetchPromise && this.internalState.weatherFetchKey === requestKey) {
+            return this.internalState.weatherFetchPromise;
+        }
+
+        if (this.internalState.weatherFetchController && this.internalState.weatherFetchKey !== requestKey) {
             this.internalState.weatherFetchController.abort();
         }
+
         this.internalState.weatherFetchController = new AbortController();
+        this.internalState.weatherFetchKey = requestKey;
         const signal = this.internalState.weatherFetchController.signal;
-        this._setDashboardWeatherContent('⏳');
+
+        if (!displayedStaleCache) {
+            this._setDashboardWeatherContent('⏳');
+            this.dom.weatherContainer.title = "날씨 정보를 불러오는 중입니다.";
+        }
+
+        const fetchPromise = (async () => {
+            try {
+                const params = new URLSearchParams({
+                    latitude: String(lat),
+                    longitude: String(lon),
+                    current: 'temperature_2m,is_day,weather_code',
+                    timezone: 'auto',
+                    temperature_unit: 'celsius'
+                });
+                const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+                const response = await fetch(url, { signal });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                const data = await response.json();
+                if (!data?.current) throw new Error("API 응답에서 current 객체를 찾을 수 없습니다.");
+
+                const { temperature_2m, weather_code, is_day } = data.current;
+                const weather = this._getWeatherInfo(weather_code, is_day === 1);
+                const temp = Math.round(temperature_2m);
+
+                this._setDashboardWeatherContent(weather.icon, temp);
+                this.dom.weatherContainer.title = buildDashboardWeatherTitle(weather, temp);
+
+                try {
+                    localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({
+                        timestamp: Date.now(),
+                        lat,
+                        lon,
+                        data: { weather, temp }
+                    }));
+                } catch (e) {
+                    console.warn("Could not save weather cache.", e);
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') return;
+
+                if (displayedStaleCache) {
+                    const { weather, temp } = displayedStaleCache.data;
+                    this._setDashboardWeatherContent(weather.icon, temp);
+                    this.dom.weatherContainer.title = buildDashboardWeatherTitle(
+                        weather,
+                        temp,
+                        getDashboardWeatherRefreshFailureStatus(cacheAge)
+                    );
+                    return;
+                }
+
+                this._setDashboardWeatherContent('⚠️');
+                this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+            }
+        })();
+
+        this.internalState.weatherFetchPromise = fetchPromise;
 
         try {
-            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-                this._setDashboardWeatherContent('⚠️');
-                this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
-                showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
-                return;
-            }
-
-            const params = new URLSearchParams({
-                latitude: String(lat),
-                longitude: String(lon),
-                current: 'temperature_2m,is_day,weather_code',
-                timezone: 'auto',
-                temperature_unit: 'celsius'
-            });
-            const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
-            const response = await fetch(url, { signal });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-            
-            const data = await response.json();
-            if (!data?.current) throw new Error("API 응답에서 current 객체를 찾을 수 없습니다.");
-
-            const { temperature_2m, weather_code, is_day } = data.current;
-            const weather = this._getWeatherInfo(weather_code, is_day === 1);
-            const temp = Math.round(temperature_2m);
-
-            this._setDashboardWeatherContent(weather.icon, temp);
-            this.dom.weatherContainer.title = `${weather.text}, ${temp}°C \n\n(클릭해서 상세 날씨 보기)`;
-
-            try {
-                localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({
-                    timestamp: new Date().getTime(),
-                    lat,
-                    lon,
-                    data: { weather, temp }
-                }));
-            } catch (e) {
-                console.warn("Could not save weather cache.", e);
-            }
-
-        } catch (error) {
-            if (error.name !== 'AbortError') {
-                this._setDashboardWeatherContent('⚠️');
-                this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+            return await fetchPromise;
+        } finally {
+            if (this.internalState.weatherFetchPromise === fetchPromise) {
+                this.internalState.weatherFetchController = null;
+                this.internalState.weatherFetchPromise = null;
+                this.internalState.weatherFetchKey = null;
             }
         }
     }
@@ -1645,6 +1807,14 @@ const init = async () => {
     // 이 블록의 기능들은 실패하더라도 앱의 핵심 기능(노트 작성/읽기)은 계속 동작해야 합니다.
     
     try {
+        // [MAJOR BUG FIX] 대시보드 초기화보다 설정을 먼저 적용합니다.
+        // 이전에는 저장된 날씨 위치/단위가 적용되기 전에 기본값으로 첫 요청이 시작될 수 있었습니다.
+        loadAndApplySettings();
+    } catch(e) {
+        console.warn("Failed to load and apply settings. Using default values.", e);
+    }
+
+    try {
         // 대시보드는 가장 복잡하고 실패 가능성이 있는 부가 기능입니다.
         dashboard = new Dashboard();
         
@@ -1663,13 +1833,6 @@ const init = async () => {
     } catch (e) {
         console.warn("Dashboard module failed to initialize. The app will continue without it.", e);
         // 사용자에게는 방해되는 오류 메시지를 보여주지 않습니다.
-    }
-
-    try {
-        // 설정 로딩/적용은 실패하더라도 기본값으로 동작할 수 있습니다.
-        loadAndApplySettings();
-    } catch(e) {
-        console.warn("Failed to load and apply settings. Using default values.", e);
     }
     
     try {

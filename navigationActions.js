@@ -63,6 +63,25 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
             return false; // 이름 변경 실패 시 작업 중단
         }
 
+        const { item: folder } = findFolder(newFolderId);
+        if (!folder) {
+            // [MAJOR BUG FIX] 오래된 DOM 이벤트, 손상된 세션, 가져오기 직후 상태 불일치 등으로
+            // 존재하지 않는 폴더 ID가 들어오면 잘못된 activeFolderId를 저장하지 않고 안전한 기본 보기로 복귀합니다.
+            if (!options.force && !(await confirmNavigation())) return false;
+            console.warn('Requested folder does not exist. Falling back to All Notes:', newFolderId);
+            setState({
+                activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+                activeNoteId: null,
+                dateFilter: null,
+                preSearchActiveNoteId: null,
+                searchTerm: ''
+            });
+            if (searchInput) searchInput.value = '';
+            saveSession();
+            showToast('선택한 폴더를 찾을 수 없어 모든 노트 보기로 이동했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            return false;
+        }
+
         if (state.activeFolderId === newFolderId && !state.dateFilter) {
             // [MAJOR BUG FIX] 새 폴더 생성 직후 postUpdateState로 이미 활성 폴더가 바뀐 경우에도
             // no-op 반환 전에 세션을 저장해, 즉시 새로고침해도 방금 만든 폴더 선택이 유지되게 합니다.
@@ -72,8 +91,7 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
 
         if (!options.force && !(await confirmNavigation())) return false;
         
-        const { item: folder } = findFolder(newFolderId);
-        const notesInFolder = folder?.notes ?? [];
+        const notesInFolder = Array.isArray(folder.notes) ? folder.notes : [];
         
         let nextActiveNoteId = null;
         const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];

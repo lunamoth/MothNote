@@ -10,7 +10,11 @@ const APP_STATE_LOCK_NAME = 'mothnote-app-state-write-v1';
 let localQueue = Promise.resolve();
 
 const runWithLocalQueue = async (task) => {
-    const previous = localQueue;
+    // [MAJOR BUG FIX] Web Locks를 사용할 수 없거나 실패한 환경에서도 저장 큐가 멈추지 않도록
+    // 이전 게이트의 예외를 흡수하고, 현재 게이트는 task 성공/실패와 무관하게 반드시 해제합니다.
+    const previous = localQueue.catch(error => {
+        console.warn('Previous local storage lock queue gate failed. Continuing with the next queued task.', error);
+    });
     let release;
     localQueue = new Promise(resolve => { release = resolve; });
 
@@ -18,7 +22,7 @@ const runWithLocalQueue = async (task) => {
     try {
         return await task();
     } finally {
-        release();
+        if (typeof release === 'function') release();
     }
 };
 
@@ -31,7 +35,22 @@ export const withAppStateWriteLock = async (task) => {
     // 이 사용은 멀티탭 동시 편집 지원 계약이 아니며, API가 없거나 실패하면
     // 현재 문서 컨텍스트 안의 Promise queue로만 폴백합니다.
     if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
-        return navigator.locks.request(APP_STATE_LOCK_NAME, { mode: 'exclusive' }, task);
+        let taskStarted = false;
+        try {
+            return await navigator.locks.request(APP_STATE_LOCK_NAME, { mode: 'exclusive' }, async () => {
+                taskStarted = true;
+                return await task();
+            });
+        } catch (error) {
+            if (taskStarted) {
+                // task 내부 오류는 정상적으로 호출자에게 전달해야 하며, 폴백 큐에서 다시 실행하면
+                // 저장/가져오기 같은 부작용 작업이 중복 실행될 수 있습니다.
+                throw error;
+            }
+            // [MAJOR BUG FIX] 일부 확장/브라우저 컨텍스트에서 Web Locks 요청 자체가 실패할 수 있습니다.
+            // 이 경우 저장 작업을 중단하지 않고 로컬 직렬화 큐로 폴백하여 데이터 변경을 계속 보호합니다.
+            console.warn('Web Locks request failed before the task started. Falling back to the local storage write queue.', error);
+        }
     }
 
     return runWithLocalQueue(task);

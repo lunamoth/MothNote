@@ -1082,8 +1082,11 @@ export const loadData = async () => {
         saveSession();
 
     } catch (e) { 
+        // [CRITICAL BUG FIX] 저장소 로딩/복구가 실패했는데도 빈 상태로 앱을 계속 실행하면
+        // 사용자가 실제 데이터를 잃어버린 것으로 오해하거나, 후속 저장이 기존 데이터를 덮어쓸 수 있습니다.
+        // 초기화 단계의 전역 오류 처리로 실패를 전달해 안전하게 중단합니다.
         console.error("Error loading data:", e); 
-        showToast("데이터 로딩 중 심각한 오류가 발생했습니다. 개발자 콘솔을 확인해주세요.", CONSTANTS.TOAST_TYPE.ERROR, 0);
+        throw e;
     } 
     
     if (recoveryMessage) {
