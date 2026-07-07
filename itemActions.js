@@ -1273,10 +1273,15 @@ export async function saveCurrentNoteIfChanged() {
     }
 
     if (draftChangedDuringSave && activeEditorStillOwnsSavedNote) {
-        // 저장 요청이 진행되는 동안 추가 입력이 있었다면 최신 입력을 다음 자동 저장 대상으로 유지합니다.
+        // [CRITICAL BUG FIX]
+        // 저장 요청이 진행되는 동안 추가 입력이 발생한 상태에서 호출자(노트 이동, 검색, 폴더 이동 등)가
+        // 곧바로 화면을 전환하면, 아직 저장되지 않은 최신 DOM 버퍼가 다음 렌더에 의해 덮어써질 수 있습니다.
+        // 따라서 dirty 상태만 남기고 비동기 자동 저장에 맡기지 않고, 현재 호출 흐름 안에서 최신 버퍼까지
+        // 다시 저장한 뒤에만 성공을 반환합니다.
         setState({ isDirty: true, dirtyNoteId: noteIdToSave });
         updateSaveStatus('dirty');
-        void handleUserInput();
+        clearTimeout(autoSaveTimer);
+        return await saveCurrentNoteIfChanged();
     } else {
         // 현재 dirty 상태가 방금 저장한 노트의 것일 때만 저장 완료로 정리합니다.
         // activeNoteId가 이미 바뀐 상태에서도 다른 노트의 변경 플래그를 건드리지 않습니다.

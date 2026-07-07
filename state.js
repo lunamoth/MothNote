@@ -208,6 +208,11 @@ export const buildNoteMap = () => {
 };
 
 export const setState = (newState) => {
+    if (!newState || typeof newState !== 'object' || Array.isArray(newState)) {
+        console.warn('setState ignored an invalid state patch:', newState);
+        return;
+    }
+
     // [BUG FIX] folders 데이터가 업데이트되었는지 확인합니다.
     const foldersJustUpdated = 'folders' in newState;
     const trashJustUpdated = 'trash' in newState;

@@ -609,6 +609,43 @@
         }).join('');
     };
 
+
+    const parseCsvLineSafely = (line) => {
+        const fields = [];
+        let field = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+
+            if (inQuotes) {
+                if (char === '"') {
+                    if (line[i + 1] === '"') {
+                        field += '"';
+                        i += 1;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    field += char;
+                }
+                continue;
+            }
+
+            if (char === '"' && field.length === 0) {
+                inQuotes = true;
+            } else if (char === ',') {
+                fields.push(field);
+                field = '';
+            } else {
+                field += char;
+            }
+        }
+
+        fields.push(field);
+        return fields;
+    };
+
     const rollbackLocalStorageEntries = (previousEntries) => {
         previousEntries.forEach(({ key, hadValue, value }) => {
             try {
@@ -1209,18 +1246,13 @@
             const content = e.target.result.trim().replace(/^\uFEFF/, '');
             const lines = content.split(/\r?\n/);
             let count = 0;
-            const csvRegex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
             const nextRecords = cloneDietRecords(AppState.records);
             
             for(let i=0; i<lines.length; i++) {
                 const line = lines[i].trim();
                 if(!line || line.toLowerCase().startsWith('date')) continue; 
                 
-                const matches = [];
-                let match;
-                while ((match = csvRegex.exec(line)) !== null) {
-                     matches.push(match[1] ? match[1] : match[2]);
-                }
+                const matches = parseCsvLineSafely(line);
                 
                 if(matches.length >= 2) {
                     const d = matches[0].trim().replace(/['"]/g, ''); 
@@ -1233,7 +1265,6 @@
                         count++;
                     }
                 }
-                csvRegex.lastIndex = 0;
             }
             const sanitizedRecords = sanitizeDietRecords(nextRecords);
             if (!persistDietRecordsImmediate(sanitizedRecords)) return;

@@ -543,13 +543,20 @@ export const renderEditor = async () => {
 
     // 저장 실패나 메타데이터 변경처럼 편집기와 무관한 상태 갱신도 전체 렌더를 유발합니다.
     // 포커스만 기준으로 값을 다시 쓰면, 사용자가 검색창/버튼을 누르는 순간 미저장 버퍼가 사라질 수 있습니다.
-    const hasProtectedDraft = state.isDirty && state.dirtyNoteId === state.activeNoteId;
+    const hasProtectedDraft = state.isDirty && state.dirtyNoteId === activeNoteIdAtStart;
     if (!hasProtectedDraft && document.activeElement !== noteTitleInput) {
         noteTitleInput.value = activeNote.title ?? '';
     }
     if (!hasProtectedDraft && document.activeElement !== noteContentTextarea) {
         noteContentTextarea.value = activeNote.content ?? '';
     }
+
+    // [MAJOR BUG FIX]
+    // 편집 중 저장 실패/자동 저장 지연으로 activeNote.content가 아직 오래된 값이어도,
+    // 현재 편집기가 해당 노트의 미저장 버퍼를 소유하고 있으면 화면 표시와 통계는 DOM의 최신 값을 기준으로 합니다.
+    const editorContentForActiveNote = hasProtectedDraft
+        ? (noteContentTextarea?.value ?? activeNote.content ?? '')
+        : (activeNote.content ?? '');
     
     // [수정] marked 모듈을 안전하게 불러와서 사용합니다.
     if (state.isMarkdownView) {
@@ -565,7 +572,7 @@ export const renderEditor = async () => {
 
         // marked 로드에 성공한 경우에만 파싱을 실행합니다.
         if (marked) {
-            setSanitizedHtml(noteContentView, marked.parse(activeNote.content ?? ''));
+            setSanitizedHtml(noteContentView, marked.parse(editorContentForActiveNote));
         } else {
             // 실패 시 사용자에게 알림 (getMarkedParser 내부에서 처리)
             noteContentView.replaceChildren();
@@ -577,7 +584,7 @@ export const renderEditor = async () => {
     }
     
     const { DOM_IDS } = CONSTANTS.EDITOR;
-    const content = activeNote.content ?? '';
+    const content = editorContentForActiveNote;
     const charCount = content.length;
     const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
     const lineCount = content ? (content.match(/\n/g) || []).length + 1 : 0;
