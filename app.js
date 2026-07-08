@@ -97,7 +97,19 @@ const readDashboardWeatherCache = (cacheKey, weatherSettings) => {
     const rawCache = localStorage.getItem(cacheKey);
     if (!rawCache) return null;
 
-    const cachedData = JSON.parse(rawCache);
+    let cachedData;
+    try {
+        cachedData = JSON.parse(rawCache);
+    } catch (error) {
+        console.warn('Invalid dashboard weather cache was removed.', error);
+        try {
+            localStorage.removeItem(cacheKey);
+        } catch (removeError) {
+            console.warn('Weather cache removal failed:', removeError);
+        }
+        return null;
+    }
+
     const timestamp = Number(cachedData?.timestamp);
     const temp = Number(cachedData?.data?.temp);
     const weather = cachedData?.data?.weather;
@@ -183,6 +195,17 @@ const escapeCssAttributeValue = (value) => {
         .replace(/\\/g, '\\\\')
         .replace(/"/g, '\\"')
         .replace(/[\n\r\f]/g, ' ');
+};
+
+const getClosestElement = (target, selector) => {
+    const isTextNode = typeof Node !== 'undefined' && target?.nodeType === Node.TEXT_NODE;
+    const element = isTextNode ? target.parentElement : target;
+    return element && typeof element.closest === 'function' ? element.closest(selector) : null;
+};
+
+const isEditableElement = (element) => {
+    const tagName = String(element?.tagName || '').toUpperCase();
+    return ['INPUT', 'SELECT', 'TEXTAREA'].includes(tagName) || Boolean(element?.isContentEditable);
 };
 
 const ensureThemeApplied = () => {
@@ -509,7 +532,7 @@ const setupSettingsModal = () => {
 
     if (settingsTabs) {
         settingsTabs.addEventListener('click', (e) => {
-            const target = e.target.closest('.settings-tab-btn'); if (!target) return;
+            const target = getClosestElement(e.target, '.settings-tab-btn'); if (!target) return;
             const activeTabBtn = document.querySelector('.settings-tab-btn.active');
             if (activeTabBtn) activeTabBtn.classList.remove('active');
             target.classList.add('active');
@@ -939,10 +962,16 @@ class Dashboard {
         const requestLocation = { lat, lon };
         const requestKey = getWeatherLocationKey(requestLocation);
 
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
             this._setDashboardWeatherContent('⚠️');
-            this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+            this.dom.weatherContainer.title = CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE;
             showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LATITUDE, CONSTANTS.TOAST_TYPE.ERROR);
+            return;
+        }
+        if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+            this._setDashboardWeatherContent('⚠️');
+            this.dom.weatherContainer.title = CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE;
+            showToast(CONSTANTS.MESSAGES.ERROR.INVALID_LONGITUDE, CONSTANTS.TOAST_TYPE.ERROR);
             return;
         }
 
@@ -1088,7 +1117,7 @@ class Dashboard {
         };
 
         this.dom.calendarGrid.onclick = async e => {
-            const target = e.target.closest('.date-cell.has-notes');
+            const target = getClosestElement(e.target, '.date-cell.has-notes');
             if (!target) return;
 
             if (!(await finishPendingRename())) {
@@ -1118,7 +1147,7 @@ class Dashboard {
         };
 
         this.dom.calendarGrid.addEventListener('mouseover', e => {
-            const target = e.target.closest('.date-cell.has-notes');
+            const target = getClosestElement(e.target, '.date-cell.has-notes');
             if (!target) return;
 
             const notesOnDate = Array.from(state.noteMap.values())
@@ -1138,7 +1167,7 @@ window.isImporting = false;
 
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
-const setupRippleEffect = () => { document.body.addEventListener('click', (e) => { const button = e.target.closest('.ripple-effect'); if (!button) return; const ripple = document.createElement('span'); const diameter = Math.max(button.clientWidth, button.clientHeight); ripple.style.width = ripple.style.height = `${diameter}px`; ripple.style.left = `${e.clientX - button.getBoundingClientRect().left - diameter / 2}px`; ripple.style.top = `${e.clientY - button.getBoundingClientRect().top - diameter / 2}px`; ripple.classList.add('ripple'); const existingRipple = button.querySelector('.ripple'); if (existingRipple) existingRipple.remove(); button.appendChild(ripple); setTimeout(() => { if (ripple.parentElement) ripple.remove(); }, 600); }); };
+const setupRippleEffect = () => { document.body.addEventListener('click', (e) => { const button = getClosestElement(e.target, '.ripple-effect'); if (!button) return; const ripple = document.createElement('span'); const diameter = Math.max(button.clientWidth, button.clientHeight); ripple.style.width = ripple.style.height = `${diameter}px`; ripple.style.left = `${e.clientX - button.getBoundingClientRect().left - diameter / 2}px`; ripple.style.top = `${e.clientY - button.getBoundingClientRect().top - diameter / 2}px`; ripple.classList.add('ripple'); const existingRipple = button.querySelector('.ripple'); if (existingRipple) existingRipple.remove(); button.appendChild(ripple); setTimeout(() => { if (ripple.parentElement) ripple.remove(); }, 600); }); };
 // [버그 수정] handleRestoreItem, handlePermanentlyDeleteItem 호출 시 type 인자 추가
 const handleItemActionClick = async (button, id, type) => { 
     if (button.classList.contains('pin-btn')) await handlePinNote(id); 
@@ -1150,10 +1179,10 @@ const handleItemActionClick = async (button, id, type) => {
 
 // [버그 수정] 클릭 시 즉시 키보드 탐색이 가능하도록 포커스를 설정합니다.
 const handleListClick = async (e, type) => {
-    const li = e.target.closest('.item-list-entry');
+    const li = getClosestElement(e.target, '.item-list-entry');
     if (!li) return;
     const id = li.dataset.id;
-    const actionBtn = e.target.closest('.icon-button');
+    const actionBtn = getClosestElement(e.target, '.icon-button');
     if (actionBtn) {
         void handleItemActionClick(actionBtn, id, li.dataset.type);
         return;
@@ -1183,7 +1212,7 @@ const setupDragAndDrop = (listElement, type) => {
     };
 
     listElement.addEventListener('dragstart', e => {
-        const li = e.target.closest('.item-list-entry');
+        const li = getClosestElement(e.target, '.item-list-entry');
         if (!li || !li.draggable) {
             e.preventDefault();
             return;
@@ -1206,7 +1235,7 @@ const setupDragAndDrop = (listElement, type) => {
         if (listElement !== folderList) return;
 
         const indicator = getDragOverIndicator();
-        const li = e.target.closest('.item-list-entry');
+        const li = getClosestElement(e.target, '.item-list-entry');
         const hasDraggableItems = listElement.querySelector('.item-list-entry[draggable="true"]');
         if (!hasDraggableItems) {
             listElement.append(indicator);
@@ -1301,10 +1330,7 @@ const setupNoteToFolderDrop = () => {
 
     const getValidNoteDropTarget = (eventTarget) => {
         if (draggedItemInfo.type !== CONSTANTS.ITEM_TYPE.NOTE) return null;
-        const targetElement = eventTarget?.nodeType === 3
-            ? eventTarget.parentElement
-            : eventTarget;
-        const targetFolderLi = targetElement?.closest?.('.item-list-entry');
+        const targetFolderLi = getClosestElement(eventTarget, '.item-list-entry');
         if (!targetFolderLi || !folderList.contains(targetFolderLi)) return null;
 
         const folderId = targetFolderLi.dataset.id;
@@ -1383,17 +1409,20 @@ const setupNoteToFolderDrop = () => {
         } else {
             await performTransactionalUpdate((latestData) => {
                 const { folders } = latestData;
-                let noteToMove, sourceFolder;
+                let sourceFolder = null;
+                let sourceNoteIndex = -1;
                 for (const folder of folders) {
                     const noteIndex = (Array.isArray(folder.notes) ? folder.notes : []).findIndex(n => n.id === noteId);
                     if (noteIndex > -1) {
-                        [noteToMove] = folder.notes.splice(noteIndex, 1);
                         sourceFolder = folder;
+                        sourceNoteIndex = noteIndex;
                         break;
                     }
                 }
                 const targetFolder = folders.find(f => f.id === targetFolderId);
-                if (!noteToMove || !sourceFolder || !targetFolder || sourceFolder.id === targetFolder.id) return null;
+                if (!sourceFolder || sourceNoteIndex < 0 || !targetFolder || sourceFolder.id === targetFolder.id) return null;
+                const [noteToMove] = sourceFolder.notes.splice(sourceNoteIndex, 1);
+                if (!noteToMove) return null;
                 const now = Date.now();
                 noteToMove.updatedAt = now;
                 targetFolder.notes.unshift(noteToMove);
@@ -1464,7 +1493,7 @@ const handleGlobalKeyDown = async (e) => {
     }
     if (e.key.toLowerCase() === 'f2') {
         e.preventDefault();
-        const activeListItem = document.activeElement.closest('.item-list-entry');
+        const activeListItem = getClosestElement(document.activeElement, '.item-list-entry');
         if (activeListItem?.dataset.id && activeListItem.dataset.type) {
             startRename(activeListItem, activeListItem.dataset.type);
         }
@@ -1480,14 +1509,14 @@ const handleGlobalKeyDown = async (e) => {
     }
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         const activeEl = document.activeElement;
-        const isInputArea = ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl.tagName) || activeEl.isContentEditable;
-        if (state.activeNoteId && !isInputArea && !activeEl.closest('.item-list')) {
+        const isInputArea = isEditableElement(activeEl);
+        if (state.activeNoteId && !isInputArea && !getClosestElement(activeEl, '.item-list')) {
             e.preventDefault();
             handleListKeyDown(e, CONSTANTS.ITEM_TYPE.NOTE);
         }
     }
 };
-const handleRename = (e, type) => { const li = e.target.closest('.item-list-entry'); if (li) startRename(li, type); };
+const handleRename = (e, type) => { const li = getClosestElement(e.target, '.item-list-entry'); if (li) startRename(li, type); };
 const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, inputElement) => {
     const splitter = document.getElementById(splitterId);
     if (!splitter) return;

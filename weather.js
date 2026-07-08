@@ -40,6 +40,21 @@
     const LAT = parseCoordinateParam(urlParams.get('lat'), -90, 90);
     const LON = parseCoordinateParam(urlParams.get('lon'), -180, 180);
     const THEME = urlParams.get('theme') === 'dark' ? 'dark' : 'light';
+    const getClosestElement = (target, selector) => {
+        const isTextNode = typeof Node !== 'undefined' && target?.nodeType === Node.TEXT_NODE;
+        const element = isTextNode ? target.parentElement : target;
+        return element && typeof element.closest === 'function' ? element.closest(selector) : null;
+    };
+
+    const clearWeatherCaches = () => {
+        try {
+            localStorage.removeItem(CONFIG.WEATHER_DETAIL_CACHE_KEY);
+            localStorage.removeItem(CONFIG.AIR_QUALITY_CACHE_KEY);
+        } catch (removeError) {
+            console.warn('날씨 캐시 삭제 실패:', removeError);
+        }
+    };
+
 
     const ICON_ANIMATION_MAP = {
         '☀️': ['sun'],
@@ -1912,7 +1927,7 @@
     async function loadWeatherData() {
         if (LAT === null || LON === null) { renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다."); renderSkeleton(false); return; }
         let cachedWeather = null; let cachedAqi = null; const now = Date.now();
-        try { const cachedWeatherString = localStorage.getItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); if (cachedWeatherString) { const parsed = JSON.parse(cachedWeatherString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedWeather = parsed; } } const cachedAqiString = localStorage.getItem(CONFIG.AIR_QUALITY_CACHE_KEY); if (cachedAqiString) { const parsed = JSON.parse(cachedAqiString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedAqi = parsed; } } } catch (e) { console.warn("캐시를 읽는 중 오류 발생:", e); localStorage.removeItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); localStorage.removeItem(CONFIG.AIR_QUALITY_CACHE_KEY); }
+        try { const cachedWeatherString = localStorage.getItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); if (cachedWeatherString) { const parsed = JSON.parse(cachedWeatherString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedWeather = parsed; } } const cachedAqiString = localStorage.getItem(CONFIG.AIR_QUALITY_CACHE_KEY); if (cachedAqiString) { const parsed = JSON.parse(cachedAqiString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedAqi = parsed; } } } catch (e) { console.warn("캐시를 읽는 중 오류 발생:", e); clearWeatherCaches(); }
         if (cachedWeather && cachedAqi) { processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp); renderSkeleton(false); return; }
         renderSkeleton(true); clearError();
         const weatherPromise = cachedWeather ? Promise.resolve({data: cachedWeather.data}) : fetchWeatherData();
@@ -1935,7 +1950,7 @@
         window.onclick = event => { if (event.target === DOM.hourlyModal) DOM.hourlyModal.classList.remove(CONFIG.MODAL_ACTIVE_CLASS); };
         window.addEventListener('resize', () => { setupWeatherEffectsCanvas(); if (_appState.weatherEffect.currentEffectType) { startWeatherEffect(_appState.weatherEffect.currentEffectType); } });
         window.addEventListener('message', (event) => { if (event.origin !== window.location.origin || event.source !== window.parent) { console.warn('Blocked a message from an untrusted source:', event.origin); return; } if (event.data && event.data.type === 'setTheme') { applyTheme(event.data.theme === 'dark' ? 'dark' : 'light'); } });
-        DOM.forecastContainer.addEventListener('click', event => { const card = event.target.closest('.weather-card'); if (card?.dataset.dateStr && card.dataset.dayName && card.dataset.monthDay) { renderHourlyDataInModal(card.dataset.dateStr, card.dataset.dayName, card.dataset.monthDay); } });
+        DOM.forecastContainer.addEventListener('click', event => { const card = getClosestElement(event.target, '.weather-card'); if (card?.dataset.dateStr && card.dataset.dayName && card.dataset.monthDay) { renderHourlyDataInModal(card.dataset.dateStr, card.dataset.dayName, card.dataset.monthDay); } });
         document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadWeatherData(); } });
     }
 

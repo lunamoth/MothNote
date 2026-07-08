@@ -1141,8 +1141,9 @@ const sanitizeContentData = data => {
 
     const getUniqueId = (prefix, id, referenceMap) => {
         const oldId = id === undefined || id === null ? '' : String(id);
-        const candidateId = oldId.slice(0, MAX_ITEM_ID_LENGTH);
-        let finalId = isValidItemIdForType(candidateId, prefix) ? candidateId : '';
+        // 가져오기 데이터의 ID는 전체 값이 현재 스키마와 일치할 때만 보존합니다.
+        // 과도하게 긴 외부 ID를 잘라 보존하면 참조가 다른 항목으로 합쳐질 수 있어 새 ID를 발급합니다.
+        let finalId = isValidItemIdForType(oldId, prefix) ? oldId : '';
 
         if (!finalId || usedIds.has(finalId)) {
             finalId = generateUniqueId(prefix, usedIds);

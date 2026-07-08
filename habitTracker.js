@@ -23,6 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let draggedItem = null;
     let dropPlaceholder = null;
 
+    const getClosestElement = (target, selector) => {
+        const isTextNode = typeof Node !== 'undefined' && target?.nodeType === Node.TEXT_NODE;
+        const element = isTextNode ? target.parentElement : target;
+        return element && typeof element.closest === 'function' ? element.closest(selector) : null;
+    };
+
     const app = {
         state: {
             // --- MODIFIED: 데이터 버전 관리 기능 추가 ---
@@ -1140,20 +1146,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // ----- DYNAMIC EVENT LISTENERS (EVENT DELEGATION) -----
         addDelegatedEventListeners() {
             this.elements.appContent.addEventListener('click', (e) => {
-                const habitCalendarItem = e.target.closest('.habit-on-calendar');
+                const habitCalendarItem = getClosestElement(e.target, '.habit-on-calendar');
                 if (habitCalendarItem) {
                     const { habitId, date } = habitCalendarItem.dataset;
                     this.handleHabitClick(habitId, date, habitCalendarItem);
                     return;
                 }
 
-                const editBtn = e.target.closest('.edit-habit-btn');
+                const editBtn = getClosestElement(e.target, '.edit-habit-btn');
                 if (editBtn) {
                     this.openHabitModal(editBtn.dataset.habitId);
                     return;
                 }
                 
-                const datePickerTrigger = e.target.closest('#date-picker-trigger-btn, #calendar-date-picker-trigger-btn, #today-view-date-title');
+                const datePickerTrigger = getClosestElement(e.target, '#date-picker-trigger-btn, #calendar-date-picker-trigger-btn, #today-view-date-title');
                 if (datePickerTrigger) {
                     const picker = this.elements.datePickerInput;
                     const rect = datePickerTrigger.getBoundingClientRect();
@@ -1164,7 +1170,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     picker.style.left = `${rect.left + window.scrollX + (rect.width / 2)}px`;
                     picker.style.transform = 'translateX(-50%)';
                     
-                    if (e.target.closest('#calendar-date-picker-trigger-btn')) {
+                    if (getClosestElement(e.target, '#calendar-date-picker-trigger-btn')) {
                         picker.type = 'month';
                         picker.value = this.getDateString(this.state.currentDate).substring(0, 7);
                     } else {
@@ -1191,27 +1197,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (e.target.id === 'prev-month') this.changeMonth(-1);
                 if (e.target.id === 'next-month') this.changeMonth(1);
                 
-                if (e.target.closest('#calendar-title')) this.jumpToMonth();
+                if (getClosestElement(e.target, '#calendar-title')) this.jumpToMonth();
 
-                const unarchiveBtn = e.target.closest('.unarchive-btn');
+                const unarchiveBtn = getClosestElement(e.target, '.unarchive-btn');
                 if (unarchiveBtn) {
                     const habitId = unarchiveBtn.closest('.archive-item').dataset.habitId;
                     this.unarchiveHabit(habitId);
                     return;
                 }
-                const deletePermanentlyBtn = e.target.closest('.delete-permanently-btn');
+                const deletePermanentlyBtn = getClosestElement(e.target, '.delete-permanently-btn');
                 if (deletePermanentlyBtn) {
                     const habitId = deletePermanentlyBtn.closest('.archive-item').dataset.habitId;
                     this.deleteHabitPermanently(habitId);
                     return;
                 }
-                const reportPeriodBtn = e.target.closest('.report-period-btn');
+                const reportPeriodBtn = getClosestElement(e.target, '.report-period-btn');
                 if (reportPeriodBtn) {
                     this.state.reportPeriod = reportPeriodBtn.dataset.period;
                     this.render();
                     return;
                 }
-                const reviewPeriodBtn = e.target.closest('.review-period-btn');
+                const reviewPeriodBtn = getClosestElement(e.target, '.review-period-btn');
                 if (reviewPeriodBtn) {
                     this.state.reviewPeriod = reviewPeriodBtn.dataset.period;
                     this.render();
@@ -1220,9 +1226,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             this.elements.appContent.addEventListener('change', (e) => {
-                const habitCheck = e.target.closest('.habit-check');
+                const habitCheck = getClosestElement(e.target, '.habit-check');
                 if (habitCheck) {
-                     const habitProgress = e.target.closest('.habit-progress');
+                     const habitProgress = getClosestElement(e.target, '.habit-progress');
                     const { habitId, date } = habitProgress.dataset;
                     this.updateCheck(habitId, date, habitCheck.checked);
                     return;
@@ -1255,7 +1261,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
              this.elements.appContent.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                const container = e.target.closest('#habit-list-container');
+                const container = getClosestElement(e.target, '#habit-list-container');
                 if(container && draggedItem) {
                     const afterElement = this.getDragAfterElement(container, e.clientY);
                     if (afterElement == null) {
@@ -1268,7 +1274,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.elements.appContent.addEventListener('drop', (e) => {
                 e.preventDefault();
-                const container = e.target.closest('#habit-list-container');
+                const container = getClosestElement(e.target, '#habit-list-container');
                 // 유효한 드롭 영역이고, 드래그 중인 아이템이 있을 때만 실행합니다.
                 if (container && draggedItem && dropPlaceholder.parentNode) {
                     // 플레이스홀더를 실제 드래그한 아이템으로 교체하여 DOM 위치를 확정합니다.

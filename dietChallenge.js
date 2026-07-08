@@ -1,6 +1,12 @@
 (function() {
     'use strict';
 
+    const getClosestElement = (target, selector) => {
+        const isTextNode = typeof Node !== 'undefined' && target?.nodeType === Node.TEXT_NODE;
+        const element = isTextNode ? target.parentElement : target;
+        return element && typeof element.closest === 'function' ? element.closest(selector) : null;
+    };
+
     // --- 0. 설정 및 상수 (CONFIG) ---
     const CONFIG = {
         // 한국인 기준 (대한비만학회 2020)
@@ -918,7 +924,7 @@
         const hmGrid = AppState.getEl('heatmapGrid');
         if (hmGrid) {
             hmGrid.addEventListener('click', (e) => {
-                const cell = e.target.closest('.heatmap-cell');
+                const cell = getClosestElement(e.target, '.heatmap-cell');
                 if(cell && cell.title) showToast(cell.title);
             });
         }
@@ -926,7 +932,7 @@
         const badgeGrid = AppState.getEl('badgeGrid');
         if (badgeGrid) {
             badgeGrid.addEventListener('click', (e) => {
-                const item = e.target.closest('.badge-item');
+                const item = getClosestElement(e.target, '.badge-item');
             });
         }
 
@@ -939,7 +945,7 @@
         const histList = AppState.getEl('historyList');
         if (histList) {
             histList.addEventListener('click', (e) => {
-                const btn = e.target.closest('button');
+                const btn = getClosestElement(e.target, 'button');
                 if (!btn) return;
                 const action = btn.dataset.action;
                 const date = btn.dataset.date;
