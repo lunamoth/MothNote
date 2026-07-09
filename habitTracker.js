@@ -64,8 +64,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // --- MODIFIED: 사용자가 데이터를 초기화한 후 새로고침 시 기본 습관이 추가되는 것을 방지 ---
             const hasBeenInitialized = localStorage.getItem('habitTrackerInitialized') === 'true';
             if (this.state.habits.length === 0 && !hasBeenInitialized && !this._hadDataLoadError) {
-                this.setupDefaultHabits();
-                localStorage.setItem('habitTrackerInitialized', 'true');
+                if (this.setupDefaultHabits()) {
+                    try {
+                        localStorage.setItem('habitTrackerInitialized', 'true');
+                    } catch (error) {
+                        console.error('Failed to persist habit tracker initialization flag.', error);
+                    }
+                }
             }
             
             this.applySettings();
@@ -87,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 { id: now + 7, name: '🏋️ 운동', type: 'check', goal: 1, frequency: { type: 'daily', days: [0,1,2,3,4,5,6] }, isArchived: false, order: 7, logs: {}, createdAt: now + 7 }
             ];
             this.state.habits = defaultHabits;
-            this.saveData();
+            return this.saveData();
         },
 
         cacheElements() {
@@ -189,10 +194,45 @@ document.addEventListener('DOMContentLoaded', () => {
         // ----- DATA & STATE MANAGEMENT -----
         saveData() {
             // [수정] 데이터 저장 키를 MothNote와 통합될 키로 변경
-            localStorage.setItem('habitTrackerDataV2_integrated', JSON.stringify(this.state, (key, value) => key === 'chartInstances' ? undefined : value));
+            try {
+                localStorage.setItem('habitTrackerDataV2_integrated', JSON.stringify(this.state, (key, value) => key === 'chartInstances' ? undefined : value));
+                return true;
+            } catch (error) {
+                console.error('Habit tracker data save failed.', error);
+                if (typeof this.showToast === 'function') {
+                    this.showToast('습관 트래커 데이터를 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.', 'error');
+                }
+                return false;
+            }
+        },
+
+        createPersistableStateSnapshot() {
+            return JSON.parse(JSON.stringify({
+                habits: this.state.habits,
+                settings: this.state.settings,
+                achievements: this.state.achievements,
+                reviewPeriod: this.state.reviewPeriod,
+                visitedViews: this.state.visitedViews,
+                filters: this.state.filters,
+                reportPeriod: this.state.reportPeriod
+            }));
+        },
+
+        restorePersistableStateSnapshot(snapshot) {
+            if (!snapshot || typeof snapshot !== 'object') return;
+            Object.assign(this.state, JSON.parse(JSON.stringify(snapshot)));
+        },
+
+        saveDataOrRollback(snapshot) {
+            if (this.saveData()) return true;
+            this.restorePersistableStateSnapshot(snapshot);
+            return false;
         },
 
         sanitizeLoadedState(rawState = {}) {
+            if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
+                rawState = {};
+            }
             const now = Date.now();
             const usedIds = new Set();
             const safeDatePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -333,17 +373,18 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!this._hadDataLoadError && (!this.state.habits || this.state.habits.length === 0) && (oldData || veryOldData)) {
                 console.log("Old data found and no new data exists. Migrating...");
-                this.migrateData(oldData || veryOldData);
+                this.migrateData(oldData || veryOldData, oldData ? 'habitTrackerDataV2' : 'habitTrackerData');
             }
         },
         
-        migrateData(oldDataString) {
+        migrateData(oldDataString, legacyKey = null) {
             try {
                 const oldState = JSON.parse(oldDataString);
                 if (!oldState.habits) return;
 
                 // 아주 오래된 데이터 형식(V1)인지 확인
                 const isVeryOld = !oldState.version;
+                const legacyKeyToRemove = legacyKey || (isVeryOld ? 'habitTrackerData' : 'habitTrackerDataV2');
 
                 if (isVeryOld) {
                      this.state.habits = oldState.habits.map((habit, index) => ({
@@ -362,7 +403,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         }, {}),
                     }));
                     this.state.settings.theme = oldState.settings?.theme || 'light';
-                    localStorage.removeItem('habitTrackerData');
                 } else {
                     // V2 데이터 마이그레이션 (기존 로직 유지)
                     this.state.habits = oldState.habits;
@@ -370,12 +410,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.state.visitedViews = oldState.visitedViews || {};
                     this.state.filters = oldState.filters || { search: '', showArchived: false, sortBy: 'order' };
                     this.state.settings.theme = oldState.settings?.theme || 'light';
-                    localStorage.removeItem('habitTrackerDataV2');
                 }
 
                 this.state = { ...this.state, ...this.sanitizeLoadedState(this.state), chartInstances: {} };
-                this.saveData(); // 새 키로 저장
-                this.showToast("데이터 구조가 최신 버전으로 업데이트되었습니다!", 'info');
+                if (this.saveData()) { // 새 키로 저장이 끝난 뒤에만 기존 키 제거
+                    try {
+                        localStorage.removeItem(legacyKeyToRemove);
+                    } catch (removeError) {
+                        console.warn('Failed to remove legacy habit tracker data after successful migration.', removeError);
+                    }
+                    this.showToast("데이터 구조가 최신 버전으로 업데이트되었습니다!", 'info');
+                } else {
+                    this.showToast("데이터 구조 업데이트 중 저장에 실패했습니다. 기존 데이터를 유지했습니다.", 'error');
+                }
             } catch (e) {
                 console.error("Failed to migrate old data:", e);
             }
@@ -1307,6 +1354,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 goal: 1,
                 frequency: { type: frequencyType, days: frequencyType === 'specific_days' ? selectedDays : frequencyMap[frequencyType] },
             };
+            const previousState = this.createPersistableStateSnapshot();
+            let shouldCheckHabitAchievements = false;
 
             if (id) {
                 const index = this.state.habits.findIndex(h => h.id == id);
@@ -1315,12 +1364,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const now = Date.now();
                 const maxOrder = this.state.habits.reduce((max, h) => Math.max(max, h.order || 0), 0);
                 this.state.habits.push({ ...habitData, id: now, logs: {}, isArchived: false, order: maxOrder + 1, createdAt: now });
+                shouldCheckHabitAchievements = true;
+            }
+
+            if (!this.saveDataOrRollback(previousState)) return;
+            if (shouldCheckHabitAchievements) {
                 this.checkAchievement('first_habit');
                 this.checkAchievement('5_habits');
                 this.checkAchievement('10_habits');
             }
-
-            this.saveData();
             this.render();
             this.closeModal(this.elements.habitModal);
         },
@@ -1335,8 +1387,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         deleteHabitPermanently(habitId, callback) {
             this.showConfirmDialog('🗑️ 영구 삭제', '정말로 이 습관과 모든 기록을 영구적으로 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.', () => {
+                const previousState = this.createPersistableStateSnapshot();
                 this.state.habits = this.state.habits.filter(h => h.id != habitId);
-                this.saveData();
+                if (!this.saveDataOrRollback(previousState)) return;
                 this.render();
                 if (callback) callback();
             });
@@ -1346,11 +1399,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const id = this.elements.habitIdInput.value;
             const habit = this.state.habits.find(h => h.id == id);
             if(habit) {
+                const previousState = this.createPersistableStateSnapshot();
                 habit.isArchived = !habit.isArchived;
-                if (habit.isArchived) {
+                const shouldCheckArchivist = habit.isArchived;
+                if (!this.saveDataOrRollback(previousState)) return;
+                if (shouldCheckArchivist) {
                     this.checkAchievement('archivist');
                 }
-                this.saveData();
                 this.render();
                 this.closeModal(this.elements.habitModal);
             }
@@ -1359,8 +1414,9 @@ document.addEventListener('DOMContentLoaded', () => {
         unarchiveHabit(habitId) {
             const habit = this.state.habits.find(h => h.id == habitId);
             if(habit) {
+                const previousState = this.createPersistableStateSnapshot();
                 habit.isArchived = false;
-                this.saveData();
+                if (!this.saveDataOrRollback(previousState)) return;
                 this.render();
             }
         },
@@ -1369,12 +1425,15 @@ document.addEventListener('DOMContentLoaded', () => {
         updateCheck(habitId, dateStr, isChecked) {
             const habit = this.state.habits.find(h => h.id == habitId);
             if (!habit) return;
+            const previousState = this.createPersistableStateSnapshot();
             if (!habit.logs[dateStr]) habit.logs[dateStr] = { value: 0 };
             habit.logs[dateStr].value = isChecked ? 1 : 0;
             
+            if (!this.saveDataOrRollback(previousState)) {
+                this.render();
+                return;
+            }
             this.checkComebackAchievement(habit, dateStr, isChecked);
-
-            this.saveData();
             this.render(); // Re-render to update the summary text in 'today' view
 
             const habitItem = document.querySelector(`.habit-list-item[data-habit-id='${habitId}']`);
@@ -1394,14 +1453,17 @@ document.addEventListener('DOMContentLoaded', () => {
         handleHabitClick(habitId, dateStr, element) {
             const habit = this.state.habits.find(h => h.id == habitId);
             if (!habit) return;
+            const previousState = this.createPersistableStateSnapshot();
             if (!habit.logs[dateStr]) habit.logs[dateStr] = { value: 0 };
             
             const isCompleted = habit.logs[dateStr].value === 1;
             habit.logs[dateStr].value = isCompleted ? 0 : 1;
 
+            if (!this.saveDataOrRollback(previousState)) {
+                element.classList.toggle('completed', isCompleted);
+                return;
+            }
             this.checkComebackAchievement(habit, dateStr, !isCompleted);
-
-            this.saveData();
             
             element.classList.toggle('completed', !isCompleted);
             if (!isCompleted) {
@@ -1611,6 +1673,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateHabitOrder() {
             const habitElements = this.elements.appContent.querySelectorAll('#habit-list-container .habit-list-item');
             const orderedIds = Array.from(habitElements).map(el => Number(el.dataset.habitId));
+            const previousState = this.createPersistableStateSnapshot();
 
             // --- BUG FIX START ---
             // Re-order the main habits array based on the new visual order.
@@ -1629,7 +1692,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             // --- BUG FIX END ---
             
-            this.saveData();
+            if (!this.saveDataOrRollback(previousState)) {
+                this.render();
+            }
         },
         
         generateHeatmap(habit) {
@@ -1950,8 +2015,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 'data_guardian': () => false,
             };
             if (unlockConditions[id] && (forceUnlock || unlockConditions[id]())) {
+                const previousState = this.createPersistableStateSnapshot();
                 this.state.achievements[id] = { unlockedAt: new Date().toISOString() };
-                this.saveData();
+                if (!this.saveDataOrRollback(previousState)) return;
                 const { title, description } = achievementList[id];
                 this.showToast(`🏆 ${title}: ${description}`, 'success', 5000);
             }
@@ -1991,12 +2057,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         handleResetWithSample() {
             this.showConfirmDialog('🔄 샘플 데이터로 초기화', '현재 데이터를 모두 지우고 기본 샘플 습관으로 초기화하시겠습니까?', () => {
+                const previousState = this.createPersistableStateSnapshot();
                 this.state.habits = [];
                 this.state.achievements = {};
                 this.state.visitedViews = {};
-                this.setupDefaultHabits();
-                localStorage.setItem('habitTrackerInitialized', 'true');
-                this.saveData();
+                if (!this.setupDefaultHabits()) {
+                    this.restorePersistableStateSnapshot(previousState);
+                    return;
+                }
+                try {
+                    localStorage.setItem('habitTrackerInitialized', 'true');
+                } catch (error) {
+                    console.error('Failed to persist habit tracker initialization flag.', error);
+                }
                 this.render();
                 this.closeModal(this.elements.confirmModal);
                 this.showToast('샘플 데이터로 초기화되었습니다. ✅', 'success');
@@ -2005,11 +2078,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         handleWipeAllData() {
             this.showConfirmDialog('🚨 완전 초기화', '정말로 모든 습관, 기록, 업적을 영구적으로 삭제하시겠습니까? 앱이 처음 상태(빈 화면)로 돌아갑니다.', () => {
+                const previousState = this.createPersistableStateSnapshot();
                 this.state.habits = [];
                 this.state.achievements = {};
                 this.state.visitedViews = {};
-                localStorage.setItem('habitTrackerInitialized', 'true');
-                this.saveData();
+                if (!this.saveDataOrRollback(previousState)) return;
+                try {
+                    localStorage.setItem('habitTrackerInitialized', 'true');
+                } catch (error) {
+                    console.error('Failed to persist habit tracker initialization flag.', error);
+                }
                 this.render();
                 this.closeModal(this.elements.confirmModal);
                 this.showToast('모든 데이터가 초기화되었습니다. 🧹', 'info');

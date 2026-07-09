@@ -227,7 +227,7 @@ const sanitizeLastActiveNoteMap = (rawMap, data, idUpdateMaps = {}, markChanged 
     const noteIdUpdateMap = legacyMap || idUpdateMaps.noteIdUpdateMap || new Map();
 
     const context = buildDataReferenceContext(data);
-    const cleaned = {};
+    const cleaned = Object.create(null);
 
     for (const [folderId, noteId] of Object.entries(sourceMap)) {
         const normalizedFolderId = String(folderId);
@@ -268,8 +268,25 @@ const verifyAndSanitizeLoadedData = (data) => {
         folderIdUpdateMap: new Map(),
         noteIdUpdateMap: new Map()
     };
-    if (!data || typeof data !== 'object') {
-        return { sanitizedData: data, wasSanitized: false, shouldNotify: false, ...emptyMaps };
+    const now = Date.now();
+    const createEmptySanitizedAppState = () => ({
+        folders: [],
+        trash: [],
+        favorites: [],
+        lastActiveNotePerFolder: {},
+        activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+        activeNoteId: null,
+        lastSavedTimestamp: now
+    });
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        console.warn('[Data Sanitization] Invalid top-level appState was replaced with a safe empty state.');
+        return {
+            sanitizedData: createEmptySanitizedAppState(),
+            wasSanitized: true,
+            shouldNotify: true,
+            ...emptyMaps
+        };
     }
 
     const unsafePrototypeKeysRemoved = sanitizeObjectForPrototypePollution(data);
@@ -284,7 +301,6 @@ const verifyAndSanitizeLoadedData = (data) => {
     const usedIds = new Set(RESERVED_ITEM_IDS);
     let changesMade = false;
     let notifyChangesMade = false;
-    const now = Date.now();
 
     const markChanged = (shouldNotify = true) => {
         changesMade = true;
