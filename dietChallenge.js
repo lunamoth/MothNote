@@ -524,6 +524,11 @@
         return debounced;
     };
 
+    const getFileReaderText = (event) => {
+        const result = event?.target?.result;
+        return typeof result === 'string' ? result.trim().replace(/^\uFEFF/, '') : '';
+    };
+
     // --- 1. 상태 및 DOM 관리 ---
     const AppState = {
         STORAGE_KEY: 'diet_pro_records',
@@ -949,11 +954,33 @@
                 if (!btn) return;
                 const action = btn.dataset.action;
                 const date = btn.dataset.date;
+                const inlineActions = {
+                    edit: 'enableInlineEdit',
+                    'save-inline': 'saveInlineEdit',
+                    'cancel-inline': 'cancelInlineEdit'
+                };
                 
-                if (action === 'edit') App.enableInlineEdit(date);
-                else if (action === 'delete') deleteRecord(date);
-                else if (action === 'save-inline') App.saveInlineEdit(date);
-                else if (action === 'cancel-inline') App.cancelInlineEdit();
+                if (action === 'delete') {
+                    if (!DateUtil.isValidDateString(date)) return showToast('잘못된 기록 날짜입니다.');
+                    deleteRecord(date);
+                    return;
+                }
+
+                const methodName = inlineActions[action];
+                if (!methodName) return;
+
+                const dietAppApi = window.App;
+                if (!dietAppApi || typeof dietAppApi[methodName] !== 'function') {
+                    console.error('Diet inline edit API is unavailable:', methodName);
+                    showToast('기록 편집 기능을 초기화하지 못했습니다. 페이지를 새로고침해주세요.');
+                    return;
+                }
+
+                if ((action === 'edit' || action === 'save-inline') && !DateUtil.isValidDateString(date)) {
+                    return showToast('잘못된 기록 날짜입니다.');
+                }
+
+                dietAppApi[methodName](date);
             });
         }
         
@@ -1219,8 +1246,9 @@
         
         const reader = new FileReader();
         reader.onload = function(e) {
-            const content = e.target.result.trim().replace(/^\uFEFF/, '');
+            const content = getFileReaderText(e);
             try {
+                if (!content) throw new Error('파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
                 const data = JSON.parse(content);
                 if(data.records && Array.isArray(data.records)) {
                     const nextRecords = sanitizeDietRecords(data.records);
@@ -1249,7 +1277,8 @@
 
         const reader = new FileReader();
         reader.onload = function(e) {
-            const content = e.target.result.trim().replace(/^\uFEFF/, '');
+            const content = getFileReaderText(e);
+            if (!content) return showToast('CSV 파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
             const lines = content.split(/\r?\n/);
             let count = 0;
             const nextRecords = cloneDietRecords(AppState.records);
@@ -1462,7 +1491,7 @@
              const diff = MathUtil.diff(rel[rel.length-1].weight, rel[0].weight);
              const d = DateUtil.daysBetween(DateUtil.parse(rel[0].date), DateUtil.parse(rel[rel.length-1].date));
              if(d===0) return "-";
-             const g = ((diff/d)*1000).toFixed(0);
+             const g = Math.round((diff / d) * 1000);
              return `${g > 0 ? '+' : ''}${g}g / 일`;
         };
         const rate7 = getRateVal(7);
@@ -1581,8 +1610,8 @@
 		AppState.getEl('bmiDisplay').innerText = `BMI: ${bmi.toFixed(2)} (${bmiLabel})`;
         updateBmiProgressBar(parseFloat(bmi), bmiLabel);
 
-        const percentLost = ((AppState.settings.startWeight - currentW) / AppState.settings.startWeight * 100).toFixed(1);
-        AppState.getEl('percentLostDisplay').innerText = `(시작 체중 대비 ${percentLost > 0 ? '-' : '+'}${Math.abs(percentLost)}%)`;
+        const percentLost = ((AppState.settings.startWeight - currentW) / AppState.settings.startWeight * 100);
+        AppState.getEl('percentLostDisplay').innerText = `(시작 체중 대비 ${percentLost > 0 ? '-' : '+'}${Math.abs(percentLost).toFixed(1)}%)`;
 
         updateProgressBar(currentW, totalLost, pct, remaining);
 
@@ -2134,7 +2163,7 @@
         }
         let worstMonth = -1, maxVal = -999;
         Object.keys(monthlyGains).forEach(m => {
-            if(monthlyGains[m] > maxVal) { maxVal = monthlyGains[m]; worstMonth = m; }
+            if(monthlyGains[m] > maxVal) { maxVal = monthlyGains[m]; worstMonth = Number(m); }
         });
         if(maxVal > 1.0) {
             htmlLines.push(`<li class="insight-item"><span class="insight-label">🍂 시즈널리티:</span> "<strong>${worstMonth}월</strong>에 체중이 증가하는 경향이 있습니다. 해당 시기에 활동량 저하를 주의하세요."</li>`);
@@ -4115,8 +4144,8 @@
         const prev = AppState.records[AppState.records.length-2];
         const diff = MathUtil.diff(last.weight, prev.weight);
         
-        if (diff < 0) txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.LOSS.replace('{diff}', Math.abs(diff));
-        else if (diff > 0) txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.GAIN.replace('{diff}', diff);
+        if (diff < 0) txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.LOSS.replace('{diff}', String(Math.abs(diff)));
+        else if (diff > 0) txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.GAIN.replace('{diff}', String(diff));
         else txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.MAINTAIN;
     }
 
@@ -5811,7 +5840,7 @@
         let html = '';
         dayNames.forEach((name, i) => {
             if(totalCounts[i] > 0) {
-                const prob = ((gainCounts[i] / totalCounts[i]) * 100).toFixed(0);
+                const prob = Math.round((gainCounts[i] / totalCounts[i]) * 100);
                 let risk = '';
                 if(prob >= 60) risk = '<span class="text-danger">높음</span>';
                 else if(prob <= 30) risk = '<span class="text-primary">낮음</span>';
@@ -6599,7 +6628,7 @@
             if(!btn) return;
             const tr = btn.closest('tr');
             const record = AppState.records.find(r => r.date === date);
-            if(!record) return;
+            if(!record || !tr || tr.cells.length < 5) return;
 
             tr.cells[1].innerHTML = `<input type="number" class="inline-input" id="inline-weight-${date}" value="${record.weight}" step="0.1">`;
             tr.cells[2].innerHTML = `<input type="number" class="inline-input" id="inline-fat-${date}" value="${record.fat || ''}" step="0.1">`;
@@ -6611,13 +6640,15 @@
         },
 
         saveInlineEdit: function(date) {
+            if (!DateUtil.isValidDateString(date)) return showToast('잘못된 기록 날짜입니다.');
             const wInput = document.getElementById(`inline-weight-${date}`);
             const fInput = document.getElementById(`inline-fat-${date}`);
             
             if(!wInput) return;
             
             const newWeight = parseFloat(wInput.value);
-            const newFat = parseFloat(fInput.value);
+            const hasFatInput = fInput && String(fInput.value ?? '').trim() !== '';
+            const newFat = hasFatInput ? parseFloat(fInput.value) : NaN;
             
             if (isNaN(newWeight) || newWeight < CONFIG.LIMITS.MIN_WEIGHT || newWeight > CONFIG.LIMITS.MAX_WEIGHT) {
                 return showToast(`유효한 체중을 입력해주세요 (${CONFIG.LIMITS.MIN_WEIGHT}~${CONFIG.LIMITS.MAX_WEIGHT}kg).`);

@@ -1716,10 +1716,24 @@ export const setupImportHandler = () => {
                 // [기존 로직] MothNote 백업 파일 처리
                 const sanitizedContent = sanitizeContentData(importedData);
                 
-                const hasSettingsInFile = importedData.settings && typeof importedData.settings === 'object';
-                const sanitizedSettings = hasSettingsInFile 
-                    ? sanitizeSettings(importedData.settings) 
-                    : JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
+                const hasOwnImportedField = (propertyName) => Object.prototype.hasOwnProperty.call(importedData, propertyName);
+                const getCurrentSettingsOrDefault = () => {
+                    try {
+                        const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
+                        if (storedSettings) return sanitizeSettings(JSON.parse(storedSettings));
+                    } catch (settingsError) {
+                        console.warn('현재 설정을 읽지 못해 기본 설정을 사용합니다.', settingsError);
+                    }
+                    return JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
+                };
+                const hasSettingsField = hasOwnImportedField('settings');
+                const hasSettingsInFile = hasSettingsField
+                    && importedData.settings
+                    && typeof importedData.settings === 'object'
+                    && !Array.isArray(importedData.settings);
+                const sanitizedSettings = hasSettingsInFile
+                    ? sanitizeSettings(importedData.settings)
+                    : (hasSettingsField ? JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS)) : getCurrentSettingsOrDefault());
 
                 const firstConfirm = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
@@ -1789,13 +1803,18 @@ export const setupImportHandler = () => {
                         return typeof value === 'string' ? value : JSON.stringify(value);
                     };
 
+                    const restoreImportedLocalStorageValueIfPresent = (key, propertyName) => {
+                        if (!hasOwnImportedField(propertyName)) return;
+                        restoreLocalStorageValue(key, toStorageString(importedData[propertyName]));
+                    };
+
                     try {
                         await storageSet({ appState: importPayload });
                         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
 
-                        restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, toStorageString(importedData.habitTrackerData));
-                        restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, toStorageString(importedData.dietChallengeData));
-                        restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, toStorageString(importedData.dietChallengeSettings));
+                        restoreImportedLocalStorageValueIfPresent(HABIT_TRACKER_DATA_KEY, 'habitTrackerData');
+                        restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_DATA_KEY, 'dietChallengeData');
+                        restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_SETTINGS_KEY, 'dietChallengeSettings');
 
                         localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
                         return true;
