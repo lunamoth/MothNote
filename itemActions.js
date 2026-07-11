@@ -151,27 +151,81 @@ export const setCalendarRenderer = (renderer) => {
 
 const EMERGENCY_BACKUP_CONTENT_KEYS = ['noteUpdate', 'itemRename'];
 
-const clearEmergencyChangesBackupEntry = (entryKey, shouldClearEntry) => {
+export const TRANSACTION_FAILURE_REASON = Object.freeze({
+    NO_CHANGE: 'no-change',
+    ERROR: 'error'
+});
+
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+const normalizeLastActiveNoteMap = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+    const normalized = {};
+    Object.entries(value).forEach(([folderId, noteId]) => {
+        const normalizedFolderId = String(folderId ?? '');
+        const normalizedNoteId = String(noteId ?? '');
+        if (!normalizedFolderId || !normalizedNoteId || UNSAFE_OBJECT_KEYS.has(normalizedFolderId)) return;
+        normalized[normalizedFolderId] = normalizedNoteId;
+    });
+    return normalized;
+};
+
+// 트랜잭션 대기 중 사용자가 다른 노트로 이동했을 때, 저장 완료 후 오래된 스냅샷이
+// 방금 바뀐 세션 선택을 다시 덮어쓰지 않도록 실제 변경된 키만 결과에 반영합니다.
+const mergeConcurrentLastActiveChanges = (transactionMap, sessionSnapshot, currentSessionMap) => {
+    const merged = { ...normalizeLastActiveNoteMap(transactionMap) };
+    const before = normalizeLastActiveNoteMap(sessionSnapshot);
+    const current = normalizeLastActiveNoteMap(currentSessionMap);
+    const keys = new Set([...Object.keys(before), ...Object.keys(current)]);
+
+    keys.forEach(key => {
+        const existedBefore = Object.prototype.hasOwnProperty.call(before, key);
+        const existsNow = Object.prototype.hasOwnProperty.call(current, key);
+        if (existedBefore === existsNow && before[key] === current[key]) return;
+
+        if (existsNow) merged[key] = current[key];
+        else delete merged[key];
+    });
+
+    return merged;
+};
+
+export const clearEmergencyChangesBackupEntry = (entryKey, shouldClearEntry) => {
     if (typeof localStorage === 'undefined') return;
 
+    const backupKey = CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP;
+    let rawBackup;
     try {
-        const backupKey = CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP;
-        const rawBackup = localStorage.getItem(backupKey);
-        if (!rawBackup) return;
+        rawBackup = localStorage.getItem(backupKey);
+    } catch (error) {
+        console.warn('Emergency changes backup could not be read; cleanup was skipped.', error);
+        return;
+    }
+    if (!rawBackup) return;
 
-        const backup = JSON.parse(rawBackup);
-        if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
-            localStorage.removeItem(backupKey);
-            return;
-        }
+    let backup;
+    try {
+        backup = JSON.parse(rawBackup);
+    } catch (error) {
+        console.warn('Emergency changes backup is malformed and will be removed.', error);
+        try { localStorage.removeItem(backupKey); } catch (_) { /* noop */ }
+        return;
+    }
 
-        const entry = backup[entryKey];
-        if (!entry || (typeof shouldClearEntry === 'function' && !shouldClearEntry(entry))) {
-            return;
-        }
+    if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
+        try { localStorage.removeItem(backupKey); } catch (_) { /* noop */ }
+        return;
+    }
 
-        delete backup[entryKey];
+    const entry = backup[entryKey];
+    if (!entry || (typeof shouldClearEntry === 'function' && !shouldClearEntry(entry))) {
+        return;
+    }
 
+    delete backup[entryKey];
+
+    try {
         const hasRemainingEmergencyData = EMERGENCY_BACKUP_CONTENT_KEYS.some(key => backup[key]);
         if (hasRemainingEmergencyData) {
             localStorage.setItem(backupKey, JSON.stringify(backup));
@@ -179,8 +233,9 @@ const clearEmergencyChangesBackupEntry = (entryKey, shouldClearEntry) => {
             localStorage.removeItem(backupKey);
         }
     } catch (error) {
-        console.warn('Emergency changes backup cleanup failed. Removing malformed backup to prevent stale restores.', error);
-        try { localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP); } catch (_) { /* noop */ }
+        // 유효한 백업의 일부를 정리하다 저장공간 부족 등의 일시적 오류가 발생하면
+        // 원본 localStorage 값은 그대로 남아 있으므로 전량 삭제하지 않습니다.
+        console.warn('Emergency changes backup cleanup failed. The valid backup was retained for a later retry.', error);
     }
 };
 
@@ -225,12 +280,13 @@ export const performTransactionalUpdate = async (updateFn) => {
             setState({ isPerformingOperation: true });
 
             try {
+                const sessionLastActiveSnapshot = normalizeLastActiveNoteMap(state.lastActiveNotePerFolder);
                 const memorySnapshot = {
                     folders: state.folders,
                     trash: state.trash,
                     favorites: Array.from(state.favorites),
                     lastSavedTimestamp: state.lastSavedTimestamp,
-                    lastActiveNotePerFolder: state.lastActiveNotePerFolder
+                    lastActiveNotePerFolder: sessionLastActiveSnapshot
                 };
 
                 // 저장 직전의 기준 appState를 읽어 연속 작업 간 read-modify-write 안정성을 유지합니다.
@@ -247,8 +303,12 @@ export const performTransactionalUpdate = async (updateFn) => {
                         trash: storedData.trash,
                         favorites: storedData.favorites || [],
                         lastSavedTimestamp: storedData.lastSavedTimestamp || 0,
-                        // 구버전 저장 데이터에 이 필드가 없으면 현재 세션 값을 보존합니다.
-                        lastActiveNotePerFolder: storedData.lastActiveNotePerFolder || state.lastActiveNotePerFolder || {}
+                        // appState보다 localStorage 세션이 더 자주 갱신되므로, 현재 세션 값을 우선 병합합니다.
+                        // 그렇지 않으면 다음 노트 저장/삭제 트랜잭션이 최신 폴더별 선택 기록을 과거 값으로 되돌립니다.
+                        lastActiveNotePerFolder: {
+                            ...normalizeLastActiveNoteMap(storedData.lastActiveNotePerFolder),
+                            ...sessionLastActiveSnapshot
+                        }
                     }
                     : memorySnapshot;
 
@@ -256,7 +316,7 @@ export const performTransactionalUpdate = async (updateFn) => {
                 const result = await updateFn(dataCopy);
 
                 if (result == null) {
-                    return { success: false, payload: null };
+                    return { success: false, payload: null, failureReason: TRANSACTION_FAILURE_REASON.NO_CHANGE };
                 }
 
                 const { newData, successMessage, postUpdateState, payload } = result;
@@ -270,12 +330,25 @@ export const performTransactionalUpdate = async (updateFn) => {
 
                 await storageSet({ appState: newData });
 
+                // 저장 I/O를 기다리는 동안 발생한 노트 이동은 세션 상태에만 있을 수 있습니다.
+                // 트랜잭션 자체가 삭제/복원한 참조는 유지하되, 실제로 달라진 세션 키만 병합한 뒤
+                // 현재 데이터에 존재하지 않는 참조는 다시 제거합니다.
+                const stateDataForSessionMap = {
+                    ...newData,
+                    lastActiveNotePerFolder: mergeConcurrentLastActiveChanges(
+                        newData.lastActiveNotePerFolder,
+                        sessionLastActiveSnapshot,
+                        state.lastActiveNotePerFolder
+                    )
+                };
+                pruneLastActiveNoteMapForData(stateDataForSessionMap);
+
                 setState({
                     folders: newData.folders,
                     trash: newData.trash,
                     favorites: new Set(newData.favorites || []),
                     lastSavedTimestamp: newData.lastSavedTimestamp,
-                    lastActiveNotePerFolder: newData.lastActiveNotePerFolder || {},
+                    lastActiveNotePerFolder: stateDataForSessionMap.lastActiveNotePerFolder || {},
                     totalNoteCount: newData.folders.reduce((sum, folder) => sum + (Array.isArray(folder.notes) ? folder.notes.length : 0), 0)
                 });
                 buildNoteMap();
@@ -286,10 +359,10 @@ export const performTransactionalUpdate = async (updateFn) => {
                 if (postUpdateState) setState(postUpdateState);
                 if (successMessage) showToast(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
 
-                return { success: true, payload: resultPayload };
+                return { success: true, payload: resultPayload, failureReason: null };
             } catch (error) {
                 reportFailure(error);
-                return { success: false, payload: null };
+                return { success: false, payload: null, failureReason: TRANSACTION_FAILURE_REASON.ERROR };
             } finally {
                 setState({ isPerformingOperation: false });
             }
@@ -298,7 +371,7 @@ export const performTransactionalUpdate = async (updateFn) => {
         // Web Locks 요청 자체가 실패하거나 중단된 경우도 동일하게 사용자에게 알립니다.
         reportFailure(error);
         setState({ isPerformingOperation: false });
-        return { success: false, payload: null };
+        return { success: false, payload: null, failureReason: TRANSACTION_FAILURE_REASON.ERROR };
     }
 };
 

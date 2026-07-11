@@ -147,9 +147,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const viewName = btn.id.split('-')[1];
                     this.state.currentView = viewName;
 
-                    // --- NEW: 탐험가 업적 확인 로직 ---
-                    this.state.visitedViews[viewName] = true;
-                    this.checkAchievement('explorer');
+                    // 메뉴 방문 기록은 업적이 해제되기 전에도 영구 저장해야 합니다.
+                    // 이전에는 여섯 번째 메뉴를 같은 세션에서 누른 경우에만 저장되어,
+                    // 중간에 새로고침하면 탐험가 진행도가 매번 사라졌습니다.
+                    if (this.markViewVisited(viewName)) {
+                        this.checkAchievement('explorer');
+                    }
 
                     if (this.state.currentView === 'today') {
                         this.state.currentDate = new Date();
@@ -227,6 +230,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (this.saveData()) return true;
             this.restorePersistableStateSnapshot(snapshot);
             return false;
+        },
+
+        markViewVisited(viewName) {
+            const normalizedViewName = String(viewName ?? '');
+            if (!normalizedViewName) return false;
+
+            if (!this.state.visitedViews || typeof this.state.visitedViews !== 'object' || Array.isArray(this.state.visitedViews)) {
+                this.state.visitedViews = {};
+            }
+            if (this.state.visitedViews[normalizedViewName] === true) return true;
+
+            const previousState = this.createPersistableStateSnapshot();
+            this.state.visitedViews[normalizedViewName] = true;
+            return this.saveDataOrRollback(previousState);
         },
 
         sanitizeLoadedState(rawState = {}) {

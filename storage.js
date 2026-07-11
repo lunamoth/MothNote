@@ -73,6 +73,10 @@ import { escapeHtml } from './sanitizer.js';
 // [기능 추가] LunaFlowACT.js에서 노트 내용을 가져옵니다.
 import { lunaFlowACTContent } from './LunaFlowACT.js';
 import { withAppStateWriteLock } from './storageLock.js';
+import {
+    parseEmergencyBackupChanges,
+    shouldDiscardEmergencyBackupAfterTransaction
+} from './emergencyRecoveryUtils.js';
 
 // [기능 추가] 습관 트래커 데이터 키 상수
 const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
@@ -620,10 +624,16 @@ export const loadData = async () => {
         // 비정상 종료 데이터 복구 로직 (안전한 '변경사항' 기반 복구)
         const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
         if (emergencyBackupJSON) {
+            let emergencyBackupValidated = false;
+            let emergencyBackupRemoved = false;
+            const removeEmergencyBackup = () => {
+                localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                emergencyBackupRemoved = true;
+            };
+
             try {
-                const backupChanges = JSON.parse(emergencyBackupJSON);
-                // [보안 수정] Prototype Pollution 방지를 위해 localStorage에서 가져온 데이터를 정제합니다.
-                sanitizeObjectForPrototypePollution(backupChanges);
+                const backupChanges = parseEmergencyBackupChanges(emergencyBackupJSON);
+                emergencyBackupValidated = true;
                 
                 // --- [버그 수정 시작] ---
                 // 비상 복구를 실행하기 전에, 데이터 정제 과정에서 변경된 ID가 있다면 비상 백업 데이터의 ID를 먼저 업데이트합니다.
@@ -692,7 +702,7 @@ export const loadData = async () => {
                 }
 
                 if (!backupChanges.noteUpdate && !backupChanges.itemRename) {
-                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                    removeEmergencyBackup();
                     console.warn('Emergency backup had no applicable changes and was removed to prevent repeated recovery prompts.');
                 } else {
                     let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
@@ -754,11 +764,11 @@ export const loadData = async () => {
                         // --- [CRITICAL BUG FIX] END ---
 
                         if (!backupChanges.noteUpdate && !backupChanges.itemRename) {
-                            localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                            removeEmergencyBackup();
                             showToast('복원할 수 있는 변경사항이 없어 비상 백업을 정리했습니다.', CONSTANTS.TOAST_TYPE.SUCCESS);
                         } else {
                             const { performTransactionalUpdate } = await import('./itemActions.js');
-                            const { success } = await performTransactionalUpdate(latestData => {
+                            const transactionResult = await performTransactionalUpdate(latestData => {
                                 const now = Date.now();
                                 let changesApplied = false;
 
@@ -859,17 +869,21 @@ export const loadData = async () => {
                                 return null; // 적용할 변경이 없으면 업데이트 취소
                             });
                             
-                            if (success) {
+                            if (transactionResult.success) {
                                // 복원에 성공했을 때만 비상 백업을 제거합니다.
-                               localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
-                            } else {
-                               localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                               removeEmergencyBackup();
+                            } else if (shouldDiscardEmergencyBackupAfterTransaction(transactionResult)) {
+                               // 대상이 이미 삭제되어 적용할 변경이 없었던 경우에만 오래된 백업을 정리합니다.
+                               removeEmergencyBackup();
                                showToast("복원 대상이 현재 데이터에 없어 비상 백업을 정리했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                            } else {
+                               // 저장공간 부족, Storage API 오류, 잠금 실패 등에서는 유일한 미저장 사본을 보존합니다.
+                               showToast("변경사항 복원 저장에 실패했습니다. 비상 백업은 보존되며 다음 실행에서 다시 복원할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                             }
                         }
                     } else {
                         // [CRITICAL BUG FIX] 사용자가 복원을 거부했으므로 비상 백업을 반드시 제거하여 무한 루프를 방지합니다.
-                        localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                        removeEmergencyBackup();
                         showToast("저장되지 않았던 변경사항을 버렸습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                     }
                 }
@@ -893,14 +907,27 @@ export const loadData = async () => {
                 }
 
             } catch (e) {
-                console.error("비상 백업 데이터 복구 실패. 무한 루프 방지를 위해 백업 데이터가 제거됩니다.", e);
-                localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP); // 파싱 실패 시에도 제거
-                showToast("저장되지 않은 변경사항을 복구하는 중 오류가 발생했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                if (!emergencyBackupValidated) {
+                    console.error("비상 백업 형식이 손상되어 안전하게 제거합니다.", e);
+                    try { removeEmergencyBackup(); } catch (removeError) {
+                        console.error('손상된 비상 백업을 제거하지 못했습니다.', removeError);
+                    }
+                    showToast("손상된 비상 백업을 읽을 수 없어 정리했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                } else if (!emergencyBackupRemoved) {
+                    // 유효한 백업을 읽은 뒤 발생한 Storage API/모달/런타임 오류는 일시적일 수 있습니다.
+                    // 유일한 미저장 데이터 사본을 삭제하지 않고 다음 실행에서 재시도합니다.
+                    console.error("비상 백업 복구 중 오류가 발생했습니다. 유효한 백업은 다음 재시도를 위해 보존됩니다.", e);
+                    showToast("변경사항 복구 중 오류가 발생했습니다. 비상 백업은 보존되며 다음 실행에서 다시 시도됩니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                } else {
+                    // 복원 성공/사용자 폐기/대상 없음 처리 뒤 후속 검증에서 실패한 경우입니다.
+                    console.error("비상 백업 처리 후 저장 데이터 확인 중 오류가 발생했습니다.", e);
+                    showToast("비상 백업 처리 후 데이터를 확인하는 중 오류가 발생했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                }
             }
         }
         // --- BUG-C-02 FIX END ---
         
-        // 3. [핵심 변경] 비정상 종료 후 남을 수 있던 비상 백업(localStorage) 수집/복구 로직을 완전히 제거합니다.
+        // 3. 비상 백업 처리가 끝난 최신 appState를 기준으로 최종 세션 상태를 구성합니다.
         
         // 4. 최종 상태(state) 설정 및 UI 초기화
         let finalState = { ...state };
@@ -909,6 +936,7 @@ export const loadData = async () => {
             Object.assign(finalState, authoritativeData);
             finalState.trash = finalState.trash || [];
             finalState.favorites = new Set(authoritativeData.favorites || []);
+            const persistedLastActiveNotePerFolder = authoritativeData.lastActiveNotePerFolder || {};
 
             let lastSession = null;
             try {
@@ -933,15 +961,26 @@ export const loadData = async () => {
                 finalState.activeNoteId = correctedNoteId;
                 finalState.noteSortOrder = lastSession.s ?? 'updatedAt_desc';
                 
-                // localStorage 세션은 앱 데이터보다 자주 낡을 수 있으므로, 존재하는 폴더/노트/휴지통 항목만 남깁니다.
+                // appState의 정상 기록을 기반으로 하되, 더 자주 갱신되는 localStorage 세션 값을 우선 병합합니다.
+                // 구버전 세션처럼 l 필드가 없더라도 영구 저장된 폴더별 마지막 선택 기록을 잃지 않습니다.
+                const sessionLastActiveNotePerFolder = lastSession.l && typeof lastSession.l === 'object' && !Array.isArray(lastSession.l)
+                    ? lastSession.l
+                    : {};
                 finalState.lastActiveNotePerFolder = sanitizeLastActiveNoteMap(
-                    lastSession.l || {},
+                    {
+                        ...persistedLastActiveNotePerFolder,
+                        ...sessionLastActiveNotePerFolder
+                    },
                     finalState,
                     { folderIdUpdateMap, noteIdUpdateMap }
                 );
             } else {
-                // lastSession이 없을 경우 lastActiveNotePerFolder를 초기화합니다.
-                finalState.lastActiveNotePerFolder = {};
+                // 세션 저장소만 지워졌거나 가져오기 직후인 경우에는 appState의 유효한 선택 기록을 복원합니다.
+                finalState.lastActiveNotePerFolder = sanitizeLastActiveNoteMap(
+                    persistedLastActiveNotePerFolder,
+                    finalState,
+                    { folderIdUpdateMap, noteIdUpdateMap }
+                );
             }
 
             finalState.totalNoteCount = finalState.folders.reduce((sum, f) => sum + (Array.isArray(f.notes) ? f.notes.length : 0), 0);
@@ -1424,13 +1463,24 @@ export const handleExport = async (settings) => {
             ? chrome.runtime.getManifest().version
             : '23.5.1';
 
+        // 폴더별 마지막 선택은 appState보다 localStorage 세션에서 더 자주 갱신됩니다.
+        // 영구 저장본을 기준으로 백업하되, 현재 세션의 최신 선택을 덮어써서 오래된 탐색 상태가 내보내지지 않게 합니다.
+        const lastActiveNotePerFolderForExport = sanitizeLastActiveNoteMap({
+            ...((exportState.lastActiveNotePerFolder && typeof exportState.lastActiveNotePerFolder === 'object')
+                ? exportState.lastActiveNotePerFolder
+                : {}),
+            ...((state.lastActiveNotePerFolder && typeof state.lastActiveNotePerFolder === 'object')
+                ? state.lastActiveNotePerFolder
+                : {})
+        }, exportState);
+
         const dataToExport = {
             mothNoteVersion: runtimeVersion, // 실제 설치된 확장 프로그램 버전
             settings: settingsToExport,
             folders: exportState.folders || [],
             trash: exportState.trash || [],
             favorites: Array.isArray(exportState.favorites) ? exportState.favorites : [],
-            lastActiveNotePerFolder: exportState.lastActiveNotePerFolder || state.lastActiveNotePerFolder || {},
+            lastActiveNotePerFolder: lastActiveNotePerFolderForExport,
             lastSavedTimestamp: exportState.lastSavedTimestamp || Date.now(),
             // [기능 추가] 습관 트래커 데이터가 있으면 포함시킵니다.
             habitTrackerData: habitTrackerDataForExport,
