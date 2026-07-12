@@ -586,6 +586,46 @@
         return Array.from(byDate.values()).sort((a, b) => new Date(a.date) - new Date(b.date));
     };
 
+    const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+    const normalizeImportedDietRecords = (records) => {
+        if (!Array.isArray(records)) {
+            return { ok: false, records: [], error: 'records 항목은 배열이어야 합니다.' };
+        }
+
+        const normalizedRecords = [];
+        const seenDates = new Set();
+
+        for (let index = 0; index < records.length; index++) {
+            const rawRecord = records[index];
+            if (!isPlainObject(rawRecord)) {
+                return { ok: false, records: [], error: `${index + 1}번째 기록의 형식이 올바르지 않습니다.` };
+            }
+
+            const normalizedRecord = sanitizeDietRecord(rawRecord);
+            if (!normalizedRecord) {
+                return { ok: false, records: [], error: `${index + 1}번째 기록의 날짜 또는 체중이 유효하지 않습니다.` };
+            }
+
+            const hasFatValue = rawRecord.fat !== undefined
+                && rawRecord.fat !== null
+                && String(rawRecord.fat).trim() !== '';
+            if (hasFatValue && !Object.prototype.hasOwnProperty.call(normalizedRecord, 'fat')) {
+                return { ok: false, records: [], error: `${index + 1}번째 기록의 체지방률이 유효하지 않습니다.` };
+            }
+
+            if (seenDates.has(normalizedRecord.date)) {
+                return { ok: false, records: [], error: `${normalizedRecord.date} 날짜가 중복되어 있습니다.` };
+            }
+
+            seenDates.add(normalizedRecord.date);
+            normalizedRecords.push(normalizedRecord);
+        }
+
+        normalizedRecords.sort((a, b) => a.date.localeCompare(b.date));
+        return { ok: true, records: normalizedRecords, error: '' };
+    };
+
     const sanitizeDietSettings = (settings) => {
         const defaults = { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 };
         if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return { ...defaults };
@@ -1250,20 +1290,36 @@
             try {
                 if (!content) throw new Error('파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
                 const data = JSON.parse(content);
-                if(data.records && Array.isArray(data.records)) {
-                    const nextRecords = sanitizeDietRecords(data.records);
-                    const nextSettings = data.settings ? sanitizeDietSettings(data.settings) : AppState.settings;
-                    if (!persistDietStateSnapshot(nextRecords, nextSettings)) return;
-
-                    AppState.records = nextRecords;
-                    AppState.settings = nextSettings;
-                    AppState.state.isDirty = true;
-                    
-                    updateUI();
-                    showToast(`데이터(JSON) 복원 완료: ${AppState.records.length}건`);
-                } else {
+                if (!isPlainObject(data) || !Object.prototype.hasOwnProperty.call(data, 'records')) {
                     throw new Error('올바르지 않은 JSON 형식');
                 }
+
+                const importResult = normalizeImportedDietRecords(data.records);
+                if (!importResult.ok) throw new Error(importResult.error);
+
+                const hasSettings = Object.prototype.hasOwnProperty.call(data, 'settings');
+                if (hasSettings && !isPlainObject(data.settings)) {
+                    throw new Error('settings 항목은 객체 형식이어야 합니다.');
+                }
+
+                if (data.records.length === 0 && AppState.records.length > 0) {
+                    const shouldReplaceWithEmpty = confirm(`가져올 백업에 체중 기록이 없습니다. 계속하면 현재 기록 ${AppState.records.length}건이 모두 삭제됩니다. 빈 백업으로 복원하시겠습니까?`);
+                    if (!shouldReplaceWithEmpty) {
+                        showToast('빈 백업 복원을 취소했습니다. 기존 데이터를 유지합니다.');
+                        return;
+                    }
+                }
+
+                const nextRecords = importResult.records;
+                const nextSettings = hasSettings ? sanitizeDietSettings(data.settings) : AppState.settings;
+                if (!persistDietStateSnapshot(nextRecords, nextSettings)) return;
+
+                AppState.records = nextRecords;
+                AppState.settings = nextSettings;
+                AppState.state.isDirty = true;
+                
+                updateUI();
+                showToast(`데이터(JSON) 복원 완료: ${AppState.records.length}건`);
             } catch(err) {
                 showToast('JSON 파일 오류: ' + err.message);
             }
@@ -6682,4 +6738,3 @@
     window.onload = init;
 
 })();
-

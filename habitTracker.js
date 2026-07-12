@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         elements: {},
         _hadDataLoadError: false,
+        _activeConfirmCleanup: null,
 
         init() {
             this.cacheElements();
@@ -292,10 +293,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return safeLogs;
             };
+            const getValidLocalDateTimestamp = (dateStr) => {
+                if (!safeDatePattern.test(dateStr)) return null;
+                const [year, month, day] = dateStr.split('-').map(Number);
+                const localDate = new Date(year, month - 1, day);
+                if (localDate.getFullYear() !== year || localDate.getMonth() !== month - 1 || localDate.getDate() !== day) {
+                    return null;
+                }
+                localDate.setHours(0, 0, 0, 0);
+                return localDate.getTime();
+            };
             const habits = Array.isArray(rawState.habits) ? rawState.habits : [];
             const sanitizedHabits = habits
                 .map((habit, index) => {
                     if (!habit || typeof habit !== 'object' || Array.isArray(habit)) return null;
+                    const normalizedLogs = normalizeLogs(habit.logs);
+                    const rawCreatedAt = Number(habit.createdAt);
+                    const hasValidCreatedAt = Number.isFinite(rawCreatedAt)
+                        && rawCreatedAt > 0
+                        && !Number.isNaN(new Date(rawCreatedAt).getTime());
+                    const earliestLogTimestamp = Object.keys(normalizedLogs)
+                        .sort()
+                        .map(getValidLocalDateTimestamp)
+                        .find(timestamp => timestamp !== null);
                     return {
                         id: makeId(habit.id, index),
                         name: String(habit.name ?? 'Untitled').trim().slice(0, 120) || 'Untitled',
@@ -304,8 +324,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         frequency: normalizeFrequency(habit.frequency),
                         isArchived: Boolean(habit.isArchived),
                         order: Number.isFinite(Number(habit.order)) ? Number(habit.order) : index,
-                        logs: normalizeLogs(habit.logs),
-                        createdAt: Number.isFinite(Number(habit.createdAt)) ? Number(habit.createdAt) : now + index
+                        logs: normalizedLogs,
+                        createdAt: hasValidCreatedAt ? rawCreatedAt : (earliestLogTimestamp ?? now + index)
                     };
                 })
                 .filter(Boolean)
@@ -811,6 +831,9 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         closeModal(modalElement) {
+            if (modalElement === this.elements.confirmModal) {
+                this.clearPendingConfirmDialog();
+            }
             document.body.style.overflow = '';
             modalElement.classList.remove('visible');
             if (modalElement._focusTrapHandler) {
@@ -938,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                 const dateStr = this.getDateString(d);
                 habits.forEach(habit => {
-                    if (this.isHabitForDate(habit, d)) {
+                    if (this.isHabitCountableOnDate(habit, d)) {
                         totalPossible++;
                         if (this.isHabitCompletedOn(habit, dateStr)) {
                             totalCompleted++;
@@ -954,7 +977,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let possible = 0;
             let completed = 0;
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                if (this.isHabitForDate(habit, d)) {
+                if (this.isHabitCountableOnDate(habit, d)) {
                     possible++;
                     if (this.isHabitCompletedOn(habit, this.getDateString(d))) {
                         completed++;
@@ -1175,7 +1198,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const todayStr = this.getDateString(today);
 
             habits.forEach(h => {
-                if (this.isHabitForDate(h, today)) {
+                if (this.isHabitCountableOnDate(h, today)) {
                     totalHabitsForToday++;
                     if (this.isHabitCompletedOn(h, todayStr)) completedHabitsForToday++;
                 }
@@ -1492,7 +1515,14 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         
         calculateHabitStats(habit) {
-            const sortedDates = Object.keys(habit.logs).sort();
+            const sortedDates = Object.keys(habit.logs)
+                .filter(dateStr => {
+                    const parsedDate = this.parseDateString(dateStr);
+                    return !Number.isNaN(parsedDate.getTime())
+                        && this.getDateString(parsedDate) === dateStr
+                        && this.isHabitWithinTrackingRange(habit, parsedDate);
+                })
+                .sort();
             if (sortedDates.length === 0) return { currentStreak: 0, longestStreak: 0, totalCompletions: 0, completionRate: 0 };
             
             let totalCompletions = 0, longestStreak = 0;
@@ -1527,12 +1557,15 @@ document.addEventListener('DOMContentLoaded', () => {
             let currentStreak = 0;
             const today = new Date();
             today.setHours(0,0,0,0);
+            const createdDate = this.getHabitCreatedLocalDate(habit);
 
             for (let i = 0; i < 365 * 5; i++) { 
                 let dateToCheck = new Date(today);
                 dateToCheck.setDate(today.getDate() - i);
+
+                if (createdDate && dateToCheck < createdDate) break;
                 
-                if (this.isHabitForDate(habit, dateToCheck)) {
+                if (this.isHabitCountableOnDate(habit, dateToCheck)) {
                     if (this.isHabitCompletedOn(habit, this.getDateString(dateToCheck))) {
                         currentStreak++;
                     } else {
@@ -1575,17 +1608,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         getMissedCount(habit, startDate = null, endDate = null) {
             let missed = 0;
-            const sortedDates = Object.keys(habit.logs).sort();
+            const sortedDates = Object.keys(habit.logs)
+                .filter(dateStr => {
+                    const parsedDate = this.parseDateString(dateStr);
+                    return !Number.isNaN(parsedDate.getTime())
+                        && this.getDateString(parsedDate) === dateStr
+                        && this.isHabitWithinTrackingRange(habit, parsedDate);
+                })
+                .sort();
             if (sortedDates.length === 0 && !startDate) return 0;
 
-            const firstDate = startDate ? new Date(startDate) : this.parseDateString(sortedDates[0]);
-            
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            const lastDate = endDate ? new Date(endDate) : today;
+            let firstDate = startDate
+                ? this.normalizeLocalDate(startDate)
+                : this.parseDateString(sortedDates[0]);
+            const createdDate = this.getHabitCreatedLocalDate(habit);
+            const today = this.normalizeLocalDate(new Date());
+            let lastDate = endDate ? this.normalizeLocalDate(endDate) : today;
+
+            if (!firstDate || !lastDate || !createdDate || !today) return 0;
+            if (firstDate < createdDate) firstDate = new Date(createdDate);
+            if (lastDate > today) lastDate = new Date(today);
+            if (firstDate > lastDate) return 0;
 
             for(let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
-                if (this.isHabitForDate(habit, d) && !this.isHabitCompletedOn(habit, this.getDateString(d))) {
+                if (this.isHabitCountableOnDate(habit, d) && !this.isHabitCompletedOn(habit, this.getDateString(d))) {
                     missed++;
                 }
             }
@@ -1602,6 +1648,30 @@ document.addEventListener('DOMContentLoaded', () => {
         parseDateString: (dateStr) => {
             const [year, month, day] = dateStr.split('-').map(Number);
             return new Date(year, month - 1, day);
+        },
+        normalizeLocalDate(date) {
+            const normalized = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+            if (Number.isNaN(normalized.getTime())) return null;
+            return this.parseDateString(this.getDateString(normalized));
+        },
+        getHabitCreatedLocalDate(habit) {
+            const createdAt = Number(habit?.createdAt);
+            if (!Number.isFinite(createdAt)) return null;
+            return this.normalizeLocalDate(new Date(createdAt));
+        },
+        isHabitWithinTrackingRange(habit, date) {
+            const targetDate = this.normalizeLocalDate(date);
+            const createdDate = this.getHabitCreatedLocalDate(habit);
+            const today = this.normalizeLocalDate(new Date());
+            if (!targetDate || !createdDate || !today) return false;
+            return targetDate >= createdDate
+                && targetDate <= today;
+        },
+        isHabitCountableOnDate(habit, date) {
+            const targetDate = this.normalizeLocalDate(date);
+            return !!targetDate
+                && this.isHabitWithinTrackingRange(habit, targetDate)
+                && this.isHabitForDate(habit, targetDate);
         },
         isHabitForDate: (habit, date) => (habit.frequency?.days || [0,1,2,3,4,5,6]).includes(date.getDay()),
         isHabitCompletedOn(habit, dateStr) {
@@ -1768,7 +1838,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let possible = 0;
                 let completed = 0;
                 habits.forEach(habit => {
-                    if (this.isHabitForDate(habit, d)) {
+                    if (this.isHabitCountableOnDate(habit, d)) {
                         possible++;
                         if (this.isHabitCompletedOn(habit, dateStr)) {
                             completed++;
@@ -1841,7 +1911,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const loopDate = new Date(year, month, day);
                     const dateStr = this.getDateString(loopDate);
                     habits.forEach(habit => {
-                        if (this.isHabitForDate(habit, loopDate)) {
+                        if (this.isHabitCountableOnDate(habit, loopDate)) {
                             totalPossible++;
                             if (this.isHabitCompletedOn(habit, dateStr)) {
                                 totalCompleted++;
@@ -1887,7 +1957,9 @@ document.addEventListener('DOMContentLoaded', () => {
             firstLogDate.setHours(0,0,0,0);
 
             if (habits.length > 0) {
-                const allLogDates = habits.flatMap(h => Object.keys(h.logs).map(d => this.parseDateString(d)));
+                const allLogDates = habits.flatMap(h => Object.keys(h.logs)
+                    .map(d => this.parseDateString(d))
+                    .filter(d => !Number.isNaN(d.getTime()) && this.isHabitWithinTrackingRange(h, d)));
                 if (allLogDates.length > 0) {
                     firstLogDate = new Date(Math.min(...allLogDates));
                 }
@@ -1899,7 +1971,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dayOfWeek = d.getDay();
                 const dateStr = this.getDateString(d);
                 habits.forEach(habit => {
-                    if (this.isHabitForDate(habit, d)) {
+                    if (this.isHabitCountableOnDate(habit, d)) {
                         possible[dayOfWeek]++;
                         if (this.isHabitCompletedOn(habit, dateStr)) {
                             completed[dayOfWeek]++;
@@ -1974,27 +2046,42 @@ document.addEventListener('DOMContentLoaded', () => {
                     const today = new Date();
                     today.setHours(0,0,0,0);
                     const todayStr = this.getDateString(today);
-                    const habitsForToday = this.state.habits.filter(h => !h.isArchived && this.isHabitForDate(h, today));
+                    const habitsForToday = this.state.habits.filter(h => !h.isArchived && this.isHabitCountableOnDate(h, today));
                     return habitsForToday.length > 0 && habitsForToday.every(h => this.isHabitCompletedOn(h, todayStr));
                 },
                 'perfect_week': () => {
                     const today = new Date();
                     today.setHours(0,0,0,0);
+                    const activeHabits = this.state.habits.filter(h => !h.isArchived);
+                    const periodStart = new Date(today);
+                    periodStart.setDate(today.getDate() - 6);
+                    const hasFullObservationWindow = activeHabits.some(habit => {
+                        const createdDate = this.getHabitCreatedLocalDate(habit);
+                        return createdDate && createdDate <= periodStart;
+                    });
+                    if (!hasFullObservationWindow) return false;
+
+                    let opportunityCount = 0;
                     for (let i = 0; i < 7; i++) {
                         const dateToCheck = new Date(today); dateToCheck.setDate(today.getDate() - i);
                         const dateStr = this.getDateString(dateToCheck);
-                        const habitsForDay = this.state.habits.filter(h => !h.isArchived && this.isHabitForDate(h, dateToCheck));
+                        const habitsForDay = activeHabits.filter(h => this.isHabitCountableOnDate(h, dateToCheck));
+                        opportunityCount += habitsForDay.length;
                         if (habitsForDay.length > 0 && !habitsForDay.every(h => this.isHabitCompletedOn(h, dateStr))) {
                             return false;
                         }
                     }
-                    return this.state.habits.filter(h => !h.isArchived).length > 0;
+                    return opportunityCount > 0;
                 },
                 'perfect_month': () => {
                     const activeHabits = this.state.habits.filter(h => !h.isArchived);
                     if (activeHabits.length === 0) return false;
                     
-                    const allLogDates = activeHabits.flatMap(h => Object.keys(h.logs));
+                    const allLogDates = activeHabits.flatMap(h => Object.keys(h.logs)
+                        .filter(dateStr => {
+                            const date = this.parseDateString(dateStr);
+                            return !Number.isNaN(date.getTime()) && this.isHabitWithinTrackingRange(h, date);
+                        }));
                     if (allLogDates.length === 0) return false;
 
                     const monthsToCheck = new Set(allLogDates.map(d => d.substring(0, 7)));
@@ -2003,11 +2090,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         const [year, month] = monthStr.split('-').map(Number);
                         const firstDay = new Date(year, month - 1, 1);
                         const lastDay = new Date(year, month, 0);
+                        const today = this.normalizeLocalDate(new Date());
+                        if (!today || lastDay > today) continue;
+                        const hasFullObservationWindow = activeHabits.some(habit => {
+                            const createdDate = this.getHabitCreatedLocalDate(habit);
+                            return createdDate && createdDate <= firstDay;
+                        });
+                        if (!hasFullObservationWindow) continue;
+
                         let isMonthPerfect = true;
+                        let opportunityCount = 0;
 
                         for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
                             const dateStr = this.getDateString(d);
-                            const habitsForDay = activeHabits.filter(h => this.isHabitForDate(h, d));
+                            const habitsForDay = activeHabits.filter(h => this.isHabitCountableOnDate(h, d));
+                            opportunityCount += habitsForDay.length;
                             if (habitsForDay.length > 0) {
                                 if (!habitsForDay.every(h => this.isHabitCompletedOn(h, dateStr))) {
                                     isMonthPerfect = false;
@@ -2015,7 +2112,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 }
                             }
                         }
-                        if (isMonthPerfect) return true;
+                        if (isMonthPerfect && opportunityCount > 0) return true;
                     }
                     return false;
                 },
@@ -2111,28 +2208,41 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         },
 
+        clearPendingConfirmDialog() {
+            const cleanup = this._activeConfirmCleanup;
+            this._activeConfirmCleanup = null;
+            if (typeof cleanup === 'function') cleanup();
+        },
+
         showConfirmDialog(title, message, onConfirm) {
+            // Backdrop/Escape로 이전 확인창을 닫은 경우에도 파괴적 콜백 리스너가
+            // 다음 확인창까지 남지 않도록, 새 확인창을 열기 전에 먼저 정리합니다.
+            this.clearPendingConfirmDialog();
             this.elements.confirmTitle.textContent = title;
             this.elements.confirmMessage.textContent = message;
 
             const onOkClick = () => {
-                onConfirm();
-                this.closeModal(this.elements.confirmModal);
                 cleanup();
+                this.closeModal(this.elements.confirmModal);
+                onConfirm();
             };
 
             const onCancelClick = () => {
-                this.closeModal(this.elements.confirmModal);
                 cleanup();
+                this.closeModal(this.elements.confirmModal);
             };
 
             const cleanup = () => {
                 this.elements.confirmOkBtn.removeEventListener('click', onOkClick);
                 this.elements.confirmCancelBtn.removeEventListener('click', onCancelClick);
+                if (this._activeConfirmCleanup === cleanup) {
+                    this._activeConfirmCleanup = null;
+                }
             };
 
-            this.elements.confirmOkBtn.addEventListener('click', onOkClick, { once: true });
-            this.elements.confirmCancelBtn.addEventListener('click', onCancelClick, { once: true });
+            this._activeConfirmCleanup = cleanup;
+            this.elements.confirmOkBtn.addEventListener('click', onOkClick);
+            this.elements.confirmCancelBtn.addEventListener('click', onCancelClick);
 
             this.openModal(this.elements.confirmModal);
         },

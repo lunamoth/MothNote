@@ -1547,6 +1547,148 @@ const restoreLocalStorageValue = (key, value) => {
 };
 
 
+const isPlainImportObject = value => (
+    value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+);
+
+const parseIntegratedImportValue = (value, label) => {
+    if (value === null) return null;
+    if (typeof value !== 'string') return value;
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+        throw new Error(`${label} 데이터가 비어 있습니다.`);
+    }
+
+    try {
+        return JSON.parse(trimmed);
+    } catch (error) {
+        throw new Error(`${label} 데이터가 올바른 JSON 형식이 아닙니다.`);
+    }
+};
+
+const normalizeHabitTrackerImportValue = value => {
+    const parsed = parseIntegratedImportValue(value, '습관 트래커');
+    if (parsed === null) return null;
+    if (!isPlainImportObject(parsed) || !Array.isArray(parsed.habits)) {
+        throw new Error('습관 트래커 백업 구조가 올바르지 않습니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');
+    }
+
+    sanitizeObjectForPrototypePollution(parsed);
+    const hasInvalidHabit = parsed.habits.some(habit => (
+        !isPlainImportObject(habit)
+        || ('logs' in habit && !isPlainImportObject(habit.logs))
+        || ('frequency' in habit && !isPlainImportObject(habit.frequency))
+    ));
+    if (hasInvalidHabit) {
+        throw new Error('습관 트래커 백업에 손상된 습관 항목이 있습니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');
+    }
+
+    return JSON.stringify(parsed);
+};
+
+const parseDietImportDate = value => {
+    const dateText = String(value ?? '').trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const monthIndex = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const date = new Date(year, monthIndex, day);
+    if (date.getFullYear() !== year || date.getMonth() !== monthIndex || date.getDate() !== day) {
+        return null;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date > today ? null : dateText;
+};
+
+const roundDietImportNumber = value => Math.round((Number(value) + Number.EPSILON) * 10) / 10;
+
+const normalizeDietRecordsImportValue = value => {
+    const parsed = parseIntegratedImportValue(value, '다이어트 기록');
+    if (parsed === null) return null;
+    if (!Array.isArray(parsed)) {
+        throw new Error('다이어트 기록 백업은 배열 형식이어야 합니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');
+    }
+
+    const usedDates = new Set();
+    const normalizedRecords = parsed.map(rawRecord => {
+        if (!isPlainImportObject(rawRecord)) {
+            throw new Error('다이어트 기록 백업에 손상된 항목이 있습니다.');
+        }
+
+        const date = parseDietImportDate(rawRecord.date);
+        const weight = Number(rawRecord.weight);
+        if (!date || !Number.isFinite(weight) || weight < 30 || weight > 300 || usedDates.has(date)) {
+            throw new Error('다이어트 기록 백업에 잘못된 날짜·체중 또는 중복 날짜가 있습니다.');
+        }
+
+        const normalized = { date, weight: roundDietImportNumber(weight) };
+        const hasFat = rawRecord.fat !== undefined
+            && rawRecord.fat !== null
+            && String(rawRecord.fat).trim() !== '';
+        if (hasFat) {
+            const fat = Number(rawRecord.fat);
+            if (!Number.isFinite(fat) || fat < 1 || fat > 70) {
+                throw new Error('다이어트 기록 백업에 잘못된 체지방률이 있습니다.');
+            }
+            normalized.fat = roundDietImportNumber(fat);
+        }
+
+        usedDates.add(date);
+        return normalized;
+    });
+
+    normalizedRecords.sort((a, b) => a.date.localeCompare(b.date));
+    return JSON.stringify(normalizedRecords);
+};
+
+const normalizeDietSettingsImportValue = value => {
+    const parsed = parseIntegratedImportValue(value, '다이어트 설정');
+    if (parsed === null) return null;
+    if (!isPlainImportObject(parsed)) {
+        throw new Error('다이어트 설정 백업 구조가 올바르지 않습니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');
+    }
+
+    sanitizeObjectForPrototypePollution(parsed);
+    const defaults = { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 };
+    const getNumberOrDefault = (propertyName, min, max, { integer = false } = {}) => {
+        if (!Object.prototype.hasOwnProperty.call(parsed, propertyName)) return defaults[propertyName];
+        const number = Number(parsed[propertyName]);
+        if (!Number.isFinite(number) || number < min || number > max) {
+            throw new Error(`다이어트 설정의 ${propertyName} 값이 올바르지 않습니다.`);
+        }
+        return integer ? Math.round(number) : roundDietImportNumber(number);
+    };
+
+    return JSON.stringify({
+        height: getNumberOrDefault('height', Number.EPSILON, 300),
+        startWeight: getNumberOrDefault('startWeight', Number.EPSILON, 500),
+        goal1: getNumberOrDefault('goal1', Number.EPSILON, 500),
+        intake: getNumberOrDefault('intake', 1, 10000, { integer: true })
+    });
+};
+
+const normalizeIntegratedImportFields = importedData => {
+    const normalized = {};
+    if (Object.prototype.hasOwnProperty.call(importedData, 'habitTrackerData')) {
+        normalized.habitTrackerData = normalizeHabitTrackerImportValue(importedData.habitTrackerData);
+    }
+    if (Object.prototype.hasOwnProperty.call(importedData, 'dietChallengeData')) {
+        normalized.dietChallengeData = normalizeDietRecordsImportValue(importedData.dietChallengeData);
+    }
+    if (Object.prototype.hasOwnProperty.call(importedData, 'dietChallengeSettings')) {
+        normalized.dietChallengeSettings = normalizeDietSettingsImportValue(importedData.dietChallengeSettings);
+    }
+    return normalized;
+};
+
+
 const getImportableSimplenoteNotes = (notes) => {
     if (!Array.isArray(notes)) return [];
     return notes.filter(note => note && typeof note === 'object' && !Array.isArray(note));
@@ -1764,6 +1906,10 @@ export const setupImportHandler = () => {
                 }
                 
                 // [기존 로직] MothNote 백업 파일 처리
+                // 통합 백업의 부가 데이터도 주 노트 데이터와 동일하게 쓰기 전에 검증합니다.
+                // 잘못된 선택 필드 하나가 정상 습관·다이어트 데이터를 빈 상태로 덮어쓴 뒤
+                // 완료 백업까지 삭제하는 데이터 유실을 방지합니다.
+                const normalizedIntegratedFields = normalizeIntegratedImportFields(importedData);
                 const sanitizedContent = sanitizeContentData(importedData);
                 
                 const hasOwnImportedField = (propertyName) => Object.prototype.hasOwnProperty.call(importedData, propertyName);
@@ -1848,14 +1994,9 @@ export const setupImportHandler = () => {
                     overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
                     document.body.appendChild(overlay);
 
-                    const toStorageString = (value) => {
-                        if (value == null) return null;
-                        return typeof value === 'string' ? value : JSON.stringify(value);
-                    };
-
                     const restoreImportedLocalStorageValueIfPresent = (key, propertyName) => {
-                        if (!hasOwnImportedField(propertyName)) return;
-                        restoreLocalStorageValue(key, toStorageString(importedData[propertyName]));
+                        if (!Object.prototype.hasOwnProperty.call(normalizedIntegratedFields, propertyName)) return;
+                        restoreLocalStorageValue(key, normalizedIntegratedFields[propertyName]);
                     };
 
                     try {

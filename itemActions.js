@@ -1339,10 +1339,11 @@ export async function saveCurrentNoteIfChanged() {
     const anotherNoteBecameDirty = state.isDirty && state.dirtyNoteId && state.dirtyNoteId !== noteIdToSave;
 
     if (anotherNoteBecameDirty) {
-        // 저장 대기 중 사용자가 다른 노트를 편집하기 시작한 경우, 방금 저장한 노트의 완료 처리가
-        // 새 노트의 dirty 상태를 지워 데이터 유실을 만들지 않도록 그대로 보존합니다.
+        // 저장 대기 중 사용자가 다른 노트를 편집하기 시작한 경우, 새 노트의 dirty 상태는 그대로 보존하고
+        // 오래된 저장 호출에는 실패를 반환합니다. 그래야 이 호출을 기다리던 탐색/화면 전환이 계속 진행되지 않아
+        // 새 노트의 미저장 DOM 버퍼를 렌더링으로 덮어쓰지 않습니다.
         updateSaveStatus('dirty');
-        return true;
+        return false;
     }
 
     if (draftChangedDuringSave && activeEditorStillOwnsSavedNote) {
@@ -1417,7 +1418,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         return true;
     }
 
-    pendingRenameCompletionPromise = (async () => {
+    const completionPromise = (async () => {
         let result = false;
 
         try {
@@ -1517,11 +1518,20 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
                 resolvePendingRename = null;
             }
             pendingRenamePromise = null;
-            pendingRenameCompletionPromise = null;
         }
     })();
 
-    return await pendingRenameCompletionPromise;
+    pendingRenameCompletionPromise = completionPromise;
+
+    try {
+        return await completionPromise;
+    } finally {
+        // async IIFE가 첫 await 전에 조기 반환하더라도 바깥 할당이 null 정리를 덮어쓰지 않게 합니다.
+        // 이후 이름 변경이 새 Promise를 설치한 경우에는 그 작업의 상태를 건드리지 않습니다.
+        if (pendingRenameCompletionPromise === completionPromise) {
+            pendingRenameCompletionPromise = null;
+        }
+    }
 };
 
 export const startRename = async (liElement, type) => {
