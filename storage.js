@@ -88,12 +88,14 @@ const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 
 // 로드/가져오기 시 폴더·노트 ID 형식과 예약 ID를 엄격히 검증해 앱 내부 참조 무결성을 보장합니다.
 const RESERVED_ITEM_IDS = new Set(Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(folder => folder.id));
 const MAX_ITEM_ID_LENGTH = 160;
-const MAX_FOLDER_NAME_LENGTH = 120;
 
 const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
 
 const normalizeFolderName = (value, fallback = '새 폴더') => {
-    const normalized = String(value ?? fallback).trim().slice(0, MAX_FOLDER_NAME_LENGTH);
+    // 폴더 이름 입력은 길이를 제한하지 않으므로, 로드/가져오기에서도
+    // 임의로 자르지 않습니다. 일치하지 않는 제한은 정상 저장된 이름을
+    // 재시작·가져오기·롤백 시 조용히 손실시킬 수 있습니다.
+    const normalized = String(value ?? fallback).trim();
     return normalized || fallback;
 };
 
@@ -108,8 +110,7 @@ const getUniqueFolderName = (name, usedNameKeys) => {
     let counter = 2;
     while (counter < 10000) {
         const suffix = ` (${counter})`;
-        const truncatedBase = baseName.slice(0, Math.max(1, MAX_FOLDER_NAME_LENGTH - suffix.length));
-        const candidate = `${truncatedBase}${suffix}`;
+        const candidate = `${baseName}${suffix}`;
         const candidateKey = candidate.toLowerCase();
         if (!usedNameKeys.has(candidateKey)) {
             usedNameKeys.add(candidateKey);
@@ -119,7 +120,7 @@ const getUniqueFolderName = (name, usedNameKeys) => {
     }
 
     const fallbackSuffix = ` (${Date.now()})`;
-    const fallbackName = `${baseName.slice(0, Math.max(1, MAX_FOLDER_NAME_LENGTH - fallbackSuffix.length))}${fallbackSuffix}`;
+    const fallbackName = `${baseName}${fallbackSuffix}`;
     usedNameKeys.add(fallbackName.toLowerCase());
     return fallbackName;
 };
@@ -322,9 +323,9 @@ const verifyAndSanitizeLoadedData = (data) => {
         if (value !== undefined) markChanged(false);
         return {};
     };
-    const normalizeText = (value, fallback, maxLength) => {
+    const normalizeText = (value, fallback) => {
         const text = String(value ?? fallback ?? '').trim();
-        return text.slice(0, maxLength);
+        return text;
     };
     const normalizeTimestamp = (value, fallback = now, shouldNotify = true) => {
         const timestamp = Number(value);
@@ -379,7 +380,7 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         const note = rawNote;
         normalizeId(note, CONSTANTS.ID_PREFIX.NOTE, CONSTANTS.ITEM_TYPE.NOTE);
-        note.title = normalizeText(note.title, '제목 없음', 200) || '제목 없음';
+        note.title = normalizeText(note.title, '제목 없음') || '제목 없음';
         note.content = String(note.content ?? '');
         note.createdAt = normalizeTimestamp(note.createdAt);
         note.updatedAt = normalizeTimestamp(note.updatedAt, note.createdAt);
@@ -1223,7 +1224,8 @@ const sanitizeContentData = data => {
         const updatedAt = normalizeTimestamp(rawNote.updatedAt, createdAt);
         const note = {
             id: noteId,
-            title: String(rawNote.title ?? '제목 없는 노트').slice(0, 200),
+            // 현재 편집기가 허용하는 제목을 백업 복원에서도 손실 없이 보존합니다.
+            title: String(rawNote.title ?? '제목 없는 노트'),
             content: String(rawNote.content ?? ''),
             createdAt,
             updatedAt,

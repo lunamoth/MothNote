@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         elements: {},
         _hadDataLoadError: false,
+        _hasPersistedIntegratedData: false,
         _activeConfirmCleanup: null,
 
         init() {
@@ -64,8 +65,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // --- MODIFIED: 사용자가 데이터를 초기화한 후 새로고침 시 기본 습관이 추가되는 것을 방지 ---
             const hasBeenInitialized = localStorage.getItem('habitTrackerInitialized') === 'true';
-            if (this.state.habits.length === 0 && !hasBeenInitialized && !this._hadDataLoadError) {
+            // 통합 키에 정상적인 빈 상태가 있다면 '초기화하지 않음'이 아니라
+            // 사용자가 의도적으로 모두 지운 저장된 상태일 수 있습니다.
+            if (this.state.habits.length === 0
+                && !hasBeenInitialized
+                && !this._hasPersistedIntegratedData
+                && !this._hadDataLoadError) {
                 if (this.setupDefaultHabits()) {
+                    this._hasPersistedIntegratedData = true;
                     try {
                         localStorage.setItem('habitTrackerInitialized', 'true');
                     } catch (error) {
@@ -318,7 +325,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         .find(timestamp => timestamp !== null);
                     return {
                         id: makeId(habit.id, index),
-                        name: String(habit.name ?? 'Untitled').trim().slice(0, 120) || 'Untitled',
+                        // 입력 단계에 없는 길이 제한을 로드 단계에서만 적용하면
+                        // 재시작 후 사용자가 작성한 접미부가 조용히 손실됩니다.
+                        name: String(habit.name ?? 'Untitled').trim() || 'Untitled',
                         type: 'check',
                         goal: 1,
                         frequency: normalizeFrequency(habit.frequency),
@@ -367,6 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = localStorage.getItem('habitTrackerDataV2_integrated');
             const oldData = localStorage.getItem('habitTrackerDataV2'); // 이전 버전 키
             const veryOldData = localStorage.getItem('habitTrackerData'); // 아주 오래된 버전 키
+            this._hasPersistedIntegratedData = data !== null;
 
 			if (data) {
                 try {
@@ -408,7 +418,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.state.currentDate = today;
             }
             
-            if (!this._hadDataLoadError && (!this.state.habits || this.state.habits.length === 0) && (oldData || veryOldData)) {
+            // 레거시 마이그레이션은 현재 통합 데이터가 '없을 때'만 합니다.
+            // 통합 키의 habits: []는 유효한 사용자 상태이며, 오래된 키로 덮어쓰면 안 됩니다.
+            if (!this._hadDataLoadError && !this._hasPersistedIntegratedData && (oldData || veryOldData)) {
                 console.log("Old data found and no new data exists. Migrating...");
                 this.migrateData(oldData || veryOldData, oldData ? 'habitTrackerDataV2' : 'habitTrackerData');
             }
@@ -451,10 +463,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 this.state = { ...this.state, ...this.sanitizeLoadedState(this.state), chartInstances: {} };
                 if (this.saveData()) { // 새 키로 저장이 끝난 뒤에만 기존 키 제거
+                    this._hasPersistedIntegratedData = true;
                     try {
-                        localStorage.removeItem(legacyKeyToRemove);
+                        // 두 레거시 키가 동시에 남아 있어도 향후 초기화 후 다시
+                        // 오래된 데이터를 부활시키지 않도록, 검증된 신규 저장 후 모두 정리합니다.
+                        localStorage.removeItem('habitTrackerDataV2');
+                        localStorage.removeItem('habitTrackerData');
                     } catch (removeError) {
-                        console.warn('Failed to remove legacy habit tracker data after successful migration.', removeError);
+                        console.warn(`Failed to remove legacy habit tracker data after successful migration (${legacyKeyToRemove}).`, removeError);
                     }
                     this.showToast("데이터 구조가 최신 버전으로 업데이트되었습니다!", 'info');
                 } else {
@@ -644,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const loopDate = new Date(year, month, i);
                 const dateStr = this.getDateString(loopDate);
                 const isToday = this.getDateString(new Date()) === dateStr;
-                const habitsForDay = this.getFilteredHabits().filter(habit => this.isHabitForDate(habit, loopDate));
+                const habitsForDay = this.getFilteredHabits().filter(habit => this.isHabitCountableOnDate(habit, loopDate));
                 
                 const dayOfWeek = loopDate.getDay();
                 let dayClass = '';
@@ -705,7 +721,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const habitsForDay = this.getFilteredHabits().filter(h => this.isHabitForDate(h, selectedDate));
+            const habitsForDay = this.getFilteredHabits().filter(h => this.isHabitCountableOnDate(h, selectedDate));
 
             // --- MODIFICATION: Add summary text ---
             const totalHabits = habitsForDay.length;
@@ -762,8 +778,12 @@ document.addEventListener('DOMContentLoaded', () => {
             habits.forEach(habit => {
                 Object.keys(habit.logs).forEach(dateStr => {
                     const logData = habit.logs[dateStr];
-                    if (logData && logData.value > 0) {
-                        allLogs.push({ date: this.parseDateString(dateStr), habit, ...logData, isCompleted: this.isHabitCompletedOn(habit, dateStr) });
+                    const logDate = this.parseDateString(dateStr);
+                    if (logData
+                        && logData.value > 0
+                        && this.getDateString(logDate) === dateStr
+                        && this.isHabitCountableOnDate(habit, logDate)) {
+                        allLogs.push({ date: logDate, habit, ...logData, isCompleted: this.isHabitCompletedOn(habit, dateStr) });
                     }
                 });
             });
@@ -1465,6 +1485,11 @@ document.addEventListener('DOMContentLoaded', () => {
         updateCheck(habitId, dateStr, isChecked) {
             const habit = this.state.habits.find(h => h.id == habitId);
             if (!habit) return;
+            if (!this.isHabitDateWritable(habit, dateStr)) {
+                this.showToast('습관은 생성일부터 오늘까지의 예정된 날짜에만 기록할 수 있습니다.', 'error');
+                this.render();
+                return;
+            }
             const previousState = this.createPersistableStateSnapshot();
             if (!habit.logs[dateStr]) habit.logs[dateStr] = { value: 0 };
             habit.logs[dateStr].value = isChecked ? 1 : 0;
@@ -1493,6 +1518,11 @@ document.addEventListener('DOMContentLoaded', () => {
         handleHabitClick(habitId, dateStr, element) {
             const habit = this.state.habits.find(h => h.id == habitId);
             if (!habit) return;
+            if (!this.isHabitDateWritable(habit, dateStr)) {
+                this.showToast('습관은 생성일부터 오늘까지의 예정된 날짜에만 기록할 수 있습니다.', 'error');
+                this.render();
+                return;
+            }
             const previousState = this.createPersistableStateSnapshot();
             if (!habit.logs[dateStr]) habit.logs[dateStr] = { value: 0 };
             
@@ -1672,6 +1702,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return !!targetDate
                 && this.isHabitWithinTrackingRange(habit, targetDate)
                 && this.isHabitForDate(habit, targetDate);
+        },
+        isHabitDateWritable(habit, dateStr) {
+            if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+            const parsedDate = this.parseDateString(dateStr);
+            return !Number.isNaN(parsedDate.getTime())
+                && this.getDateString(parsedDate) === dateStr
+                && this.isHabitCountableOnDate(habit, parsedDate);
         },
         isHabitForDate: (habit, date) => (habit.frequency?.days || [0,1,2,3,4,5,6]).includes(date.getDay()),
         isHabitCompletedOn(habit, dateStr) {

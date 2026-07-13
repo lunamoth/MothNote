@@ -239,10 +239,19 @@ export const clearEmergencyChangesBackupEntry = (entryKey, shouldClearEntry) => 
     }
 };
 
-const clearSavedNoteEmergencyBackup = (noteId) => {
+const clearSavedNoteEmergencyBackup = (noteId, committedDraft = null) => {
     const normalizedNoteId = String(noteId ?? '');
     if (!normalizedNoteId) return;
-    clearEmergencyChangesBackupEntry('noteUpdate', entry => String(entry?.noteId ?? '') === normalizedNoteId);
+    clearEmergencyChangesBackupEntry('noteUpdate', entry => {
+        if (String(entry?.noteId ?? '') !== normalizedNoteId) return false;
+        if (!committedDraft) return true;
+
+        // 저장 중 beforeunload가 더 최신 편집본을 기록했을 수 있습니다.
+        // 노트 ID만 같다는 이유로 새로운 백업을 지우지 않고, 실제 커밋한
+        // 입력 스냅샷과 제목·본문이 모두 같을 때만 정리합니다.
+        return String(entry?.title ?? '') === String(committedDraft.title ?? '')
+            && String(entry?.content ?? '') === String(committedDraft.content ?? '');
+    });
 };
 
 const clearRenameEmergencyBackup = (id, type) => {
@@ -1318,8 +1327,6 @@ export async function saveCurrentNoteIfChanged() {
         return false;
     }
 
-    clearSavedNoteEmergencyBackup(payload?.savedNoteId ?? noteIdToSave);
-
     let liveTitle = noteTitleInput?.value ?? titleToSave;
     const liveContent = noteContentTextarea?.value ?? contentToSave;
     const titleChangedDuringSave = liveTitle !== titleToSave;
@@ -1373,6 +1380,13 @@ export async function saveCurrentNoteIfChanged() {
         updateSaveStatus(state.isDirty ? 'dirty' : 'saved');
     }
 
+    // 최신 DOM 버퍼까지 성공적으로 커밋된 종료 경로에서만 비상 백업을 정리합니다.
+    // 저장 중 추가 입력이 발생했다면 위 분기에서 재귀 저장을 먼저 완료합니다.
+    clearSavedNoteEmergencyBackup(payload?.savedNoteId ?? noteIdToSave, {
+        title: titleToSave,
+        content: contentToSave
+    });
+
     return true;
 }
 
@@ -1397,6 +1411,10 @@ export async function handleUserInput() {
             clearTimeout(autoSaveTimer);
             updateSaveStatus('saved');
         }
+        // 이탈 경고를 취소한 뒤 사용자가 저장된 내용으로 직접 되돌렸다면,
+        // 이전 beforeunload가 남긴 초안은 이제 의도적으로 폐기된 상태입니다.
+        // 그대로 두면 다음 실행에서 예전 초안을 다시 덮어쓸 수 있어 정리합니다.
+        clearSavedNoteEmergencyBackup(activeNote.id);
         return;
     }
 
@@ -1538,6 +1556,10 @@ export const startRename = async (liElement, type) => {
     const id = liElement?.dataset.id;
     if (!id || isStartingRename || state.renamingItemId || state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) return;
     if (Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === id)) return;
+    if (state.isPerformingOperation) {
+        showToast('다른 저장 작업이 끝난 뒤 이름 변경을 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
 
     isStartingRename = true;
     try {
@@ -1557,7 +1579,14 @@ export const startRename = async (liElement, type) => {
 
         // 저장을 기다리는 동안 항목이 삭제되었을 수 있으므로 현재 상태에서 다시 확인합니다.
         const { item: currentItem } = type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id);
-        if (!currentItem || state.renamingItemId) return;
+        // 위 await 구간 사이에 다른 트랜잭션이 시작됐다면, 그 완료 렌더가
+        // contentEditable DOM을 교체하여 입력 중인 이름을 잃을 수 있으므로 시작하지 않습니다.
+        if (!currentItem || state.renamingItemId || state.isPerformingOperation) {
+            if (state.isPerformingOperation) {
+                showToast('다른 저장 작업이 끝난 뒤 이름 변경을 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+            }
+            return;
+        }
         
         // 상태가 먼저 바뀐 직후 다른 작업이 들어와도 finishPendingRename()이
         // 반드시 이 작업을 인식하도록 Promise를 타이머보다 먼저 생성합니다.

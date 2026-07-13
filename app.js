@@ -1099,12 +1099,17 @@ class Dashboard {
         if (!this.dom.prevMonthBtn || !this.dom.nextMonthBtn || !this.dom.calendarGrid || !this.dom.calendarMonthYear) return;
 
         this.dom.prevMonthBtn.onclick = () => {
-            this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() - 1);
+            const current = this.internalState.currentDate;
+            // 1월 31일에 setMonth(12월)을 호출하면 12월 31일로 갈 수 있지만,
+            // 3월 31일에 setMonth(2월)을 호출하면 날짜 보정으로 다시 3월이 됩니다.
+            // 월 탐색은 항상 1일을 기준으로 새 Date를 만들어 말일 오버플로를 막습니다.
+            this.internalState.currentDate = new Date(current.getFullYear(), current.getMonth() - 1, 1);
             this.renderCalendar();
         };
 
         this.dom.nextMonthBtn.onclick = () => {
-            this.internalState.currentDate.setMonth(this.internalState.currentDate.getMonth() + 1);
+            const current = this.internalState.currentDate;
+            this.internalState.currentDate = new Date(current.getFullYear(), current.getMonth() + 1, 1);
             this.renderCalendar();
         };
 

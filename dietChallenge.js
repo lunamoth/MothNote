@@ -553,7 +553,8 @@
             statsCache: null,
             isDirty: true,
             calendarViewDate: new Date(),
-            medicalNarrativePlainText: ''
+            medicalNarrativePlainText: '',
+            hasRenderedNonEmptyRecords: false
         }
     };
 
@@ -1337,6 +1338,7 @@
             if (!content) return showToast('CSV 파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
             const lines = content.split(/\r?\n/);
             let count = 0;
+            let rejectedCount = 0;
             const nextRecords = cloneDietRecords(AppState.records);
             
             for(let i=0; i<lines.length; i++) {
@@ -1347,14 +1349,30 @@
                 
                 if(matches.length >= 2) {
                     const d = matches[0].trim().replace(/['"]/g, ''); 
-                    const w = parseFloat(matches[1]);
-                    const rec = sanitizeDietRecord({ date: d, weight: w, fat: matches[2] });
+                    const weightText = String(matches[1] ?? '').trim();
+                    const fatText = String(matches[2] ?? '').trim();
+                    const w = Number(weightText);
+                    const hasFat = fatText !== '';
+                    const fat = hasFat ? Number(fatText) : undefined;
+
+                    // parseFloat('77kg')나 잘못된 체지방 문자열을 부분적으로 받아들이면,
+                    // 같은 날짜의 정상 기록을 덮어쓰면서 기존 체지방률만 조용히 삭제될 수 있습니다.
+                    if (!weightText || !Number.isFinite(w) || (hasFat && !Number.isFinite(fat))) {
+                        rejectedCount++;
+                        continue;
+                    }
+
+                    const rec = sanitizeDietRecord({ date: d, weight: w, fat });
                     if(rec) {
                         const idx = nextRecords.findIndex(r => r.date === rec.date);
                         if(idx >= 0) nextRecords[idx] = rec;
                         else nextRecords.push(rec);
                         count++;
+                    } else {
+                        rejectedCount++;
                     }
+                } else {
+                    rejectedCount++;
                 }
             }
             const sanitizedRecords = sanitizeDietRecords(nextRecords);
@@ -1363,7 +1381,8 @@
             AppState.state.isDirty = true;
             
             updateUI();
-            showToast(`${count}건의 데이터(CSV)를 불러왔습니다.`);
+            const rejectedMessage = rejectedCount > 0 ? ` (잘못된 행 ${rejectedCount}건은 기존 데이터를 보호하기 위해 건너뜀)` : '';
+            showToast(`${count}건의 데이터(CSV)를 불러왔습니다.${rejectedMessage}`);
         };
         reader.readAsText(file);
     }
@@ -1412,6 +1431,20 @@
 
     // --- 4. 메인 렌더링 함수 ---
     function updateUI() {
+        // 이미 데이터를 렌더링한 화면에서 마지막 기록을 삭제하거나,
+        // 전체 초기화·빈 백업 복원을 하면 여러 차트/통계 함수의 조기 return 때문에
+        // 삭제된 체중·체지방 값이 DOM과 Chart 인스턴스에 남을 수 있습니다.
+        // 초기 빈 화면에서는 루프를 만들지 않고, 빈 상태로 '전환'될 때만
+        // 문서를 재구성해 모든 파생 화면을 한 번에 정리합니다.
+        if (AppState.records.length === 0 && AppState.state.hasRenderedNonEmptyRecords) {
+            AppState.state.hasRenderedNonEmptyRecords = false;
+            window.location.reload();
+            return;
+        }
+        if (AppState.records.length > 0) {
+            AppState.state.hasRenderedNonEmptyRecords = true;
+        }
+
         if(AppState.state.isDirty) {
             AppState.state.statsCache = analyzeRecords(AppState.records);
             AppState.state.isDirty = false;

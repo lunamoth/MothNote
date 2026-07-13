@@ -55,6 +55,62 @@
         }
     };
 
+    const removeWeatherCacheEntry = (key) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (removeError) {
+            console.warn('날씨 캐시 정리 실패:', removeError);
+        }
+    };
+
+    const isWeatherCachePayloadValid = data => Boolean(
+        data
+        && typeof data === 'object'
+        && (data.current || data.current_weather)
+        && data.hourly
+        && typeof data.hourly === 'object'
+        && Array.isArray(data.hourly.time)
+        && data.daily
+        && typeof data.daily === 'object'
+        && Array.isArray(data.daily.time)
+    );
+
+    const isAirQualityCachePayloadValid = data => Boolean(
+        data
+        && typeof data === 'object'
+        && data.current
+        && typeof data.current === 'object'
+        && data.hourly
+        && typeof data.hourly === 'object'
+        && Array.isArray(data.hourly.time)
+    );
+
+    const readFreshWeatherCache = (key, now, payloadValidator) => {
+        const cachedString = localStorage.getItem(key);
+        if (!cachedString) return null;
+
+        try {
+            const parsed = JSON.parse(cachedString);
+            const timestamp = Number(parsed?.timestamp);
+            const age = now - timestamp;
+            const isValid = Number(parsed?.lat) === LAT
+                && Number(parsed?.lon) === LON
+                && Number.isFinite(timestamp)
+                && age >= 0
+                && age < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000
+                && payloadValidator(parsed?.data);
+
+            if (isValid) return parsed;
+        } catch (error) {
+            console.warn(`날씨 캐시(${key})를 읽지 못해 새로 갱신합니다.`, error);
+        }
+
+        // 시계가 뒤로 바뀌어 미래 타임스탬프가 되었거나 페이로드가 손상된 캐시는
+        // 유효한 1시간 캐시로 간주하지 않고 제거한 뒤 네트워크에서 다시 가져옵니다.
+        removeWeatherCacheEntry(key);
+        return null;
+    };
+
 
     const ICON_ANIMATION_MAP = {
         '☀️': ['sun'],
@@ -1927,7 +1983,13 @@
     async function loadWeatherData() {
         if (LAT === null || LON === null) { renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다."); renderSkeleton(false); return; }
         let cachedWeather = null; let cachedAqi = null; const now = Date.now();
-        try { const cachedWeatherString = localStorage.getItem(CONFIG.WEATHER_DETAIL_CACHE_KEY); if (cachedWeatherString) { const parsed = JSON.parse(cachedWeatherString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedWeather = parsed; } } const cachedAqiString = localStorage.getItem(CONFIG.AIR_QUALITY_CACHE_KEY); if (cachedAqiString) { const parsed = JSON.parse(cachedAqiString); if (parsed.lat === LAT && parsed.lon === LON && (now - parsed.timestamp < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000)) { cachedAqi = parsed; } } } catch (e) { console.warn("캐시를 읽는 중 오류 발생:", e); clearWeatherCaches(); }
+        try {
+            cachedWeather = readFreshWeatherCache(CONFIG.WEATHER_DETAIL_CACHE_KEY, now, isWeatherCachePayloadValid);
+            cachedAqi = readFreshWeatherCache(CONFIG.AIR_QUALITY_CACHE_KEY, now, isAirQualityCachePayloadValid);
+        } catch (e) {
+            console.warn("캐시를 읽는 중 오류 발생:", e);
+            clearWeatherCaches();
+        }
         if (cachedWeather && cachedAqi) { processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp); renderSkeleton(false); return; }
         renderSkeleton(true); clearError();
         const weatherPromise = cachedWeather ? Promise.resolve({data: cachedWeather.data}) : fetchWeatherData();
