@@ -642,6 +642,20 @@
         };
     };
 
+    const syncDietSettingsInputs = (settings) => {
+        const fields = [
+            ['userHeight', 'height'],
+            ['startWeight', 'startWeight'],
+            ['goal1Weight', 'goal1'],
+            ['dailyIntake', 'intake']
+        ];
+
+        fields.forEach(([elementId, settingKey]) => {
+            const input = AppState.getEl(elementId);
+            if (input) input.value = settings[settingKey];
+        });
+    };
+
     const VALID_CHART_FILTER_MODES = new Set(['1M', '3M', '6M', '1Y', 'ALL', 'CUSTOM']);
 
     const sanitizeChartFilterMode = (mode) => VALID_CHART_FILTER_MODES.has(mode) ? mode : 'ALL';
@@ -952,15 +966,7 @@
             document.body.classList.add('dark-mode');
         }
 
-        const hEl = AppState.getEl('userHeight');
-        const sEl = AppState.getEl('startWeight');
-        const gEl = AppState.getEl('goal1Weight');
-        const iEl = AppState.getEl('dailyIntake');
-
-        if(hEl) hEl.value = AppState.settings.height;
-        if(sEl) sEl.value = AppState.settings.startWeight;
-        if(gEl) gEl.value = AppState.settings.goal1;
-        if(iEl) iEl.value = AppState.settings.intake || 1862;
+        syncDietSettingsInputs(AppState.settings);
 
         if(AppState.records.length > 0) {
             AppState.state.calendarViewDate = DateUtil.parse(AppState.records[AppState.records.length-1].date);
@@ -1317,6 +1323,7 @@
 
                 AppState.records = nextRecords;
                 AppState.settings = nextSettings;
+                syncDietSettingsInputs(AppState.settings);
                 AppState.state.isDirty = true;
                 
                 updateUI();

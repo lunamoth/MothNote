@@ -17,6 +17,9 @@ let markedModule = null;
 // 비동기 Markdown 파서 로딩 중 다른 노트로 이동했을 때, 늦게 끝난 이전 렌더가
 // 현재 미리보기를 덮어쓰지 못하도록 렌더 세대 번호를 추적합니다.
 let renderEditorRevision = 0;
+// 포커스된 입력값이 어느 노트의 편집 버퍼인지 추적합니다.
+// 활성 노트가 바뀌면 포커스 여부와 관계없이 새 노트의 값으로 교체해야 합니다.
+let editorBoundNoteId = null;
 const HIGHLIGHT_TERM_MAX_LENGTH = 50; // [버그 수정] 하이라이트를 적용할 최대 검색어 길이 상수 추가
 
 // [수정] marked 모듈을 안전하게 로드하는 비동기 함수를 추가합니다.
@@ -521,6 +524,7 @@ export const renderEditor = async () => {
     }
 
     if (!activeNote) {
+        editorBoundNoteId = null;
         editorContainer.style.display = 'none';
         placeholderContainer.style.display = 'flex';
         const placeholderIcon = document.getElementById(CONSTANTS.EDITOR.DOM_IDS.placeholderIcon);
@@ -543,13 +547,17 @@ export const renderEditor = async () => {
 
     // 저장 실패나 메타데이터 변경처럼 편집기와 무관한 상태 갱신도 전체 렌더를 유발합니다.
     // 포커스만 기준으로 값을 다시 쓰면, 사용자가 검색창/버튼을 누르는 순간 미저장 버퍼가 사라질 수 있습니다.
-    const hasProtectedDraft = state.isDirty && state.dirtyNoteId === activeNoteIdAtStart;
-    if (!hasProtectedDraft && document.activeElement !== noteTitleInput) {
+    const editorWasBoundToActiveNote = editorBoundNoteId === activeNoteIdAtStart;
+    const hasProtectedDraft = editorWasBoundToActiveNote
+        && state.isDirty
+        && state.dirtyNoteId === activeNoteIdAtStart;
+    if (!editorWasBoundToActiveNote || (!hasProtectedDraft && document.activeElement !== noteTitleInput)) {
         noteTitleInput.value = activeNote.title ?? '';
     }
-    if (!hasProtectedDraft && document.activeElement !== noteContentTextarea) {
+    if (!editorWasBoundToActiveNote || (!hasProtectedDraft && document.activeElement !== noteContentTextarea)) {
         noteContentTextarea.value = activeNote.content ?? '';
     }
+    editorBoundNoteId = activeNoteIdAtStart;
 
     // [MAJOR BUG FIX]
     // 편집 중 저장 실패/자동 저장 지연으로 activeNote.content가 아직 오래된 값이어도,

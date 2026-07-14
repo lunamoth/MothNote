@@ -1678,16 +1678,27 @@ const normalizeDietSettingsImportValue = value => {
 
 const normalizeIntegratedImportFields = importedData => {
     const normalized = {};
-    if (Object.prototype.hasOwnProperty.call(importedData, 'habitTrackerData')) {
-        normalized.habitTrackerData = normalizeHabitTrackerImportValue(importedData.habitTrackerData);
-    }
-    if (Object.prototype.hasOwnProperty.call(importedData, 'dietChallengeData')) {
-        normalized.dietChallengeData = normalizeDietRecordsImportValue(importedData.dietChallengeData);
-    }
-    if (Object.prototype.hasOwnProperty.call(importedData, 'dietChallengeSettings')) {
-        normalized.dietChallengeSettings = normalizeDietSettingsImportValue(importedData.dietChallengeSettings);
-    }
-    return normalized;
+    const skippedFields = [];
+    const optionalFields = [
+        ['habitTrackerData', '습관 트래커', normalizeHabitTrackerImportValue],
+        ['dietChallengeData', '다이어트 기록', normalizeDietRecordsImportValue],
+        ['dietChallengeSettings', '다이어트 설정', normalizeDietSettingsImportValue]
+    ];
+
+    optionalFields.forEach(([propertyName, label, normalizer]) => {
+        if (!Object.prototype.hasOwnProperty.call(importedData, propertyName)) return;
+
+        try {
+            normalized[propertyName] = normalizer(importedData[propertyName]);
+        } catch (error) {
+            // 선택 모듈 하나가 손상됐다는 이유로 정상 노트 백업 전체를 사용할 수 없게 하지 않습니다.
+            // 건너뛴 필드는 적용 단계에서 현재 localStorage 값을 그대로 유지합니다.
+            console.warn(`${label} 백업이 손상되어 해당 항목만 건너뜁니다.`, error);
+            skippedFields.push(label);
+        }
+    });
+
+    return { normalized, skippedFields };
 };
 
 
@@ -1911,7 +1922,10 @@ export const setupImportHandler = () => {
                 // 통합 백업의 부가 데이터도 주 노트 데이터와 동일하게 쓰기 전에 검증합니다.
                 // 잘못된 선택 필드 하나가 정상 습관·다이어트 데이터를 빈 상태로 덮어쓴 뒤
                 // 완료 백업까지 삭제하는 데이터 유실을 방지합니다.
-                const normalizedIntegratedFields = normalizeIntegratedImportFields(importedData);
+                const {
+                    normalized: normalizedIntegratedFields,
+                    skippedFields: skippedIntegratedFields
+                } = normalizeIntegratedImportFields(importedData);
                 const sanitizedContent = sanitizeContentData(importedData);
                 
                 const hasOwnImportedField = (propertyName) => Object.prototype.hasOwnProperty.call(importedData, propertyName);
@@ -1933,9 +1947,13 @@ export const setupImportHandler = () => {
                     ? sanitizeSettings(importedData.settings)
                     : (hasSettingsField ? JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS)) : getCurrentSettingsOrDefault());
 
+                const skippedIntegratedFieldsWarning = skippedIntegratedFields.length > 0
+                    ? `<br><br><strong>⚠️ 손상된 부가 데이터는 건너뜁니다.</strong><br>${skippedIntegratedFields.map(escapeHtml).join(', ')} 항목은 복원하지 않고 현재 데이터를 유지합니다.`
+                    : '';
+
                 const firstConfirm = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
-                    message: "가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong><br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
+                    message: `가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong>${skippedIntegratedFieldsWarning}<br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`,
                     isHtml: true, confirmText: '📥 가져와서 덮어쓰기', confirmButtonType: 'danger'
                 });
 
