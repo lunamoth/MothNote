@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.showRandomQuote();
         },
         
-            setupDefaultHabits() {
+            setupDefaultHabits(saveOptions = {}) {
             const now = Date.now();
             const defaultHabits = [
                 { id: now + 0, name: '⚖️ 매일 아침 체중 측정', type: 'check', goal: 1, frequency: { type: 'daily', days: [0,1,2,3,4,5,6] }, isArchived: false, order: 0, logs: {}, createdAt: now + 0 },
@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 { id: now + 7, name: '🏋️ 운동', type: 'check', goal: 1, frequency: { type: 'daily', days: [0,1,2,3,4,5,6] }, isArchived: false, order: 7, logs: {}, createdAt: now + 7 }
             ];
             this.state.habits = defaultHabits;
-            return this.saveData();
+            return this.saveData(saveOptions);
         },
 
         cacheElements() {
@@ -203,10 +203,25 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         // ----- DATA & STATE MANAGEMENT -----
-        saveData() {
+        saveData({ allowCorruptDataReplacement = false } = {}) {
+            // 파싱에 실패한 통합 데이터는 사용자가 명시적으로 초기화하기 전까지 보존합니다.
+            // 테마 메시지나 일반 UI 작업이 빈 안전 상태를 자동 저장해 원본과 복구본을
+            // 덮어쓰는 일을 막습니다.
+            if (this._hadDataLoadError && !allowCorruptDataReplacement) {
+                console.warn('Habit tracker save was blocked to preserve malformed integrated data.');
+                if (typeof this.showToast === 'function') {
+                    this.showToast('저장된 습관 데이터가 손상되어 원본 보호를 위해 변경사항을 저장하지 않았습니다. 초기화하거나 정상 백업을 가져와 주세요.', 'error');
+                }
+                return false;
+            }
+
             // [수정] 데이터 저장 키를 MothNote와 통합될 키로 변경
             try {
                 localStorage.setItem('habitTrackerDataV2_integrated', JSON.stringify(this.state, (key, value) => key === 'chartInstances' ? undefined : value));
+                if (allowCorruptDataReplacement) {
+                    this._hadDataLoadError = false;
+                    this._hasPersistedIntegratedData = true;
+                }
                 return true;
             } catch (error) {
                 console.error('Habit tracker data save failed.', error);
@@ -234,8 +249,8 @@ document.addEventListener('DOMContentLoaded', () => {
             Object.assign(this.state, JSON.parse(JSON.stringify(snapshot)));
         },
 
-        saveDataOrRollback(snapshot) {
-            if (this.saveData()) return true;
+        saveDataOrRollback(snapshot, saveOptions = {}) {
+            if (this.saveData(saveOptions)) return true;
             this.restorePersistableStateSnapshot(snapshot);
             return false;
         },
@@ -2212,7 +2227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.state.habits = [];
                 this.state.achievements = {};
                 this.state.visitedViews = {};
-                if (!this.setupDefaultHabits()) {
+                if (!this.setupDefaultHabits({ allowCorruptDataReplacement: true })) {
                     this.restorePersistableStateSnapshot(previousState);
                     return;
                 }
@@ -2233,7 +2248,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.state.habits = [];
                 this.state.achievements = {};
                 this.state.visitedViews = {};
-                if (!this.saveDataOrRollback(previousState)) return;
+                if (!this.saveDataOrRollback(previousState, { allowCorruptDataReplacement: true })) return;
                 try {
                     localStorage.setItem('habitTrackerInitialized', 'true');
                 } catch (error) {

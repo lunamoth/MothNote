@@ -1750,7 +1750,8 @@ const setupGlobalEventListeners = () => {
                     changesToBackup.noteUpdate = {
                         noteId: state.dirtyNoteId,
                         title: noteTitleInput?.value ?? '',
-                        content: noteContentTextarea?.value ?? ''
+                        content: noteContentTextarea?.value ?? '',
+                        capturedAt: Date.now()
                     };
                     hasChanges = true;
                 } else if (isNoteDirty) {

@@ -23,6 +23,7 @@ import { updateSaveStatus, clearSortedNotesCache, sortedNotesCache } from './ren
 import { changeActiveFolder, changeActiveNote, confirmNavigation } from './navigationActions.js';
 
 let autoSaveTimer = null; // 자동 저장을 위한 타이머
+let pendingTransactionalUpdateCount = 0;
 
 // CSS.escape가 없는 브라우저/테스트 환경에서도 data-id 선택자가 안전하게 동작하도록 폴백을 제공합니다.
 const escapeCssAttributeValue = (value) => {
@@ -239,18 +240,27 @@ export const clearEmergencyChangesBackupEntry = (entryKey, shouldClearEntry) => 
     }
 };
 
-const clearSavedNoteEmergencyBackup = (noteId, committedDraft = null) => {
+const clearSavedNoteEmergencyBackup = (noteId, committedDraft = null, saveStartedAt = null) => {
     const normalizedNoteId = String(noteId ?? '');
     if (!normalizedNoteId) return;
     clearEmergencyChangesBackupEntry('noteUpdate', entry => {
         if (String(entry?.noteId ?? '') !== normalizedNoteId) return false;
         if (!committedDraft) return true;
 
-        // 저장 중 beforeunload가 더 최신 편집본을 기록했을 수 있습니다.
-        // 노트 ID만 같다는 이유로 새로운 백업을 지우지 않고, 실제 커밋한
-        // 입력 스냅샷과 제목·본문이 모두 같을 때만 정리합니다.
-        return String(entry?.title ?? '') === String(committedDraft.title ?? '')
+        const matchesCommittedDraft = String(entry?.title ?? '') === String(committedDraft.title ?? '')
             && String(entry?.content ?? '') === String(committedDraft.content ?? '');
+        if (matchesCommittedDraft) return true;
+
+        // 저장이 성공한 뒤에도 과거 비상 백업이 남으면 다음 실행에서 최신 저장본을
+        // 오래된 내용으로 되돌릴 수 있습니다. 저장 시작 전에 만들어진 백업과,
+        // capturedAt 필드가 없던 구버전 백업은 현재 커밋보다 오래된 것으로 정리합니다.
+        // 반대로 저장 도중/이후에 캡처된 백업은 더 최신 입력일 수 있으므로 보존합니다.
+        const normalizedSaveStartedAt = Number(saveStartedAt);
+        if (!Number.isFinite(normalizedSaveStartedAt) || normalizedSaveStartedAt <= 0) return false;
+
+        const backupCapturedAt = Number(entry?.capturedAt);
+        if (!Number.isFinite(backupCapturedAt) || backupCapturedAt <= 0) return true;
+        return backupCapturedAt < normalizedSaveStartedAt;
     });
 };
 
@@ -283,10 +293,16 @@ export const performTransactionalUpdate = async (updateFn) => {
         }
     };
 
+    // Web Lock 대기 시간도 작업 구간에 포함합니다. 대기 중 편집을 허용하면,
+    // 트랜잭션이 오래된 DOM 스냅샷을 저장하고 화면을 전환하면서 새 입력을 잃을 수 있습니다.
+    pendingTransactionalUpdateCount += 1;
+    if (pendingTransactionalUpdateCount === 1) {
+        setState({ isPerformingOperation: true });
+    }
+
     try {
         return await withAppStateWriteLock(async () => {
             let resultPayload = null;
-            setState({ isPerformingOperation: true });
 
             try {
                 const sessionLastActiveSnapshot = normalizeLastActiveNoteMap(state.lastActiveNotePerFolder);
@@ -372,15 +388,17 @@ export const performTransactionalUpdate = async (updateFn) => {
             } catch (error) {
                 reportFailure(error);
                 return { success: false, payload: null, failureReason: TRANSACTION_FAILURE_REASON.ERROR };
-            } finally {
-                setState({ isPerformingOperation: false });
             }
         });
     } catch (error) {
         // Web Locks 요청 자체가 실패하거나 중단된 경우도 동일하게 사용자에게 알립니다.
         reportFailure(error);
-        setState({ isPerformingOperation: false });
         return { success: false, payload: null, failureReason: TRANSACTION_FAILURE_REASON.ERROR };
+    } finally {
+        pendingTransactionalUpdateCount = Math.max(0, pendingTransactionalUpdateCount - 1);
+        if (pendingTransactionalUpdateCount === 0) {
+            setState({ isPerformingOperation: false });
+        }
     }
 };
 
@@ -1275,6 +1293,7 @@ export async function saveCurrentNoteIfChanged() {
     const noteIdToSave = state.dirtyNoteId || state.activeNoteId;
     const titleToSave = noteTitleInput?.value ?? '';
     const contentToSave = noteContentTextarea?.value ?? '';
+    const saveStartedAt = Date.now();
 
     if (!noteIdToSave) {
         updateSaveStatus('dirty');
@@ -1385,7 +1404,7 @@ export async function saveCurrentNoteIfChanged() {
     clearSavedNoteEmergencyBackup(payload?.savedNoteId ?? noteIdToSave, {
         title: titleToSave,
         content: contentToSave
-    });
+    }, saveStartedAt);
 
     return true;
 }
