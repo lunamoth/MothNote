@@ -554,7 +554,8 @@
             isDirty: true,
             calendarViewDate: new Date(),
             medicalNarrativePlainText: '',
-            hasRenderedNonEmptyRecords: false
+            hasRenderedNonEmptyRecords: false,
+            recordsLoadFailed: false
         }
     };
 
@@ -740,11 +741,21 @@
         }
     };
 
-    const persistDietRecordsImmediate = (records = AppState.records) => {
+    const DIET_RECORD_RECOVERY_REQUIRED_MESSAGE = '저장된 체중 기록이 손상되어 원본 보호를 위해 변경사항을 저장하지 않았습니다. 정상 JSON 백업을 복원하거나 데이터 초기화를 진행해주세요.';
+
+    const persistDietRecordsImmediate = (records = AppState.records, { allowCorruptDataReplacement = false } = {}) => {
+        if (AppState.state.recordsLoadFailed && !allowCorruptDataReplacement) {
+            console.warn('Diet record save was blocked to preserve malformed stored data.');
+            showToast(DIET_RECORD_RECOVERY_REQUIRED_MESSAGE);
+            return false;
+        }
+
         const safeRecords = sanitizeDietRecords(records);
-        return persistLocalStorageEntriesAtomically([
+        const didPersist = persistLocalStorageEntriesAtomically([
             { key: AppState.STORAGE_KEY, value: JSON.stringify(safeRecords) }
         ], '체중 기록을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.');
+        if (didPersist && allowCorruptDataReplacement) AppState.state.recordsLoadFailed = false;
+        return didPersist;
     };
 
     const persistDietSettingsImmediate = (settings = AppState.settings) => {
@@ -754,13 +765,21 @@
         ], '다이어트 설정을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.');
     };
 
-    const persistDietStateSnapshot = (records, settings) => {
+    const persistDietStateSnapshot = (records, settings, { allowCorruptDataReplacement = false } = {}) => {
+        if (AppState.state.recordsLoadFailed && !allowCorruptDataReplacement) {
+            console.warn('Diet state import was blocked to preserve malformed stored records.');
+            showToast(DIET_RECORD_RECOVERY_REQUIRED_MESSAGE);
+            return false;
+        }
+
         const safeRecords = sanitizeDietRecords(records);
         const safeSettings = sanitizeDietSettings(settings);
-        return persistLocalStorageEntriesAtomically([
+        const didPersist = persistLocalStorageEntriesAtomically([
             { key: AppState.STORAGE_KEY, value: JSON.stringify(safeRecords) },
             { key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) }
         ], '가져온 다이어트 데이터를 저장하지 못했습니다. 기존 데이터를 유지합니다.');
+        if (didPersist && allowCorruptDataReplacement) AppState.state.recordsLoadFailed = false;
+        return didPersist;
     };
 
     const persistRawLocalStorageValue = (key, value, errorMessage) => persistLocalStorageEntriesAtomically([
@@ -787,6 +806,7 @@
     const loadPersistedDietState = (storage, currentSettings) => {
         let records = [];
         let settings = sanitizeDietSettings(currentSettings);
+        let recordsLoadFailed = false;
 
         // 기록과 설정을 독립적으로 읽습니다. 설정 JSON 하나가 손상됐다는 이유로
         // 정상적인 전체 체중 기록까지 빈 배열로 교체하면 다음 저장 시 실제 데이터가 유실될 수 있습니다.
@@ -794,12 +814,22 @@
         try {
             storedRecords = storage.getItem(AppState.STORAGE_KEY);
         } catch (recordReadError) {
+            recordsLoadFailed = true;
             console.error('Diet record storage read error. Continuing with empty records.', recordReadError);
         }
-        if (storedRecords) {
+        if (storedRecords !== null) {
             try {
-                records = sanitizeDietRecords(JSON.parse(storedRecords) || []);
+                const parsedRecords = JSON.parse(storedRecords);
+                const normalizedRecords = normalizeImportedDietRecords(parsedRecords);
+                if (!normalizedRecords.ok) {
+                    // 화면에는 복구 가능한 유효 기록만 표시하되, 원본 저장값은 사용자가
+                    // 명시적으로 복원/초기화하기 전까지 절대 덮어쓰지 않습니다.
+                    records = sanitizeDietRecords(parsedRecords);
+                    throw new Error(normalizedRecords.error);
+                }
+                records = normalizedRecords.records;
             } catch (recordError) {
+                recordsLoadFailed = true;
                 console.error('Diet record data load error. The original localStorage value was left untouched.', recordError);
             }
         }
@@ -819,7 +849,7 @@
             }
         }
 
-        return { records, settings };
+        return { records, settings, recordsLoadFailed };
     };
 
     // --- 2. 초기화 ---
@@ -943,6 +973,7 @@
         const persistedDietState = loadPersistedDietState(localStorage, AppState.settings);
         AppState.records = persistedDietState.records;
         AppState.settings = persistedDietState.settings;
+        AppState.state.recordsLoadFailed = persistedDietState.recordsLoadFailed;
 
         try {
             AppState.chartFilterMode = sanitizeChartFilterMode(localStorage.getItem(AppState.FILTER_KEY));
@@ -1051,6 +1082,9 @@
 
         updateFilterButtons();
         updateUI();
+        if (AppState.state.recordsLoadFailed) {
+            showToast(DIET_RECORD_RECOVERY_REQUIRED_MESSAGE);
+        }
     }
 	
     // --- 3. 기본 기능 ---
@@ -1277,6 +1311,7 @@
         const input = AppState.getEl('resetConfirmInput');
         if (input.value === "초기화") {
             if (!removeLocalStorageItemSafely(AppState.STORAGE_KEY, '초기화를 저장소에 반영하지 못했습니다. 기존 데이터를 유지합니다.')) return;
+            AppState.state.recordsLoadFailed = false;
             AppState.records = [];
             AppState.state.isDirty = true;
             input.value = '';
@@ -1319,7 +1354,7 @@
 
                 const nextRecords = importResult.records;
                 const nextSettings = hasSettings ? sanitizeDietSettings(data.settings) : AppState.settings;
-                if (!persistDietStateSnapshot(nextRecords, nextSettings)) return;
+                if (!persistDietStateSnapshot(nextRecords, nextSettings, { allowCorruptDataReplacement: true })) return;
 
                 AppState.records = nextRecords;
                 AppState.settings = nextSettings;

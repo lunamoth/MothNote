@@ -393,9 +393,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const veryOldData = localStorage.getItem('habitTrackerData'); // 아주 오래된 버전 키
             this._hasPersistedIntegratedData = data !== null;
 
-			if (data) {
+			if (data !== null) {
                 try {
+                    if (typeof data !== 'string' || data.trim() === '') {
+                        throw new Error('Integrated habit data is empty.');
+                    }
                     const parsedData = JSON.parse(data);
+                    if (!parsedData || typeof parsedData !== 'object' || Array.isArray(parsedData) || !Array.isArray(parsedData.habits)) {
+                        throw new Error('Integrated habit data has an invalid top-level structure.');
+                    }
                     
                     // [수정] 저장된 날짜(과거)를 무시하고 항상 '오늘' 날짜로 초기화합니다.
                     const today = new Date();
@@ -1835,22 +1841,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.render();
             }
         },
-        
-        generateHeatmap(habit) {
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            const endDate = today;
-            
+
+        getCalendarDayOffset(startDate, endDate) {
+            const startUtc = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+            const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            return Math.round((endUtc - startUtc) / 86400000);
+        },
+
+        getHeatmapDateRange() {
+            const endDate = new Date();
+            endDate.setHours(0, 0, 0, 0);
+
             const startDate = new Date(endDate);
             startDate.setFullYear(endDate.getFullYear() - 1);
             startDate.setDate(startDate.getDate() + 1);
+
+            // 표시 구간의 첫 날짜가 속한 일요일을 1열의 기준점으로 삼습니다.
+            // 달력 연도가 바뀌어도 열 번호가 0으로 되돌아가지 않아 모든 날짜가
+            // 과거에서 현재 순서로 정확히 한 칸씩 배치됩니다.
+            const gridStartDate = new Date(startDate);
+            gridStartDate.setDate(gridStartDate.getDate() - gridStartDate.getDay());
+            const weekCount = Math.floor(this.getCalendarDayOffset(gridStartDate, endDate) / 7) + 1;
+
+            return { startDate, endDate, gridStartDate, weekCount };
+        },
+        
+        generateHeatmap(habit) {
+            const { startDate, endDate, gridStartDate, weekCount } = this.getHeatmapDateRange();
 
             const dates = [];
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                 dates.push(new Date(d));
             }
 
-            const cells = Array(53 * 7).fill(null);
+            const cells = [];
             
             dates.forEach(date => {
                 const dateStr = this.getDateString(date);
@@ -1858,16 +1882,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const level = isCompleted ? 4 : 0;
                 const dayOfWeek = date.getDay();
                 
-                const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
-                const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
-                const weekNumber = Math.floor((pastDaysOfYear + firstDayOfYear.getDay()) / 7);
+                const weekNumber = Math.floor(this.getCalendarDayOffset(gridStartDate, date) / 7);
 
-                cells[weekNumber * 7 + dayOfWeek] = `<div class="heatmap-cell" data-level="${level}" title="${dateStr}" style="grid-column: ${weekNumber + 1}; grid-row: ${dayOfWeek + 1};"></div>`;
+                cells.push(`<div class="heatmap-cell" data-level="${level}" title="${dateStr}" style="grid-column: ${weekNumber + 1}; grid-row: ${dayOfWeek + 1};"></div>`);
             });
 
             return `<div class="heatmap-wrapper">
                 <div class="heatmap-body">
-                    <div class="heatmap-grid">${cells.filter(c => c).join('')}</div>
+                    <div class="heatmap-grid" style="grid-template-columns: repeat(${weekCount}, 16px);">${cells.join('')}</div>
                 </div>
             </div>`;
         },
@@ -1876,13 +1898,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const habits = this.state.habits.filter(h => !h.isArchived);
             if (habits.length === 0) return '<p>활성 습관이 없습니다.</p>';
 
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            const endDate = today;
-
-            const startDate = new Date(endDate);
-            startDate.setFullYear(endDate.getFullYear() - 1);
-            startDate.setDate(startDate.getDate() + 1);
+            const { startDate, endDate, gridStartDate, weekCount } = this.getHeatmapDateRange();
 
             const dailyData = {};
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
@@ -1917,16 +1933,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 const dayOfWeek = d.getDay();
-                const firstDayOfYear = new Date(d.getFullYear(), 0, 1);
-                const pastDaysOfYear = (d - firstDayOfYear) / 86400000;
-                const weekNumber = Math.floor((pastDaysOfYear + firstDayOfYear.getDay()) / 7);
+                const weekNumber = Math.floor(this.getCalendarDayOffset(gridStartDate, d) / 7);
 
                 cells.push(`<div class="heatmap-cell" data-level="${level}" title="${this.escapeHTML(title)}" style="grid-column: ${weekNumber + 1}; grid-row: ${dayOfWeek + 1};"></div>`);
             }
 
             return `<div class="heatmap-wrapper">
                 <div class="heatmap-body">
-                    <div class="heatmap-grid">${cells.join('')}</div>
+                    <div class="heatmap-grid" style="grid-template-columns: repeat(${weekCount}, 16px);">${cells.join('')}</div>
                 </div>
             </div>`;
         },
