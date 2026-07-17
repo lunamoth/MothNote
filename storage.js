@@ -261,11 +261,17 @@ const parseSimplenoteTimestamp = (value, fallback) => {
     return fallback;
 };
 
+const createUnrecoverableAppStateError = message => {
+    const error = new Error(message);
+    error.name = 'UnrecoverableAppStateError';
+    return error;
+};
+
 /**
  * [CRITICAL FIX] 로드된 데이터의 무결성을 검증하고, 손상된 배열/객체/ID 참조를 자동 복구합니다.
  * 일반 폴더는 type 필드가 없으므로 notes 배열을 기준으로도 폴더를 판별합니다.
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
- * @returns {{sanitizedData: object, wasSanitized: boolean, shouldNotify: boolean, idUpdateMap: Map<string, string>, folderIdUpdateMap: Map<string, string>, noteIdUpdateMap: Map<string, string>}}
+ * @returns {{sanitizedData: object, wasSanitized: boolean, shouldNotify: boolean, isTopLevelInvalid: boolean, idUpdateMap: Map<string, string>, folderIdUpdateMap: Map<string, string>, noteIdUpdateMap: Map<string, string>}}
  */
 const verifyAndSanitizeLoadedData = (data) => {
     const emptyMaps = {
@@ -285,11 +291,12 @@ const verifyAndSanitizeLoadedData = (data) => {
     });
 
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
-        console.warn('[Data Sanitization] Invalid top-level appState was replaced with a safe empty state.');
+        console.warn('[Data Sanitization] Invalid top-level appState was detected. A non-persistable safe placeholder was created for validation only.');
         return {
             sanitizedData: createEmptySanitizedAppState(),
             wasSanitized: true,
             shouldNotify: true,
+            isTopLevelInvalid: true,
             ...emptyMaps
         };
     }
@@ -505,6 +512,7 @@ const verifyAndSanitizeLoadedData = (data) => {
         sanitizedData: data,
         wasSanitized: changesMade,
         shouldNotify: notifyChangesMade,
+        isTopLevelInvalid: false,
         idUpdateMap,
         folderIdUpdateMap,
         noteIdUpdateMap
@@ -537,35 +545,9 @@ export const loadData = async () => {
 
             if (importStatus === 'true' && backupPayload) {
                 console.warn('Incomplete import detected. Rolling back to previous data.');
-                const hadAppState = backupPayload.hadAppState !== undefined
-                    ? backupPayload.hadAppState === true
-                    : backupPayload.appState != null;
-
-                if (hadAppState) {
-                    const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(backupPayload.appState || {})));
-                    await storageSet({ appState: verification.sanitizedData });
-                    if (verification.wasSanitized) {
-                        console.warn('[Rollback] The backup data required sanitization before restoration.');
-                    }
-                } else {
-                    await storageRemove('appState');
-                }
-
-                if (typeof backupPayload.settings === 'string') {
-                    try {
-                        const parsedSettings = JSON.parse(backupPayload.settings);
-                        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizeSettings(parsedSettings)));
-                    } catch (settingsError) {
-                        console.error('Failed to parse settings from import backup. Using defaults.', settingsError);
-                        localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
-                    }
-                } else {
-                    localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
-                }
-
-                restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
-                restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
-                restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);
+                // 롤백은 가져오기 직전 스냅샷을 그대로 복원해야 합니다. 복원 과정에서
+                // 정제된 빈 상태로 바꾸면 손상 원본을 유일한 복구 사본까지 잃을 수 있습니다.
+                await restoreImportBackupPayload(backupPayload);
 
                 await storageRemove('appState_backup');
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
@@ -587,13 +569,19 @@ export const loadData = async () => {
         // 현재 문서 컨텍스트 안의 연속 작업 간 read-modify-write 안정성을 위한 처리입니다.
         const loadedResult = await withAppStateWriteLock(async () => {
             const mainStorageResult = await storageGet('appState');
-            let loadedData = mainStorageResult.appState;
+            const hasStoredAppState = Object.prototype.hasOwnProperty.call(mainStorageResult, 'appState')
+                && mainStorageResult.appState !== null
+                && mainStorageResult.appState !== undefined;
+            let loadedData = hasStoredAppState ? mainStorageResult.appState : null;
             let loadedFolderIdUpdateMap = new Map();
             let loadedNoteIdUpdateMap = new Map();
             let shouldShowRecoveryNotice = false;
 
-            if (loadedData) {
+            if (hasStoredAppState) {
                 const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(loadedData)));
+                if (verification.isTopLevelInvalid) {
+                    throw createUnrecoverableAppStateError('저장된 노트 데이터의 최상위 구조가 손상되었습니다. 원본을 보존하기 위해 자동 초기화를 중단했습니다.');
+                }
                 loadedData = verification.sanitizedData;
                 loadedFolderIdUpdateMap = verification.folderIdUpdateMap;
                 loadedNoteIdUpdateMap = verification.noteIdUpdateMap;
@@ -893,6 +881,9 @@ export const loadData = async () => {
                 authoritativeData = updatedStorageResult.appState;
                 if (authoritativeData) {
                     const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
+                    if (verification.isTopLevelInvalid) {
+                        throw createUnrecoverableAppStateError('비상 복구 결과의 최상위 구조가 올바르지 않아 원본 보존을 위해 저장을 중단했습니다.');
+                    }
                     authoritativeData = verification.sanitizedData;
                     verification.folderIdUpdateMap.forEach((newId, oldId) => folderIdUpdateMap.set(oldId, newId));
                     verification.noteIdUpdateMap.forEach((newId, oldId) => noteIdUpdateMap.set(oldId, newId));
@@ -1086,13 +1077,19 @@ export const loadData = async () => {
             // 기본 노트가 생기는 문제도 방지합니다.
             const initializationResult = await withAppStateWriteLock(async () => {
                 const latestResult = await storageGet('appState');
-                if (!latestResult.appState) {
+                const hasLatestAppState = Object.prototype.hasOwnProperty.call(latestResult, 'appState')
+                    && latestResult.appState !== null
+                    && latestResult.appState !== undefined;
+                if (!hasLatestAppState) {
                     await storageSet({ appState: initialAppState });
                     return { appState: initialAppState, createdHere: true };
                 }
 
                 // 저장 경계를 통과한 뒤 이미 영구 저장 데이터가 있으면 그 데이터를 권위 있는 값으로 채택합니다.
                 const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(latestResult.appState)));
+                if (verification.isTopLevelInvalid) {
+                    throw createUnrecoverableAppStateError('초기화 중 발견한 기존 노트 데이터가 손상되어 원본 보존을 위해 새 데이터 생성을 중단했습니다.');
+                }
                 const latestData = verification.sanitizedData;
                 if (verification.wasSanitized) await storageSet({ appState: latestData });
                 return { appState: latestData, createdHere: false };
@@ -1740,23 +1737,16 @@ const restoreImportBackupPayload = async (backupPayload) => {
         ? backupPayload.hadAppState === true
         : backupPayload.appState != null;
 
-    if (hadAppState && backupPayload.appState) {
-        const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(backupPayload.appState)));
-        await storageSet({ appState: verification.sanitizedData });
-        if (verification.wasSanitized) {
-            console.warn('[Import Rollback] Backup appState required sanitization before restoration.');
-        }
+    if (hadAppState) {
+        // 실패한 가져오기의 롤백은 직전 값을 바이트 의미상 그대로 되돌립니다.
+        // 정제는 다음 정상 로드에서 수행하며, 복구 불가능한 최상위 값은 덮어쓰지 않고 중단합니다.
+        await storageSet({ appState: backupPayload.appState });
     } else {
         await storageRemove('appState');
     }
 
     if (typeof backupPayload.settings === 'string') {
-        try {
-            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizeSettings(JSON.parse(backupPayload.settings))));
-        } catch (settingsError) {
-            console.warn('[Import Rollback] Backup settings were invalid and have been reset.', settingsError);
-            localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
-        }
+        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
     } else {
         localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
     }

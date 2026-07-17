@@ -636,7 +636,7 @@ class Dashboard {
             dietChallengeIframe: document.getElementById('diet-challenge-iframe'),
             closeDietChallengeBtn: document.getElementById('close-diet-challenge-btn'),
         };
-        this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockAnimationId: null, digitalClockIntervalId: null, weatherFetchController: null, weatherFetchPromise: null, weatherFetchKey: null, displayedMonth: null, clockFaceCache: null, };
+        this.internalState = { currentDate: state.dateFilter ? new Date(state.dateFilter) : new Date(), analogClockTimerId: null, digitalClockIntervalId: null, clockPanelVisible: true, weatherFetchController: null, weatherFetchPromise: null, weatherFetchKey: null, displayedMonth: null, clockFaceCache: null, };
         this.observer = null;
     }
     init() {
@@ -798,11 +798,11 @@ class Dashboard {
     
     _setupVisibilityObserver() {
         if (!this.dom.panel) return;
-        this.observer = new IntersectionObserver((entries) => { entries.forEach(entry => { if (entry.isIntersecting) this._startClocks(); else this._stopClocks(); }); });
+        this.observer = new IntersectionObserver((entries) => { entries.forEach(entry => { this.internalState.clockPanelVisible = entry.isIntersecting; if (entry.isIntersecting) this._startClocks(); else this._stopClocks(); }); });
         this.observer.observe(this.dom.panel);
     }
-    _startClocks() { if (!this.internalState.digitalClockIntervalId) { this._updateDigitalClock(); this.internalState.digitalClockIntervalId = setInterval(this._updateDigitalClock.bind(this), 1000); } if (!this.internalState.analogClockAnimationId) this._animateAnalogClock(); }
-    _stopClocks() { if (this.internalState.digitalClockIntervalId) { clearInterval(this.internalState.digitalClockIntervalId); this.internalState.digitalClockIntervalId = null; } if (this.internalState.analogClockAnimationId) { cancelAnimationFrame(this.internalState.analogClockAnimationId); this.internalState.analogClockAnimationId = null; } }
+    _startClocks() { if (!this.internalState.digitalClockIntervalId) { this._updateDigitalClock(); this.internalState.digitalClockIntervalId = setInterval(this._updateDigitalClock.bind(this), 1000); } if (!this.internalState.analogClockTimerId) this._scheduleAnalogClockUpdates(); }
+    _stopClocks() { if (this.internalState.digitalClockIntervalId) { clearInterval(this.internalState.digitalClockIntervalId); this.internalState.digitalClockIntervalId = null; } if (this.internalState.analogClockTimerId) { clearTimeout(this.internalState.analogClockTimerId); this.internalState.analogClockTimerId = null; } }
     
     _getWeatherInfo(wmoCode, isDay = true) {
         let weather = CONSTANTS.DASHBOARD.WMO_MAP[wmoCode] ?? { icon: "❓", text: "알 수 없음" };
@@ -817,7 +817,7 @@ class Dashboard {
     }
 
     _updateDigitalClock() { if (!this.dom.digitalClock) return; this.dom.digitalClock.textContent = new Date().toLocaleTimeString('ko-KR', { hour: 'numeric', minute: 'numeric', hour12: true }); }
-    _initAnalogClock(forceRedraw = false) { if (!this.dom.analogClockCanvas) return; if (this.internalState.analogClockAnimationId) { cancelAnimationFrame(this.internalState.analogClockAnimationId); this.internalState.analogClockAnimationId = null; } if (forceRedraw || !this.internalState.clockFaceCache) this._drawStaticClockFace(); const ctx = this.dom.analogClockCanvas.getContext('2d'); const radius = this.dom.analogClockCanvas.height / 2; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.translate(radius, radius); this._animateAnalogClock(); }
+    _initAnalogClock(forceRedraw = false) { if (!this.dom.analogClockCanvas) return; if (this.internalState.analogClockTimerId) { clearTimeout(this.internalState.analogClockTimerId); this.internalState.analogClockTimerId = null; } if (forceRedraw || !this.internalState.clockFaceCache) this._drawStaticClockFace(); const ctx = this.dom.analogClockCanvas.getContext('2d'); const radius = this.dom.analogClockCanvas.height / 2; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.translate(radius, radius); this._drawHandsOnTop(); if (this.internalState.clockPanelVisible) this._scheduleAnalogClockUpdates({ drawImmediately: false }); }
     
     // [개선] 시계 디자인을 더 미려하게 수정합니다. (시계판, 눈금, 숫자)
     _drawStaticClockFace() {
@@ -930,7 +930,21 @@ class Dashboard {
         ctx.fill();
     }
     
-    _animateAnalogClock() { let lastMinute = -1; const animate = () => { const now = new Date(); const currentMinute = now.getMinutes(); if (currentMinute !== lastMinute) { this._drawHandsOnTop(); lastMinute = currentMinute; } this.internalState.analogClockAnimationId = requestAnimationFrame(animate); }; this._drawHandsOnTop(); animate(); }
+    _scheduleAnalogClockUpdates({ drawImmediately = true } = {}) {
+        if (drawImmediately) this._drawHandsOnTop();
+
+        const scheduleNextMinute = () => {
+            // 초침이 없는 시계는 분 경계에서만 다시 그리면 됩니다. 매 프레임 RAF를
+            // 돌리면 새 탭이 열려 있는 내내 불필요한 CPU·배터리를 사용합니다.
+            const delayUntilNextMinute = 60000 - (Date.now() % 60000) + 50;
+            this.internalState.analogClockTimerId = setTimeout(() => {
+                this._drawHandsOnTop();
+                scheduleNextMinute();
+            }, delayUntilNextMinute);
+        };
+
+        scheduleNextMinute();
+    }
     
     _setDashboardWeatherContent(icon, temp = null) {
         if (!this.dom.weatherContainer) return;
@@ -1829,7 +1843,10 @@ const init = async () => {
         // 핵심 경로 실패는 복구가 거의 불가능하므로 사용자에게 심각한 오류를 알립니다.
         ensureThemeApplied();
         console.error("Critical initialization failed, app cannot start:", e);
-        showToast("앱의 핵심 기능을 불러오는 데 실패했습니다. 확장 프로그램을 재설치해야 할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR, 0);
+        const errorMessage = e?.name === 'UnrecoverableAppStateError'
+            ? '저장된 노트 데이터 구조가 손상되어 원본 보호를 위해 앱 시작을 중단했습니다. 재설치하거나 새 데이터를 만들지 말고, 설정의 데이터 가져오기에서 정상 백업을 복원해 주세요.'
+            : '앱의 핵심 기능을 불러오는 데 실패했습니다. 확장 프로그램을 다시 열어도 계속되면 정상 백업을 확인해 주세요.';
+        showToast(errorMessage, CONSTANTS.TOAST_TYPE.ERROR, 0);
         // finally 블록에서 isInitializing 플래그가 설정되도록 여기서 함수를 종료합니다.
         return;
     } finally {

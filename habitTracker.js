@@ -1817,25 +1817,42 @@ document.addEventListener('DOMContentLoaded', () => {
         
         updateHabitOrder() {
             const habitElements = this.elements.appContent.querySelectorAll('#habit-list-container .habit-list-item');
-            const orderedIds = Array.from(habitElements).map(el => Number(el.dataset.habitId));
+            const orderedIds = Array.from(habitElements).map(el => String(el.dataset.habitId ?? ''));
             const previousState = this.createPersistableStateSnapshot();
 
-            // --- BUG FIX START ---
-            // Re-order the main habits array based on the new visual order.
-            this.state.habits.sort((a, b) => {
-                const aIndex = orderedIds.indexOf(Number(a.id));
-                const bIndex = orderedIds.indexOf(Number(b.id));
-                if (aIndex === -1 && bIndex === -1) return 0;
-                if (aIndex === -1) return 1;
-                if (bIndex === -1) return -1;
-                return aIndex - bIndex;
+            // 검색·보관·날짜 필터로 화면에서 숨겨진 습관은 기존 슬롯에 그대로 둡니다.
+            // 보이는 일부 항목만 배열 앞으로 정렬하면 필터를 해제했을 때 숨은 습관의
+            // 사용자 지정 순서까지 조용히 바뀌므로, 현재 화면이 차지한 슬롯만 교체합니다.
+            const habitById = new Map(this.state.habits.map(habit => [String(habit.id), habit]));
+            const seenOrderedIds = new Set();
+            const uniqueOrderedIds = orderedIds.filter(id => {
+                if (!id || seenOrderedIds.has(id) || !habitById.has(id)) return false;
+                seenOrderedIds.add(id);
+                return true;
             });
-            
-            // After re-ordering the array, update the 'order' property for consistency.
+            const visibleIdSet = new Set(uniqueOrderedIds);
+            const visibleHabitCount = this.state.habits.reduce(
+                (count, habit) => count + (visibleIdSet.has(String(habit.id)) ? 1 : 0),
+                0
+            );
+
+            // 오래된 DOM이나 중복 ID로 목록과 상태가 어긋난 경우에는 부분 순서를 저장하지 않습니다.
+            if (uniqueOrderedIds.length !== orderedIds.length || visibleHabitCount !== uniqueOrderedIds.length) {
+                this.render();
+                return;
+            }
+
+            const reorderedVisibleHabits = uniqueOrderedIds.map(id => habitById.get(id));
+            let visibleIndex = 0;
+            this.state.habits = this.state.habits.map(habit => (
+                visibleIdSet.has(String(habit.id))
+                    ? reorderedVisibleHabits[visibleIndex++]
+                    : habit
+            ));
+
             this.state.habits.forEach((habit, index) => {
                 habit.order = index;
             });
-            // --- BUG FIX END ---
             
             if (!this.saveDataOrRollback(previousState)) {
                 this.render();
