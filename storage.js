@@ -1732,6 +1732,17 @@ const restoreImportBackupPayload = async (backupPayload) => {
         throw new Error('가져오기 백업 데이터가 없습니다.');
     }
 
+    // 이전 버전은 appState_backup에 래퍼가 아닌 appState 자체를 저장했습니다.
+    // 이를 새 형식으로 해석하면 appState와 로컬 설정을 모두 삭제하게 되므로,
+    // 원본 상태만 복원하고 당시 백업 대상이 아니었던 로컬 데이터는 유지합니다.
+    const isLegacyRawAppStateBackup = Array.isArray(backupPayload.folders)
+        && !Object.prototype.hasOwnProperty.call(backupPayload, 'appState')
+        && !Object.prototype.hasOwnProperty.call(backupPayload, 'hadAppState');
+    if (isLegacyRawAppStateBackup) {
+        await storageSet({ appState: backupPayload });
+        return;
+    }
+
     // 새 백업은 hadAppState를 기록합니다. 구버전 백업은 appState 존재 여부로 호환 처리합니다.
     const hadAppState = backupPayload.hadAppState !== undefined
         ? backupPayload.hadAppState === true

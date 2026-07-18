@@ -1250,6 +1250,9 @@ const setupDragAndDrop = (listElement, type) => {
     });
 
     listElement.addEventListener('dragover', e => {
+        // 폴더 목록에는 폴더 정렬과 노트 이동 리스너가 함께 등록되어 있습니다.
+        // 다른 유형의 드래그를 가로채면 노트→폴더 이동 대상이 사라질 수 있습니다.
+        if (draggedItemInfo.type !== type) return;
         e.preventDefault();
         if (listElement !== folderList) return;
 
@@ -1272,12 +1275,14 @@ const setupDragAndDrop = (listElement, type) => {
     });
 
     listElement.addEventListener('dragleave', e => {
+        if (draggedItemInfo.type !== type) return;
         if (e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) {
             getDragOverIndicator().remove();
         }
     });
 
     listElement.addEventListener('drop', async e => {
+        if (draggedItemInfo.type !== type) return;
         e.preventDefault();
         if (listElement !== folderList || !draggedItemInfo.id) return;
 
