@@ -1839,9 +1839,12 @@ export const setupImportHandler = () => {
                         });
 
                         // 1. 고유한 폴더 이름 찾기
+                        const existingFolderNameKeys = new Set(
+                            latestData.folders.map(folder => String(folder?.name ?? '').trim().toLowerCase())
+                        );
                         let folderName = "Simplenote";
                         let counter = 1;
-                        while (latestData.folders.some(f => f.name === folderName)) {
+                        while (existingFolderNameKeys.has(folderName.toLowerCase())) {
                             folderName = `Simplenote (${counter++})`;
                         }
 

@@ -534,6 +534,8 @@
         STORAGE_KEY: 'diet_pro_records',
         SETTINGS_KEY: 'diet_pro_settings',
         FILTER_KEY: 'diet_pro_filter_mode',
+        CUSTOM_FILTER_START_KEY: 'diet_pro_filter_custom_start',
+        CUSTOM_FILTER_END_KEY: 'diet_pro_filter_custom_end',
         records: [],
         settings: { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 },
         chartFilterMode: 'ALL',
@@ -976,10 +978,33 @@
         AppState.state.recordsLoadFailed = persistedDietState.recordsLoadFailed;
 
         try {
-            AppState.chartFilterMode = sanitizeChartFilterMode(localStorage.getItem(AppState.FILTER_KEY));
+            const persistedFilterMode = sanitizeChartFilterMode(localStorage.getItem(AppState.FILTER_KEY));
+            if (persistedFilterMode === 'CUSTOM') {
+                const persistedCustomStart = localStorage.getItem(AppState.CUSTOM_FILTER_START_KEY);
+                const persistedCustomEnd = localStorage.getItem(AppState.CUSTOM_FILTER_END_KEY);
+                const hasValidCustomRange = DateUtil.isValidDateString(persistedCustomStart)
+                    && DateUtil.isValidDateString(persistedCustomEnd)
+                    && DateUtil.parse(persistedCustomStart) <= DateUtil.parse(persistedCustomEnd);
+
+                if (hasValidCustomRange) {
+                    AppState.chartFilterMode = 'CUSTOM';
+                    AppState.customStart = persistedCustomStart;
+                    AppState.customEnd = persistedCustomEnd;
+                    AppState.getEl('chartStartDate').value = persistedCustomStart;
+                    AppState.getEl('chartEndDate').value = persistedCustomEnd;
+                } else {
+                    AppState.chartFilterMode = 'ALL';
+                    AppState.customStart = null;
+                    AppState.customEnd = null;
+                }
+            } else {
+                AppState.chartFilterMode = persistedFilterMode;
+            }
         } catch (filterReadError) {
             console.error('Diet chart filter storage read error. Falling back to ALL.', filterReadError);
             AppState.chartFilterMode = 'ALL';
+            AppState.customStart = null;
+            AppState.customEnd = null;
         }
         
         // [기능 추가] 부모 창(MothNote)의 테마 설정 확인 (URL 파라미터)
@@ -4336,7 +4361,11 @@
         if(s && e) {
             if (!DateUtil.isValidDateString(s) || !DateUtil.isValidDateString(e)) return showToast('유효한 날짜 범위를 선택해주세요.');
             if (DateUtil.parse(s) > DateUtil.parse(e)) return showToast('시작일은 종료일보다 늦을 수 없습니다.');
-            if (!persistRawLocalStorageValue(AppState.FILTER_KEY, 'CUSTOM', '차트 필터 설정을 저장하지 못했습니다.')) return;
+            if (!persistLocalStorageEntriesAtomically([
+                { key: AppState.FILTER_KEY, value: 'CUSTOM' },
+                { key: AppState.CUSTOM_FILTER_START_KEY, value: s },
+                { key: AppState.CUSTOM_FILTER_END_KEY, value: e }
+            ], '차트 필터 설정을 저장하지 못했습니다.')) return;
             AppState.chartFilterMode = 'CUSTOM';
             AppState.customStart = s; AppState.customEnd = e;
             document.querySelectorAll('.filter-group .filter-btn').forEach(b=>b.classList.remove('active'));
