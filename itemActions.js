@@ -1388,7 +1388,11 @@ export async function saveCurrentNoteIfChanged() {
         if (!state.dirtyNoteId || state.dirtyNoteId === noteIdToSave) {
             setState({ isDirty: false, dirtyNoteId: null });
         }
-        if (activeEditorStillOwnsSavedNote) {
+        // setState()는 동기 구독 렌더를 실행합니다. 검색 중 저장된 노트가 결과에서 빠지면
+        // 바로 위 dirty 해제 렌더가 activeNoteId와 편집기 바인딩을 다른 노트로 바꿀 수 있습니다.
+        // 저장 전의 소유권 스냅샷을 사용하면 새 노트 편집기에 이전 노트 내용을 주입하게 되므로,
+        // DOM을 쓰기 직전에 현재 소유자를 다시 확인합니다.
+        if (state.activeNoteId === noteIdToSave) {
             if (noteTitleInput && noteTitleInput.value !== savedTitle) {
                 noteTitleInput.value = savedTitle;
             }

@@ -319,15 +319,22 @@ const verifyAndSanitizeLoadedData = (data) => {
         if (shouldNotify) notifyChangesMade = true;
     };
     const markMinorChanged = () => markChanged(false);
+    const assignNormalizedValue = (target, key, value) => {
+        if (!Object.is(target[key], value)) markMinorChanged();
+        target[key] = value;
+        return value;
+    };
     if (unsafePrototypeKeysRemoved) markChanged();
     const ensureArray = (value) => {
         if (Array.isArray(value)) return value;
-        if (value !== undefined) markChanged();
+        // 누락된 필드도 메모리에만 기본값을 만들고 끝내면 다음 트랜잭션이 원본 손상 값을
+        // 다시 읽습니다. 알림은 생략하되 정제본은 반드시 저장 대상으로 표시합니다.
+        markChanged(value !== undefined);
         return [];
     };
     const ensureObject = (value) => {
         if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-        if (value !== undefined) markChanged(false);
+        markMinorChanged();
         return {};
     };
     const normalizeText = (value, fallback) => {
@@ -387,19 +394,19 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         const note = rawNote;
         normalizeId(note, CONSTANTS.ID_PREFIX.NOTE, CONSTANTS.ITEM_TYPE.NOTE);
-        note.title = normalizeText(note.title, '제목 없음') || '제목 없음';
-        note.content = String(note.content ?? '');
-        note.createdAt = normalizeTimestamp(note.createdAt);
-        note.updatedAt = normalizeTimestamp(note.updatedAt, note.createdAt);
-        note.isPinned = Boolean(note.isPinned);
+        assignNormalizedValue(note, 'title', normalizeText(note.title, '제목 없음') || '제목 없음');
+        assignNormalizedValue(note, 'content', String(note.content ?? ''));
+        assignNormalizedValue(note, 'createdAt', normalizeTimestamp(note.createdAt));
+        assignNormalizedValue(note, 'updatedAt', normalizeTimestamp(note.updatedAt, note.createdAt));
+        assignNormalizedValue(note, 'isPinned', Boolean(note.isPinned));
 
         if (isTrash) {
-            note.type = CONSTANTS.ITEM_TYPE.NOTE;
-            note.deletedAt = normalizeTimestamp(note.deletedAt, now, false);
+            assignNormalizedValue(note, 'type', CONSTANTS.ITEM_TYPE.NOTE);
+            assignNormalizedValue(note, 'deletedAt', normalizeTimestamp(note.deletedAt, now, false));
             if (note.originalFolderId !== undefined && note.originalFolderId !== null) {
-                note.originalFolderId = String(note.originalFolderId);
+                assignNormalizedValue(note, 'originalFolderId', String(note.originalFolderId));
             }
-            if ('wasFavorite' in note) note.wasFavorite = Boolean(note.wasFavorite);
+            if ('wasFavorite' in note) assignNormalizedValue(note, 'wasFavorite', Boolean(note.wasFavorite));
         } else if (note.type !== undefined) {
             delete note.type;
             markChanged(false);
@@ -415,9 +422,9 @@ const verifyAndSanitizeLoadedData = (data) => {
 
         const folder = rawFolder;
         normalizeId(folder, CONSTANTS.ID_PREFIX.FOLDER, CONSTANTS.ITEM_TYPE.FOLDER);
-        folder.name = normalizeFolderName(folder.name);
-        folder.createdAt = normalizeTimestamp(folder.createdAt);
-        folder.updatedAt = normalizeTimestamp(folder.updatedAt, folder.createdAt);
+        assignNormalizedValue(folder, 'name', normalizeFolderName(folder.name));
+        assignNormalizedValue(folder, 'createdAt', normalizeTimestamp(folder.createdAt));
+        assignNormalizedValue(folder, 'updatedAt', normalizeTimestamp(folder.updatedAt, folder.createdAt));
 
         const rawNotes = ensureArray(folder.notes);
         folder.notes = rawNotes
@@ -425,8 +432,8 @@ const verifyAndSanitizeLoadedData = (data) => {
             .filter(Boolean);
 
         if (isTrash) {
-            folder.type = CONSTANTS.ITEM_TYPE.FOLDER;
-            folder.deletedAt = normalizeTimestamp(folder.deletedAt, now, false);
+            assignNormalizedValue(folder, 'type', CONSTANTS.ITEM_TYPE.FOLDER);
+            assignNormalizedValue(folder, 'deletedAt', normalizeTimestamp(folder.deletedAt, now, false));
         } else if (folder.type !== undefined) {
             delete folder.type;
             markChanged(false);
@@ -464,18 +471,24 @@ const verifyAndSanitizeLoadedData = (data) => {
     data.folders.forEach(folder => folder.notes.forEach(note => activeNoteIds.add(String(note.id))));
 
     // 즐겨찾기는 노트 ID 맵만 적용해야 폴더/노트 간 손상 ID 충돌에서도 잘못된 유형으로 이동하지 않습니다.
-    data.favorites = Array.from(new Set(data.favorites
+    const originalFavorites = data.favorites;
+    const normalizedFavorites = Array.from(new Set(originalFavorites
         .map(id => {
             const normalizedId = String(id);
             return noteIdUpdateMap.get(normalizedId) || normalizedId;
         })
         .filter(id => activeNoteIds.has(id))));
+    if (normalizedFavorites.length !== originalFavorites.length
+        || normalizedFavorites.some((id, index) => !Object.is(id, originalFavorites[index]))) {
+        markMinorChanged();
+    }
+    data.favorites = normalizedFavorites;
 
     data.trash.forEach(item => {
         const applyOriginalFolderFix = (note) => {
             if (note?.originalFolderId !== undefined && note.originalFolderId !== null) {
                 const normalizedId = String(note.originalFolderId);
-                note.originalFolderId = folderIdUpdateMap.get(normalizedId) || normalizedId;
+                assignNormalizedValue(note, 'originalFolderId', folderIdUpdateMap.get(normalizedId) || normalizedId);
             }
         };
         if (item?.type === CONSTANTS.ITEM_TYPE.FOLDER) item.notes.forEach(applyOriginalFolderFix);
@@ -492,12 +505,13 @@ const verifyAndSanitizeLoadedData = (data) => {
     );
 
     if (data.activeFolderId !== undefined && data.activeFolderId !== null) {
-        data.activeFolderId = getFolderIdAfterSanitization(data.activeFolderId, folderIdUpdateMap);
+        assignNormalizedValue(data, 'activeFolderId', getFolderIdAfterSanitization(data.activeFolderId, folderIdUpdateMap));
     }
     if (data.activeNoteId !== undefined && data.activeNoteId !== null) {
         const normalizedId = String(data.activeNoteId);
-        data.activeNoteId = noteIdUpdateMap.get(normalizedId) || normalizedId;
+        assignNormalizedValue(data, 'activeNoteId', noteIdUpdateMap.get(normalizedId) || normalizedId);
     }
+    assignNormalizedValue(data, 'lastSavedTimestamp', normalizeTimestamp(data.lastSavedTimestamp, now, false));
 
     // 기존 단일 맵 소비자를 위한 호환 맵입니다. 두 유형에서 동시에 쓰인 원본 ID는 모호하므로 제외합니다.
     const idUpdateMap = new Map();
