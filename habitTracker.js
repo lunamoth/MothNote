@@ -708,7 +708,8 @@ document.addEventListener('DOMContentLoaded', () => {
             today.setHours(0,0,0,0);
             const todayStr = this.getDateString(today);
             
-            const yesterday = new Date(today.getTime() - 86400000);
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
             const yesterdayStr = this.getDateString(yesterday);
             
             let title = selectedDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -1095,17 +1096,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             let prevStartDate, prevEndDate;
-            const diff = (endDate.getTime() - startDate.getTime());
-            
-            prevEndDate = new Date(startDate.getTime() - 86400000); 
-            prevStartDate = new Date(prevEndDate.getTime() - diff);
+            const currentRangeDayOffset = this.getCalendarDayOffset(startDate, endDate);
+
+            prevEndDate = new Date(startDate);
+            prevEndDate.setDate(prevEndDate.getDate() - 1);
+            prevStartDate = new Date(prevEndDate);
+            prevStartDate.setDate(prevStartDate.getDate() - currentRangeDayOffset);
             
             if (period === 'this_month') {
                 prevStartDate = new Date(startDate.getFullYear(), startDate.getMonth() - 1, 1);
                 prevEndDate = new Date(startDate.getFullYear(), startDate.getMonth(), 0);
             } else if (period === 'this_week') {
-                 prevStartDate = new Date(startDate.getTime() - 7 * 86400000);
-                 prevEndDate = new Date(startDate.getTime() - 1 * 86400000);
+                 prevStartDate = new Date(startDate);
+                 prevStartDate.setDate(prevStartDate.getDate() - 7);
+                 prevEndDate = new Date(startDate);
+                 prevEndDate.setDate(prevEndDate.getDate() - 1);
             }
             
             const prevStats = this.calculateReportStats(prevStartDate, prevEndDate);
@@ -1442,9 +1447,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const index = this.state.habits.findIndex(h => h.id == id);
                 if (index > -1) this.state.habits[index] = { ...this.state.habits[index], ...habitData };
             } else {
-                const now = Date.now();
+                const createdAt = Date.now();
+                let habitId = createdAt;
+                const usedHabitIds = new Set(this.state.habits.map(habit => String(habit.id)));
+                while (usedHabitIds.has(String(habitId))) habitId += 1;
                 const maxOrder = this.state.habits.reduce((max, h) => Math.max(max, h.order || 0), 0);
-                this.state.habits.push({ ...habitData, id: now, logs: {}, isArchived: false, order: maxOrder + 1, createdAt: now });
+                this.state.habits.push({ ...habitData, id: habitId, logs: {}, isArchived: false, order: maxOrder + 1, createdAt });
                 shouldCheckHabitAchievements = true;
             }
 
@@ -2232,7 +2240,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if(sortedLogs) {
                 lastPracticeDate = this.parseDateString(sortedLogs);
-                const diffDays = Math.floor((today - lastPracticeDate) / (1000 * 60 * 60 * 24));
+                const diffDays = this.getCalendarDayOffset(lastPracticeDate, today);
                 if (diffDays >= 7) {
                     this.checkAchievement('comeback_king', true);
                 }

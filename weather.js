@@ -1567,7 +1567,7 @@
     function renderWeeklyTempChart(dailyData) {
         if (!dailyData?.time?.length) return;
         const limit = Math.min(7, dailyData.time.length);
-        const labels = dailyData.time.slice(0, limit).map(dateStr => new Date(dateStr).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+        const labels = dailyData.time.slice(0, limit).map(dateStr => new Date(`${dateStr}T00:00:00`).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
         const maxTemps = Array.isArray(dailyData.temperature_2m_max) ? dailyData.temperature_2m_max.slice(0, limit) : [];
         const minTemps = Array.isArray(dailyData.temperature_2m_min) ? dailyData.temperature_2m_min.slice(0, limit) : [];
         const chartColors = getChartColors();

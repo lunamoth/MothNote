@@ -75,6 +75,7 @@ import { lunaFlowACTContent } from './LunaFlowACT.js';
 import { withAppStateWriteLock } from './storageLock.js';
 import {
     parseEmergencyBackupChanges,
+    shouldDiscardEmergencyNoteUpdate,
     shouldDiscardEmergencyBackupAfterTransaction
 } from './emergencyRecoveryUtils.js';
 
@@ -663,23 +664,33 @@ export const loadData = async () => {
                 }
                 // --- [버그 수정 끝] ---
 
-                const noteExistsForEmergencyRecovery = (noteId, data) => {
+                const findNoteForEmergencyRecovery = (noteId, data) => {
                     const normalizedNoteId = String(noteId ?? '');
-                    if (!normalizedNoteId || !data) return false;
+                    if (!normalizedNoteId || !data) return null;
 
                     const activeFolders = Array.isArray(data.folders) ? data.folders : [];
-                    if (activeFolders.some(folder => (Array.isArray(folder.notes) ? folder.notes : []).some(note => String(note?.id ?? '') === normalizedNoteId))) {
-                        return true;
+                    for (const folder of activeFolders) {
+                        const note = (Array.isArray(folder.notes) ? folder.notes : [])
+                            .find(item => String(item?.id ?? '') === normalizedNoteId);
+                        if (note) return note;
                     }
 
                     const trashItems = Array.isArray(data.trash) ? data.trash : [];
-                    return trashItems.some(item => {
+                    for (const item of trashItems) {
                         if (String(item?.id ?? '') === normalizedNoteId && (!Array.isArray(item?.notes) || item.type === CONSTANTS.ITEM_TYPE.NOTE)) {
-                            return true;
+                            return item;
                         }
-                        return Array.isArray(item?.notes) && item.notes.some(note => String(note?.id ?? '') === normalizedNoteId);
-                    });
+                        const nestedNote = Array.isArray(item?.notes)
+                            ? item.notes.find(note => String(note?.id ?? '') === normalizedNoteId)
+                            : null;
+                        if (nestedNote) return nestedNote;
+                    }
+
+                    return null;
                 };
+
+                const noteExistsForEmergencyRecovery = (noteId, data) =>
+                    Boolean(findNoteForEmergencyRecovery(noteId, data));
 
                 const itemExistsForEmergencyRecovery = (id, type, data) => {
                     const normalizedId = String(id ?? '');
@@ -695,9 +706,15 @@ export const loadData = async () => {
                     return noteExistsForEmergencyRecovery(normalizedId, data);
                 };
 
-                if (backupChanges.noteUpdate && !noteExistsForEmergencyRecovery(backupChanges.noteUpdate.noteId, authoritativeData)) {
-                    console.warn('Emergency backup note target no longer exists. Dropping stale note recovery entry.');
-                    delete backupChanges.noteUpdate;
+                if (backupChanges.noteUpdate) {
+                    const recoveryTarget = findNoteForEmergencyRecovery(backupChanges.noteUpdate.noteId, authoritativeData);
+                    if (!recoveryTarget) {
+                        console.warn('Emergency backup note target no longer exists. Dropping stale note recovery entry.');
+                        delete backupChanges.noteUpdate;
+                    } else if (shouldDiscardEmergencyNoteUpdate(backupChanges.noteUpdate, recoveryTarget)) {
+                        console.warn('Emergency backup note entry is already saved or older than the committed note. Dropping stale recovery entry.');
+                        delete backupChanges.noteUpdate;
+                    }
                 }
                 if (backupChanges.itemRename && !itemExistsForEmergencyRecovery(backupChanges.itemRename.id, backupChanges.itemRename.type, authoritativeData)) {
                     console.warn('Emergency backup rename target no longer exists. Dropping stale rename recovery entry.');

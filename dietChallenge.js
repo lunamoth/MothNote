@@ -374,7 +374,13 @@
             const d = String(date.getDate()).padStart(2, '0');
             return `${y}-${m}-${d}`;
         },
-        daysBetween: (d1, d2) => (d2 - d1) / (1000 * 3600 * 24),
+        daysBetween: (d1, d2) => {
+            const startDate = d1 instanceof Date ? d1 : new Date(d1);
+            const endDate = d2 instanceof Date ? d2 : new Date(d2);
+            const startDay = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+            const endDay = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            return (endDay - startDay) / 86400000;
+        },
         addDays: (dateStr, days) => {
             const d = DateUtil.parse(dateStr);
             d.setDate(d.getDate() + days);
@@ -587,7 +593,7 @@
             const record = sanitizeDietRecord(raw);
             if (record) byDate.set(record.date, record);
         });
-        return Array.from(byDate.values()).sort((a, b) => new Date(a.date) - new Date(b.date));
+        return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
     };
 
     const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -1600,7 +1606,7 @@
 
                 if (diff < 0) successCount++;
 
-                const dayDiff = DateUtil.daysBetween(new Date(records[i-1].date), new Date(records[i].date));
+                const dayDiff = DateUtil.daysBetween(DateUtil.parse(records[i-1].date), DateUtil.parse(records[i].date));
                 if (dayDiff === 1) {
                     if (diff < 0 && Math.abs(diff) > maxDrop) maxDrop = Math.abs(diff);
                     if (diff > 0 && diff > maxGain) maxGain = diff;
@@ -4314,7 +4320,7 @@
 
         const first = recent[0];
         const last = recent[recent.length-1];
-        const days = DateUtil.daysBetween(new Date(first.date), new Date(last.date));
+        const days = DateUtil.daysBetween(DateUtil.parse(first.date), DateUtil.parse(last.date));
         const totalDiff = MathUtil.diff(first.weight, last.weight);
         const avgRate = totalDiff / (days || 1); 
 

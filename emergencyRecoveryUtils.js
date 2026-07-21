@@ -32,6 +32,11 @@ export const parseEmergencyBackupChanges = rawBackup => {
             title: String(parsed.noteUpdate.title ?? ''),
             content: String(parsed.noteUpdate.content ?? '')
         };
+
+        const capturedAt = Number(parsed.noteUpdate.capturedAt);
+        if (Number.isFinite(capturedAt) && capturedAt > 0) {
+            normalized.noteUpdate.capturedAt = capturedAt;
+        }
     }
 
     if (isRecord(parsed.itemRename)) {
@@ -46,6 +51,25 @@ export const parseEmergencyBackupChanges = rawBackup => {
     }
 
     return normalized;
+};
+
+// 저장 완료 후 비상 백업 정리 전에 탭이 종료되면, 이미 커밋된 내용보다 오래된
+// 초안이 남을 수 있습니다. 내용이 동일하거나 캡처 시점보다 저장본이 더 최신이면
+// 복구 대상으로 사용하지 않아 최신 저장본의 역행을 막습니다.
+export const shouldDiscardEmergencyNoteUpdate = (noteUpdate, targetNote) => {
+    if (!isRecord(noteUpdate) || !isRecord(targetNote)) return false;
+
+    const matchesSavedNote = String(noteUpdate.title ?? '') === String(targetNote.title ?? '')
+        && String(noteUpdate.content ?? '') === String(targetNote.content ?? '');
+    if (matchesSavedNote) return true;
+
+    const capturedAt = Number(noteUpdate.capturedAt);
+    const updatedAt = Number(targetNote.updatedAt);
+    return Number.isFinite(capturedAt)
+        && capturedAt > 0
+        && Number.isFinite(updatedAt)
+        && updatedAt > 0
+        && capturedAt <= updatedAt;
 };
 
 // 적용할 대상이 없어 트랜잭션이 의도적으로 no-op이 된 경우만 오래된 백업으로 봅니다.
