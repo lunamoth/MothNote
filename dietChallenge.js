@@ -1250,7 +1250,13 @@
                     }
                 } else {
                     // 날짜는 그대로두고 값만 수정하는 경우
-                    AppState.records[existingIndex] = record;
+                    if (existingIndex >= 0) {
+                        AppState.records[existingIndex] = record;
+                    } else {
+                        // 편집을 시작한 뒤 삭제/가져오기 등으로 원본 기록이 사라졌다면
+                        // 배열의 "-1" 속성에 쓰지 말고 제출한 기록을 정상 항목으로 복구합니다.
+                        AppState.records.push(record);
+                    }
                 }
             } else {
                 // 신규 기록일 때

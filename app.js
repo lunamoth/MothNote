@@ -402,7 +402,7 @@ const handleSettingsSave = () => {
     isSavingSettings = false;
 
     if (weatherLocationChanged && dashboard) {
-        dashboard.fetchWeather({ forceRefresh: true });
+        dashboard._refreshWeatherLocationViews();
     }
 };
 
@@ -432,7 +432,7 @@ const handleSettingsReset = async () => {
         
         applySettings(appSettings);
         if (weatherLocationChanged && dashboard) {
-            dashboard.fetchWeather({ forceRefresh: true });
+            dashboard._refreshWeatherLocationViews();
         }
         showToast(CONSTANTS.MESSAGES.SUCCESS.SETTINGS_RESET);
         
@@ -695,17 +695,29 @@ class Dashboard {
             return;
         }
         
-        const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
-        
         // 다른 iframe 뷰가 열려있으면 닫습니다.
         this._closeHabitTracker({ restorePanels: false });
         this._closeDietChallenge({ restorePanels: false });
         
         if (!this.dom.weatherIframe || !this.dom.weatherViewContainer) return;
-        this.dom.weatherIframe.src = `weather.html?lat=${lat}&lon=${lon}&theme=${theme}`;
+        this.dom.weatherIframe.src = this._getWeatherViewUrl();
         
         this._hideMainPanels();
         this.dom.weatherViewContainer.style.display = 'grid';
+    }
+
+    _getWeatherViewUrl() {
+        const { lat, lon } = appSettings.weather;
+        const theme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+        return `weather.html?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&theme=${theme}`;
+    }
+
+    _refreshWeatherLocationViews() {
+        void this.fetchWeather({ forceRefresh: true });
+
+        if (this.dom.weatherViewContainer?.style.display === 'grid' && this.dom.weatherIframe) {
+            this.dom.weatherIframe.src = this._getWeatherViewUrl();
+        }
     }
 
     _closeWeatherView({ restorePanels = true } = {}) {
