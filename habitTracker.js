@@ -204,7 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // ----- DATA & STATE MANAGEMENT -----
         saveData({ allowCorruptDataReplacement = false } = {}) {
-            // 파싱에 실패한 통합 데이터는 사용자가 명시적으로 초기화하기 전까지 보존합니다.
+            // 파싱 또는 구조 검증에 실패한 통합 데이터는 사용자가 명시적으로 초기화하기 전까지 보존합니다.
             // 테마 메시지나 일반 UI 작업이 빈 안전 상태를 자동 저장해 원본과 복구본을
             // 덮어쓰는 일을 막습니다.
             if (this._hadDataLoadError && !allowCorruptDataReplacement) {
@@ -269,10 +269,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return this.saveDataOrRollback(previousState);
         },
 
-        sanitizeLoadedState(rawState = {}) {
+        sanitizeLoadedState(rawState = {}, options = {}) {
             if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
                 rawState = {};
             }
+            const reportStructuralCorruption = () => {
+                if (typeof options?.onStructuralCorruption === 'function') {
+                    options.onStructuralCorruption();
+                }
+            };
             const now = Date.now();
             const usedIds = new Set();
             const safeDatePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -291,6 +296,18 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const normalizeFrequency = (frequency) => {
                 const validTypes = new Set(['daily', 'weekdays', 'weekends', 'specific_days']);
+                const isFrequencyObject = Boolean(frequency) && typeof frequency === 'object' && !Array.isArray(frequency);
+                if (frequency !== undefined && !isFrequencyObject) reportStructuralCorruption();
+                if (isFrequencyObject
+                    && Object.prototype.hasOwnProperty.call(frequency, 'type')
+                    && !validTypes.has(frequency.type)) {
+                    reportStructuralCorruption();
+                }
+                if (isFrequencyObject
+                    && Object.prototype.hasOwnProperty.call(frequency, 'days')
+                    && !Array.isArray(frequency.days)) {
+                    reportStructuralCorruption();
+                }
                 const type = validTypes.has(frequency?.type) ? frequency.type : 'daily';
                 const defaultDays = {
                     daily: [0,1,2,3,4,5,6],
@@ -306,11 +323,21 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const normalizeLogs = (logs) => {
                 const safeLogs = {};
-                if (!logs || typeof logs !== 'object' || Array.isArray(logs)) return safeLogs;
+                if (logs === undefined) return safeLogs;
+                if (!logs || typeof logs !== 'object' || Array.isArray(logs)) {
+                    reportStructuralCorruption();
+                    return safeLogs;
+                }
                 for (const [date, entry] of Object.entries(logs)) {
-                    if (!safeDatePattern.test(date)) continue;
+                    if (!safeDatePattern.test(date)) {
+                        reportStructuralCorruption();
+                        continue;
+                    }
                     const value = typeof entry === 'object' ? Number(entry?.value) : Number(entry);
-                    if (!Number.isFinite(value)) continue;
+                    if (!Number.isFinite(value)) {
+                        reportStructuralCorruption();
+                        continue;
+                    }
                     safeLogs[date] = { value: value > 0 ? 1 : 0 };
                 }
                 return safeLogs;
@@ -328,7 +355,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const habits = Array.isArray(rawState.habits) ? rawState.habits : [];
             const sanitizedHabits = habits
                 .map((habit, index) => {
-                    if (!habit || typeof habit !== 'object' || Array.isArray(habit)) return null;
+                    if (!habit || typeof habit !== 'object' || Array.isArray(habit)) {
+                        reportStructuralCorruption();
+                        return null;
+                    }
                     const normalizedLogs = normalizeLogs(habit.logs);
                     const rawCreatedAt = Number(habit.createdAt);
                     const hasValidCreatedAt = Number.isFinite(rawCreatedAt)
@@ -409,7 +439,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     parsedData.currentDate = today;
 
                     // 기존 state에 덮어씌우되, 손상/조작된 로컬 데이터는 먼저 정규화합니다.
-                    this.state = { ...this.state, ...this.sanitizeLoadedState(parsedData), chartInstances: {} };
+                    // 사용자 습관/로그 레코드가 유실되는 정규화는 실패로 처리해 원본 키를 보존합니다.
+                    let hasStructuralCorruption = false;
+                    const sanitizedState = this.sanitizeLoadedState(parsedData, {
+                        onStructuralCorruption: () => { hasStructuralCorruption = true; }
+                    });
+                    if (hasStructuralCorruption) {
+                        throw new Error('Integrated habit data contains malformed habit, frequency, or log records.');
+                    }
+                    this.state = { ...this.state, ...sanitizedState, chartInstances: {} };
                 } catch (error) {
                     this._hadDataLoadError = true;
                     console.error('Habit tracker data load failed. Starting with a safe empty state without deleting the original data.', error);

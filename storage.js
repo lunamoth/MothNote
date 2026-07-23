@@ -290,16 +290,48 @@ const verifyAndSanitizeLoadedData = (data) => {
         activeNoteId: null,
         lastSavedTimestamp: now
     });
+    const createInvalidStructureResult = () => ({
+        sanitizedData: createEmptySanitizedAppState(),
+        wasSanitized: true,
+        shouldNotify: true,
+        isTopLevelInvalid: true,
+        ...emptyMaps
+    });
 
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
         console.warn('[Data Sanitization] Invalid top-level appState was detected. A non-persistable safe placeholder was created for validation only.');
-        return {
-            sanitizedData: createEmptySanitizedAppState(),
-            wasSanitized: true,
-            shouldNotify: true,
-            isTopLevelInvalid: true,
-            ...emptyMaps
-        };
+        return createInvalidStructureResult();
+    }
+
+    // [CRITICAL FIX] 사용자 데이터를 담는 배열 자체나 그 안의 레코드가 손상된 경우,
+    // 빈 배열로 정규화한 뒤 원본에 덮어쓰면 노트·휴지통 데이터가 영구 소실됩니다.
+    // 손실 없이 복구할 수 없는 구조는 저장 가능한 정제본으로 취급하지 않고 원본을 보존합니다.
+    const hasOwn = (target, key) => Object.prototype.hasOwnProperty.call(target, key);
+    const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+    const hasInvalidOptionalArray = key => hasOwn(data, key) && !Array.isArray(data[key]);
+    const hasInvalidNoteCollection = folder => (
+        hasOwn(folder, 'notes')
+        && (!Array.isArray(folder.notes) || folder.notes.some(note => !isRecord(note)))
+    );
+    const hasInvalidFolderRecords = Array.isArray(data.folders) && data.folders.some(folder => (
+        !isRecord(folder) || hasInvalidNoteCollection(folder)
+    ));
+    const hasInvalidTrashRecords = Array.isArray(data.trash) && data.trash.some(item => (
+        !isRecord(item)
+        || ((item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes))
+            && hasInvalidNoteCollection(item))
+    ));
+    const hasUnrecoverableDataStructure = (
+        !Array.isArray(data.folders)
+        || hasInvalidOptionalArray('trash')
+        || hasInvalidOptionalArray('favorites')
+        || hasInvalidFolderRecords
+        || hasInvalidTrashRecords
+    );
+
+    if (hasUnrecoverableDataStructure) {
+        console.warn('[Data Sanitization] A malformed data container or record was detected. Automatic persistence was blocked to preserve the original appState.');
+        return createInvalidStructureResult();
     }
 
     const unsafePrototypeKeysRemoved = sanitizeObjectForPrototypePollution(data);
