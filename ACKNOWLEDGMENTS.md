@@ -1,101 +1,52 @@
-# 사용한 서비스, 오픈소스 정보 및 라이선스
+# 감사의 말 (Acknowledgements)
 
-MothNote 는 아래에 명시된 서비스, 오픈소스 덕분에 만들어질 수 있었습니다. 멋진 서비스, 소프트웨어를 공개해주신 개발자분들의 노고에 깊은 감사를 드립니다.
+- PiP 기능 개선에 **PIP screen for html5 video 확장 프로그램** (https://chromewebstore.google.com/detail/pip-screen-for-html5-vide/ebgihmollhfickaopoldkikdnipmdemg) 소스 코드 참고했습니다. 개발자 keisokoo님에게 연락드려서 소스 코드 참고 허락 받았습니다. 허락해주셔서 감사드립니다.
 
-### Open-Meteo
+---
 
-- **용도**: 날씨 기능에 필요한 날씨 데이터를 가져오기 위해 사용됩니다.
-- **출처**: https://open-meteo.com/
-- **라이선스**: Attribution 4.0 International (CC BY 4.0)
+# 사용한 오픈소스 정보 및 라이선스
 
-API data are offered under Attribution 4.0 International (CC BY 4.0)
-You are free to share: copy and redistribute the material in any medium or format and adapt: remix, transform, and build upon the material.
+LunaTools 는 아래에 명시된 오픈소스 덕분에 만들어질 수 있었습니다. 멋진 소프트웨어, 서비스, 폰트를 공개해주신 개발자분들의 노고에 깊은 감사를 드립니다.
 
-Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+### Frankfurter.app
 
-You must include a link next to any location Open-Meteo data are displayed, for example:
+- **용도**: 환율 변환 기능에 필요한 실시간 환율 데이터를 가져오기 위해 사용됩니다.
+- **출처**: https://www.frankfurter.app/
+- **라이선스**: MIT License (아래 전문 참고)
 
-<a href="https://open-meteo.com/">
-	Weather data by Open-Meteo.com
-</a>
+Copyright (c) 2020 Hakan Ensari
 
-Open-Meteo is open-source
-Source code is available on GitHub under the GNU Affero General Public License Version 3 AGPLv3 or any later version. You can find the license here.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-## Chart.js
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-The MIT License (MIT)
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-Copyright (c) 2014-2024 Chart.js Contributors
+### Lato 폰트
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+- **용도**: 옵션 및 사이드 패널 페이지의 사용자 인터페이스 웹 폰트로 사용됩니다.
+- **출처**: Google Fonts (https://fonts.google.com/specimen/Lato)
+- **라이선스**: SIL Open Font License, Version 1.1 (아래 전문 참고)
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+### 나눔바른고딕 폰트 (Nanum Barun Gothic)
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+- **용도**: 옵션 및 사이드 패널 페이지의 사용자 인터페이스 웹 폰트로 사용됩니다.
+- **출처**: 네이버 나눔글꼴 (https://hangeul.naver.com/font)
+- **라이선스**: SIL Open Font License, Version 1.1 (아래 전문 참고)
 
-## date-fns adapter for Chart.js
-
-The MIT License (MIT)
-
-Copyright (c) 2019 Chart.js Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-## date-fns
-
-MIT License
-
-Copyright (c) 2021 Sasha Koss and Lesha Koss https://kossnocorp.mit-license.org
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-## Marked
-
-Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/) Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-## Markdown
-
-Markdown is free software, available under the terms of a BSD-style open source license.
-
-License
-Copyright © 2004, John Gruber
-http://daringfireball.net/
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-Neither the name “Markdown” nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.
-
-### Noto Sans KR
-
-- **용도**: 날씨 정보 페이지의 기본 글꼴로 사용됩니다.
-- **출처**: https://fonts.google.com/noto/specimen/Noto+Sans+KR
-- **라이선스**: SIL Open Font License, Version 1.1
-
-License
-Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
-This Font Software is licensed under the SIL Open Font License, Version 1.1 . This license is copied below, and is also available with a FAQ at: https://openfontlicense.org
+### SIL Open Font License, Version 1.1
 
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
 
