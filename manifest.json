@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MothNote",
-  "version": "24.25",
-  "description": "폴더 기반 노트 시스템에 시계, 날씨, 달력 위젯을 더한 올인원 새 탭 대시보드",
+  "version": "24.26",
+  "description": "폴더 기반 노트 시스템과 시계·날씨·달력 위젯, 습관·다이어트 트래커를 통합하여 크롬 새 탭을 강력한 올인원 생산성 대시보드로 전환하는 확장 프로그램",
   "homepage_url": "http://lunamoth.com/entry/MothNote",
   "permissions": [
     "storage",

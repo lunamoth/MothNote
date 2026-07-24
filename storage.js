@@ -1243,6 +1243,18 @@ const sanitizeContentData = data => {
     if (!data || !Array.isArray(data.folders)) {
         throw new Error("유효하지 않은 파일 구조입니다.");
     }
+
+    // 누락된 구버전 선택 필드는 기본값으로 보완할 수 있지만, 필드가 존재하면서
+    // 컨테이너 형식이 잘못된 백업은 일부 데이터만 조용히 버린 채 가져오면 안 됩니다.
+    // 특히 notes/trash를 빈 배열로 바꾸고 가져오기를 완료하면 정상으로 보였던
+    // 현재 데이터와 롤백 백업까지 다음 실행에서 영구적으로 사라질 수 있습니다.
+    if (Object.prototype.hasOwnProperty.call(data, 'trash') && !Array.isArray(data.trash)) {
+        throw new Error("휴지통 데이터가 배열 형식이 아닙니다.");
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'favorites') && !Array.isArray(data.favorites)) {
+        throw new Error("즐겨찾기 데이터가 배열 형식이 아닙니다.");
+    }
+
     sanitizeObjectForPrototypePollution(data);
 
     const usedIds = new Set(RESERVED_ITEM_IDS);
@@ -1306,6 +1318,9 @@ const sanitizeContentData = data => {
 
     const sanitizeFolder = (rawFolder, isTrash = false) => {
         assertRecord(rawFolder, '폴더');
+        if (Object.prototype.hasOwnProperty.call(rawFolder, 'notes') && !Array.isArray(rawFolder.notes)) {
+            throw new Error(`${isTrash ? '휴지통 폴더' : '폴더'}의 노트 목록이 배열 형식이 아닙니다.`);
+        }
         const folderId = getUniqueId(CONSTANTS.ID_PREFIX.FOLDER, rawFolder.id, folderIdMap);
         const deletedAt = isTrash ? normalizeTimestamp(rawFolder.deletedAt) : null;
         const createdAt = normalizeTimestamp(rawFolder.createdAt, deletedAt || now);
@@ -1339,19 +1354,19 @@ const sanitizeContentData = data => {
     });
 
     const sanitizedTrash = Array.isArray(data.trash)
-        ? data.trash.reduce((acc, item) => {
-            if (!item || typeof item !== 'object' || Array.isArray(item)) return acc;
-
+        ? data.trash.map(item => {
+            // 손상된 휴지통 항목을 건너뛰고 성공 처리하면 사용자가 백업에
+            // 포함됐다고 믿은 노트/폴더가 복원 과정에서 영구 누락됩니다.
+            assertRecord(item, '휴지통 항목');
             // 구버전 백업은 type 필드 없이 notes 배열 유무로 폴더/노트를 구분했습니다.
             const effectiveType = item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes)
                 ? CONSTANTS.ITEM_TYPE.FOLDER
                 : CONSTANTS.ITEM_TYPE.NOTE;
 
-            acc.push(effectiveType === CONSTANTS.ITEM_TYPE.FOLDER
+            return effectiveType === CONSTANTS.ITEM_TYPE.FOLDER
                 ? sanitizeFolder(item, true)
-                : sanitizeNote(item, true));
-            return acc;
-        }, [])
+                : sanitizeNote(item, true);
+        })
         : [];
 
     // 모든 폴더 ID를 먼저 수집한 뒤 원본 폴더 참조를 보정합니다. 휴지통 배열의 순서와 무관하게 동작합니다.
@@ -1401,6 +1416,9 @@ const sanitizeContentData = data => {
 export const sanitizeSettings = (settingsData) => {
     const defaults = CONSTANTS.DEFAULT_SETTINGS;
     const sanitized = JSON.parse(JSON.stringify(defaults));
+    const MIN_SIDE_PANEL_WIDTH = 10;
+    const MAX_SIDE_PANEL_WIDTH = 50;
+    const MAX_COMBINED_SIDE_PANEL_WIDTH = 70;
 
     if (!settingsData || typeof settingsData !== 'object') {
         return sanitized;
@@ -1422,8 +1440,34 @@ export const sanitizeSettings = (settingsData) => {
     };
 
     if (settingsData.layout && typeof settingsData.layout === 'object') {
-        sanitized.layout.col1 = getClampedNumber(settingsData.layout.col1, defaults.layout.col1, 10, 50);
-        sanitized.layout.col2 = getClampedNumber(settingsData.layout.col2, defaults.layout.col2, 10, 50);
+        let col1 = getClampedNumber(
+            settingsData.layout.col1,
+            defaults.layout.col1,
+            MIN_SIDE_PANEL_WIDTH,
+            MAX_SIDE_PANEL_WIDTH
+        );
+        let col2 = getClampedNumber(
+            settingsData.layout.col2,
+            defaults.layout.col2,
+            MIN_SIDE_PANEL_WIDTH,
+            MAX_SIDE_PANEL_WIDTH
+        );
+
+        // 두 사이드 패널이 화면 전체를 차지하면 1fr 편집 영역이 0에 가까워져
+        // 노트를 읽거나 수정할 수 없습니다. 비율은 최대한 유지하면서 편집기에
+        // 최소 30%의 가용 폭을 남깁니다.
+        if (col1 + col2 > MAX_COMBINED_SIDE_PANEL_WIDTH) {
+            const expandableWidth = MAX_COMBINED_SIDE_PANEL_WIDTH - (MIN_SIDE_PANEL_WIDTH * 2);
+            const requestedExpandableWidth = (col1 - MIN_SIDE_PANEL_WIDTH) + (col2 - MIN_SIDE_PANEL_WIDTH);
+            const scale = requestedExpandableWidth > 0
+                ? expandableWidth / requestedExpandableWidth
+                : 0;
+            col1 = Math.round(MIN_SIDE_PANEL_WIDTH + ((col1 - MIN_SIDE_PANEL_WIDTH) * scale));
+            col2 = MAX_COMBINED_SIDE_PANEL_WIDTH - col1;
+        }
+
+        sanitized.layout.col1 = col1;
+        sanitized.layout.col2 = col2;
     }
     if (settingsData.zenMode && typeof settingsData.zenMode === 'object') {
         sanitized.zenMode.maxWidth = getClampedNumber(settingsData.zenMode.maxWidth, defaults.zenMode.maxWidth, 500, 2000);
@@ -1509,7 +1553,13 @@ export const handleExport = async (settings) => {
                         achievements.data_guardian = { unlockedAt: new Date().toISOString() };
                         habitTrackerDataForExport.achievements = achievements;
                         // 백업에 포함할 뿐 아니라 습관 트래커를 다시 열었을 때도 업적이 유지되도록 저장합니다.
-                        localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(habitTrackerDataForExport));
+                        try {
+                            localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(habitTrackerDataForExport));
+                        } catch (achievementSaveError) {
+                            // 백업은 저장 공간 문제를 복구하기 위한 핵심 수단입니다.
+                            // 부가 업적 기록 실패가 정상 노트·설정 백업 생성까지 막지 않게 합니다.
+                            console.warn('데이터 지킴이 업적을 저장하지 못했지만 백업은 계속 진행합니다.', achievementSaveError);
+                        }
                     }
                 }
             } catch (habitDataError) {
@@ -1639,10 +1689,43 @@ const normalizeHabitTrackerImportValue = value => {
     }
 
     sanitizeObjectForPrototypePollution(parsed);
+    const validFrequencyTypes = new Set(['daily', 'weekdays', 'weekends', 'specific_days']);
+    const isValidHabitLogDate = dateText => {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText ?? ''));
+        if (!match) return false;
+        const year = Number(match[1]);
+        const monthIndex = Number(match[2]) - 1;
+        const day = Number(match[3]);
+        const date = new Date(year, monthIndex, day);
+        return date.getFullYear() === year
+            && date.getMonth() === monthIndex
+            && date.getDate() === day;
+    };
+    const hasInvalidFrequency = frequency => (
+        !isPlainImportObject(frequency)
+        || (Object.prototype.hasOwnProperty.call(frequency, 'type')
+            && !validFrequencyTypes.has(frequency.type))
+        || (Object.prototype.hasOwnProperty.call(frequency, 'days')
+            && (!Array.isArray(frequency.days)
+                || frequency.days.some(day => {
+                    const numericDay = Number(day);
+                    return !Number.isInteger(numericDay) || numericDay < 0 || numericDay > 6;
+                })))
+    );
+    const hasInvalidLogs = logs => (
+        !isPlainImportObject(logs)
+        || Object.entries(logs).some(([dateText, entry]) => {
+            if (!isValidHabitLogDate(dateText)) return true;
+            const valueToCheck = entry !== null && typeof entry === 'object'
+                ? entry.value
+                : entry;
+            return !Number.isFinite(Number(valueToCheck));
+        })
+    );
     const hasInvalidHabit = parsed.habits.some(habit => (
         !isPlainImportObject(habit)
-        || ('logs' in habit && !isPlainImportObject(habit.logs))
-        || ('frequency' in habit && !isPlainImportObject(habit.frequency))
+        || ('logs' in habit && hasInvalidLogs(habit.logs))
+        || ('frequency' in habit && hasInvalidFrequency(habit.frequency))
     ));
     if (hasInvalidHabit) {
         throw new Error('습관 트래커 백업에 손상된 습관 항목이 있습니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');

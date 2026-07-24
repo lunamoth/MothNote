@@ -1586,7 +1586,16 @@ const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, input
                 ...appSettings,
                 layout: { ...appSettings.layout, [settingsKey]: parseInt(sliderElement.value, 10) }
             });
-            if (persistedSettings) appSettings = persistedSettings;
+            if (persistedSettings) {
+                appSettings = persistedSettings;
+                // 두 사이드 패널의 합계 제한으로 값이 보정됐을 수 있으므로
+                // 저장된 최종값을 즉시 레이아웃과 모든 설정 컨트롤에 반영합니다.
+                applySettings(appSettings);
+                if (settingsCol1Width) settingsCol1Width.value = appSettings.layout.col1;
+                if (settingsCol1Input) settingsCol1Input.value = appSettings.layout.col1;
+                if (settingsCol2Width) settingsCol2Width.value = appSettings.layout.col2;
+                if (settingsCol2Input) settingsCol2Input.value = appSettings.layout.col2;
+            }
         }
     };
 
