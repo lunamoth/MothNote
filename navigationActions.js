@@ -260,6 +260,13 @@ export const handleClearSearch = async () => {
 };
 
 export const handleSortChange = async (e) => {
+    const renameSuccess = await finishPendingRename();
+    if (!renameSuccess) {
+        e.target.value = state.noteSortOrder;
+        showToast("이름 변경 저장에 실패하여 정렬 변경을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
+
     if (!(await confirmNavigation())) {
         e.target.value = state.noteSortOrder;
         return;

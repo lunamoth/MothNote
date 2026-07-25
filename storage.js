@@ -1046,20 +1046,24 @@ export const loadData = async () => {
             // 순환참조를 피하기 위해 동적 임포트 사용
             const { findFolder } = await import('./state.js'); 
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
-            const noteExistsInMap = state.noteMap.has(state.activeNoteId);
-            const isTrashView = state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id;
-            const trashItemExists = !state.activeNoteId || state.trash.some(item => item?.id === state.activeNoteId);
 
             if (!folderExists) {
                 setState({ activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id, activeNoteId: null });
-            } else if (isTrashView && !trashItemExists) {
-                const nextTrashItem = [...state.trash].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0))[0];
-                setState({ activeNoteId: nextTrashItem?.id ?? null });
-            } else if (!isTrashView && !noteExistsInMap) {
+            } else if (!isValidLastActiveReference(
+                state.activeFolderId,
+                state.activeNoteId,
+                buildDataReferenceContext(state)
+            )) {
                 const { item: activeFolder } = findFolder(state.activeFolderId);
-                 const firstNoteId = (activeFolder && activeFolder.notes && activeFolder.notes.length > 0)
-                    ? sortNotes(activeFolder.notes, state.noteSortOrder)[0]?.id ?? null
-                    : null;
+                let selectableNotes = Array.isArray(activeFolder?.notes) ? activeFolder.notes : [];
+
+                if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+                    selectableNotes = [...selectableNotes].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
+                } else if (activeFolder?.isSortable !== false) {
+                    selectableNotes = sortNotes(selectableNotes, state.noteSortOrder);
+                }
+
+                const firstNoteId = selectableNotes[0]?.id ?? null;
                 setState({ activeNoteId: firstNoteId });
             }
 

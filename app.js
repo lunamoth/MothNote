@@ -1313,7 +1313,6 @@ const setupDragAndDrop = (listElement, type) => {
         indicator.remove();
 
         if (originalNextElId === dropNextElId) {
-            setState({});
             return;
         }
 
@@ -1703,6 +1702,10 @@ const setupFeatureToggles = () => {
 
     if (markdownToggleBtn) {
         markdownToggleBtn.addEventListener('click', async () => {
+            if (!(await finishPendingRename())) {
+                showToast('이름 변경 저장에 실패하여 마크다운 보기 전환을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+                return;
+            }
             if (!state.isMarkdownView) {
                 if (!(await confirmNavigation())) return;
             }

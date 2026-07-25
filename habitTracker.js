@@ -1717,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let firstDate = startDate
                 ? this.normalizeLocalDate(startDate)
-                : this.parseDateString(sortedDates[0]);
+                : this.getHabitCreatedLocalDate(habit);
             const createdDate = this.getHabitCreatedLocalDate(habit);
             const today = this.normalizeLocalDate(new Date());
             let lastDate = endDate ? this.normalizeLocalDate(endDate) : today;
