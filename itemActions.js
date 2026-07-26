@@ -7,8 +7,8 @@
 
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap, generateUniqueId } from './state.js';
-// [버그 수정] storage.js에 추가된 Promise 래퍼 함수를 가져옵니다.
-import { storageGet, storageSet } from './storage.js';
+// [버그 수정] storage.js에 추가된 Promise 래퍼와 저장 데이터 무결성 검사 함수를 가져옵니다.
+import { storageGet, storageSet, verifyAndSanitizeLoadedData } from './storage.js';
 import { withAppStateWriteLock } from './storageLock.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
@@ -316,28 +316,45 @@ export const performTransactionalUpdate = async (updateFn) => {
 
                 // 저장 직전의 기준 appState를 읽어 연속 작업 간 read-modify-write 안정성을 유지합니다.
                 const storedResult = await storageGet('appState');
-                const storedData = storedResult?.appState;
-                const hasUsableStoredData = storedData
-                    && Array.isArray(storedData.folders)
-                    && Array.isArray(storedData.trash)
-                    && (Array.isArray(storedData.favorites) || storedData.favorites == null);
+                const hasStoredAppState = Object.prototype.hasOwnProperty.call(storedResult || {}, 'appState')
+                    && storedResult.appState !== null
+                    && storedResult.appState !== undefined;
+                let baseData = memorySnapshot;
+                let baseDataIsDetachedFromLiveState = false;
 
-                const baseData = hasUsableStoredData
-                    ? {
-                        folders: storedData.folders,
-                        trash: storedData.trash,
-                        favorites: storedData.favorites || [],
-                        lastSavedTimestamp: storedData.lastSavedTimestamp || 0,
+                if (hasStoredAppState) {
+                    // [CRITICAL BUG FIX] 저장소에 appState가 있는데 구조가 손상된 경우 메모리 스냅샷으로
+                    // 조용히 대체하면 다음 작업이 손상 원본을 덮어써 복구 기회를 없앱니다.
+                    // 로드와 동일한 검사를 통과한 데이터만 트랜잭션 기준으로 사용하고,
+                    // 복구 불가능한 구조는 저장 전에 중단하여 원본을 그대로 보존합니다.
+                    const verification = verifyAndSanitizeLoadedData(
+                        JSON.parse(JSON.stringify(storedResult.appState))
+                    );
+                    if (verification.isTopLevelInvalid) {
+                        throw new Error('저장된 노트 데이터 구조가 손상되어 작업을 중단했습니다. 원본 데이터는 변경하지 않았습니다.');
+                    }
+
+                    const verifiedStoredData = verification.sanitizedData;
+                    baseData = {
+                        folders: verifiedStoredData.folders,
+                        trash: verifiedStoredData.trash,
+                        favorites: verifiedStoredData.favorites || [],
+                        lastSavedTimestamp: verifiedStoredData.lastSavedTimestamp || 0,
                         // appState보다 localStorage 세션이 더 자주 갱신되므로, 현재 세션 값을 우선 병합합니다.
                         // 그렇지 않으면 다음 노트 저장/삭제 트랜잭션이 최신 폴더별 선택 기록을 과거 값으로 되돌립니다.
                         lastActiveNotePerFolder: {
-                            ...normalizeLastActiveNoteMap(storedData.lastActiveNotePerFolder),
+                            ...normalizeLastActiveNoteMap(verifiedStoredData.lastActiveNotePerFolder),
                             ...sessionLastActiveSnapshot
                         }
-                    }
-                    : memorySnapshot;
+                    };
+                    // verifiedStoredData는 위 JSON 복제로 저장소/메모리 상태와 이미 분리되어 있습니다.
+                    // 대용량 노트를 자동 저장할 때 전체 데이터를 한 번 더 복제하지 않도록 표시합니다.
+                    baseDataIsDetachedFromLiveState = true;
+                }
 
-                const dataCopy = JSON.parse(JSON.stringify(baseData));
+                const dataCopy = baseDataIsDetachedFromLiveState
+                    ? baseData
+                    : JSON.parse(JSON.stringify(baseData));
                 const result = await updateFn(dataCopy);
 
                 if (result == null) {

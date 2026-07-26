@@ -274,7 +274,7 @@ const createUnrecoverableAppStateError = message => {
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
  * @returns {{sanitizedData: object, wasSanitized: boolean, shouldNotify: boolean, isTopLevelInvalid: boolean, idUpdateMap: Map<string, string>, folderIdUpdateMap: Map<string, string>, noteIdUpdateMap: Map<string, string>}}
  */
-const verifyAndSanitizeLoadedData = (data) => {
+export const verifyAndSanitizeLoadedData = (data) => {
     const emptyMaps = {
         idUpdateMap: new Map(),
         folderIdUpdateMap: new Map(),
@@ -584,7 +584,33 @@ export const loadData = async () => {
             const backupPayload = backupResult.appState_backup;
 
             if (importStatus === 'done') {
-                if (backupPayload) await storageRemove('appState_backup');
+                if (backupPayload) {
+                    // [CRITICAL BUG FIX] 완료 플래그는 저장 순서만 나타낼 뿐, 실제 appState의
+                    // 무결성을 보장하지 않습니다. 가져온 데이터를 검증하기 전에 롤백 백업을
+                    // 삭제하면 누락·손상된 결과만 남아 이전 노트를 복구할 수 없습니다.
+                    const importedResult = await storageGet('appState');
+                    const hasImportedAppState = Object.prototype.hasOwnProperty.call(importedResult, 'appState')
+                        && importedResult.appState !== null
+                        && importedResult.appState !== undefined;
+                    const verification = hasImportedAppState
+                        ? verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(importedResult.appState)))
+                        : null;
+
+                    if (!verification || verification.isTopLevelInvalid) {
+                        console.warn('Completed import data failed integrity validation. Rolling back to the previous data.');
+                        await restoreImportBackupPayload(backupPayload);
+                        await storageRemove('appState_backup');
+                        localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                        return '가져온 데이터의 무결성 검사에 실패하여, 가져오기 이전 데이터로 안전하게 복구했습니다.';
+                    }
+
+                    // 복구 가능한 ID·메타데이터 문제는 백업을 버리기 전에 영구 저장합니다.
+                    // 이 저장이 실패하면 예외가 전파되어 백업과 완료 플래그가 다음 재시도용으로 남습니다.
+                    if (verification.wasSanitized) {
+                        await storageSet({ appState: verification.sanitizedData });
+                    }
+                    await storageRemove('appState_backup');
+                }
                 // 성공 후 백업만 먼저 지워진 경우에도 완료 플래그가 영구히 남지 않게 정리합니다.
                 localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                 return backupPayload ? CONSTANTS.MESSAGES.SUCCESS.IMPORT_SUCCESS : null;
