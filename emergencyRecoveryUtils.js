@@ -54,8 +54,8 @@ export const parseEmergencyBackupChanges = rawBackup => {
 };
 
 // 저장 완료 후 비상 백업 정리 전에 탭이 종료되면, 이미 커밋된 내용보다 오래된
-// 초안이 남을 수 있습니다. 내용이 동일하거나 캡처 시점보다 저장본이 더 최신이면
-// 복구 대상으로 사용하지 않아 최신 저장본의 역행을 막습니다.
+// 초안이 남을 수 있습니다. 내용이 동일하거나 캡처 시점보다 저장본이 명백히 더
+// 최신이면 복구 대상으로 사용하지 않아 최신 저장본의 역행을 막습니다.
 export const shouldDiscardEmergencyNoteUpdate = (noteUpdate, targetNote) => {
     if (!isRecord(noteUpdate) || !isRecord(targetNote)) return false;
 
@@ -69,7 +69,10 @@ export const shouldDiscardEmergencyNoteUpdate = (noteUpdate, targetNote) => {
         && capturedAt > 0
         && Number.isFinite(updatedAt)
         && updatedAt > 0
-        && capturedAt <= updatedAt;
+        // Date.now()는 밀리초 정밀도이므로, 서로 다른 작업도 같은 시각을 가질 수 있습니다.
+        // 내용이 다른데 시각까지 같다면 저장과 캡처의 선후 관계를 증명할 수 없습니다.
+        // 이 모호한 초안을 폐기하면 실제 최신 입력을 잃을 수 있으므로 복구 대상으로 보존합니다.
+        && capturedAt < updatedAt;
 };
 
 // 적용할 대상이 없어 트랜잭션이 의도적으로 no-op이 된 경우만 오래된 백업으로 봅니다.

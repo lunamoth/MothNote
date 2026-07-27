@@ -269,6 +269,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return this.saveDataOrRollback(previousState);
         },
 
+        updateFilterPreference(key, value) {
+            if (!['search', 'showArchived', 'sortBy'].includes(key)) return false;
+            if (Object.is(this.state.filters[key], value)) return false;
+
+            this.state.filters = { ...this.state.filters, [key]: value };
+            // 필터는 핵심 습관 데이터가 아니므로 저장 실패 시 현재 화면 선택까지
+            // 되돌리지는 않습니다. saveData()가 실패 원인을 알리고, 원본 저장값은 보존합니다.
+            this.saveData();
+            return true;
+        },
+
         sanitizeLoadedState(rawState = {}, options = {}) {
             if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
                 rawState = {};
@@ -614,17 +625,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const searchInput = document.getElementById('search-filter');
                 searchInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
-                        this.state.filters.search = e.target.value;
-                        this.render();
+                        const search = String(e.target.value ?? '').slice(0, 120);
+                        if (this.updateFilterPreference('search', search)) this.render();
                     }
                 });
                 searchInput.addEventListener('blur', (e) => {
-                     this.state.filters.search = e.target.value;
-                     this.render();
+                    const search = String(e.target.value ?? '').slice(0, 120);
+                    if (this.updateFilterPreference('search', search)) this.render();
                 });
-                document.getElementById('archived-filter').addEventListener('change', (e) => { this.state.filters.showArchived = e.target.checked; this.render(); });
+                document.getElementById('archived-filter').addEventListener('change', (e) => {
+                    if (this.updateFilterPreference('showArchived', Boolean(e.target.checked))) this.render();
+                });
                 if(showSort) {
-                    document.getElementById('sort-by').addEventListener('change', (e) => { this.state.filters.sortBy = e.target.value; this.render(); });
+                    document.getElementById('sort-by').addEventListener('change', (e) => {
+                        if (this.updateFilterPreference('sortBy', e.target.value)) this.render();
+                    });
                 }
             }
         },
@@ -1384,14 +1399,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const reportPeriodBtn = getClosestElement(e.target, '.report-period-btn');
                 if (reportPeriodBtn) {
-                    this.state.reportPeriod = reportPeriodBtn.dataset.period;
-                    this.render();
+                    const reportPeriod = reportPeriodBtn.dataset.period;
+                    if (this.state.reportPeriod !== reportPeriod) {
+                        this.state.reportPeriod = reportPeriod;
+                        this.saveData();
+                        this.render();
+                    }
                     return;
                 }
                 const reviewPeriodBtn = getClosestElement(e.target, '.review-period-btn');
                 if (reviewPeriodBtn) {
-                    this.state.reviewPeriod = reviewPeriodBtn.dataset.period;
-                    this.render();
+                    const reviewPeriod = reviewPeriodBtn.dataset.period;
+                    if (this.state.reviewPeriod !== reviewPeriod) {
+                        this.state.reviewPeriod = reviewPeriod;
+                        this.saveData();
+                        this.render();
+                    }
                     return;
                 }
             });
