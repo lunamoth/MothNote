@@ -1904,9 +1904,23 @@ const appendSimplenoteTags = (content, tags) => {
 };
 
 const restoreImportBackupPayload = async (backupPayload) => {
-    if (!backupPayload || typeof backupPayload !== 'object') {
+    if (!backupPayload || typeof backupPayload !== 'object' || Array.isArray(backupPayload)) {
         throw new Error('가져오기 백업 데이터가 없습니다.');
     }
+
+    const assertRestorableAppStateSnapshot = appStateSnapshot => {
+        let verification;
+        try {
+            verification = verifyAndSanitizeLoadedData(
+                JSON.parse(JSON.stringify(appStateSnapshot))
+            );
+        } catch (error) {
+            throw new Error('가져오기 백업의 주 데이터를 검증할 수 없습니다.');
+        }
+        if (verification.isTopLevelInvalid) {
+            throw new Error('가져오기 백업의 주 데이터 구조가 손상되었습니다.');
+        }
+    };
 
     // 이전 버전은 appState_backup에 래퍼가 아닌 appState 자체를 저장했습니다.
     // 이를 새 형식으로 해석하면 appState와 로컬 설정을 모두 삭제하게 되므로,
@@ -1915,14 +1929,57 @@ const restoreImportBackupPayload = async (backupPayload) => {
         && !Object.prototype.hasOwnProperty.call(backupPayload, 'appState')
         && !Object.prototype.hasOwnProperty.call(backupPayload, 'hadAppState');
     if (isLegacyRawAppStateBackup) {
+        assertRestorableAppStateSnapshot(backupPayload);
         await storageSet({ appState: backupPayload });
         return;
     }
 
-    // 새 백업은 hadAppState를 기록합니다. 구버전 백업은 appState 존재 여부로 호환 처리합니다.
-    const hadAppState = backupPayload.hadAppState !== undefined
-        ? backupPayload.hadAppState === true
+    const hasBackupField = propertyName =>
+        Object.prototype.hasOwnProperty.call(backupPayload, propertyName);
+    const hasHadAppStateField = hasBackupField('hadAppState');
+    const hasAppStateField = hasBackupField('appState');
+
+    // [CRITICAL BUG FIX] 불완전하거나 손상된 래퍼를 정상 백업으로 오인하면 appState를
+    // undefined로 덮어쓰거나 삭제한 뒤 복구본까지 정리할 수 있습니다. 실제 복원에
+    // 들어가기 전에 상태 표시와 주 데이터 스냅샷의 일관성을 먼저 확인합니다.
+    if (!hasHadAppStateField && !hasAppStateField) {
+        throw new Error('가져오기 백업에 주 데이터 상태 정보가 없습니다.');
+    }
+    if (hasHadAppStateField && typeof backupPayload.hadAppState !== 'boolean') {
+        throw new Error('가져오기 백업의 주 데이터 상태 표시가 올바르지 않습니다.');
+    }
+
+    // 새 백업은 hadAppState를 기록합니다. 구버전 래퍼는 appState 존재 여부로 호환 처리합니다.
+    const hadAppState = hasHadAppStateField
+        ? backupPayload.hadAppState
         : backupPayload.appState != null;
+
+    if (hadAppState && (!hasAppStateField || backupPayload.appState == null)) {
+        throw new Error('가져오기 백업에서 복원할 주 데이터를 찾을 수 없습니다.');
+    }
+    if (!hadAppState && hasAppStateField && backupPayload.appState != null) {
+        throw new Error('가져오기 백업의 주 데이터 상태가 서로 일치하지 않습니다.');
+    }
+    if (hadAppState) {
+        assertRestorableAppStateSnapshot(backupPayload.appState);
+    }
+
+    const localStorageBackupFields = [
+        ['settings', CONSTANTS.LS_KEY_SETTINGS],
+        ['habitTrackerData', HABIT_TRACKER_DATA_KEY],
+        ['dietChallengeData', DIET_CHALLENGE_DATA_KEY],
+        ['dietChallengeSettings', DIET_CHALLENGE_SETTINGS_KEY]
+    ];
+
+    // 모든 보조 스냅샷도 쓰기 전에 검증합니다. 내부 백업은 문자열 또는 null만
+    // 기록하므로 다른 형식은 손상으로 간주하고, 부분 복원 대신 다음 재시도를 위해 중단합니다.
+    localStorageBackupFields.forEach(([propertyName]) => {
+        if (!hasBackupField(propertyName)) return;
+        const value = backupPayload[propertyName];
+        if (value !== null && typeof value !== 'string') {
+            throw new Error(`가져오기 백업의 ${propertyName} 값이 올바르지 않습니다.`);
+        }
+    });
 
     if (hadAppState) {
         // 실패한 가져오기의 롤백은 직전 값을 바이트 의미상 그대로 되돌립니다.
@@ -1932,14 +1989,12 @@ const restoreImportBackupPayload = async (backupPayload) => {
         await storageRemove('appState');
     }
 
-    if (typeof backupPayload.settings === 'string') {
-        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, backupPayload.settings);
-    } else {
-        localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
-    }
-    restoreLocalStorageValue(HABIT_TRACKER_DATA_KEY, backupPayload.habitTrackerData);
-    restoreLocalStorageValue(DIET_CHALLENGE_DATA_KEY, backupPayload.dietChallengeData);
-    restoreLocalStorageValue(DIET_CHALLENGE_SETTINGS_KEY, backupPayload.dietChallengeSettings);
+    // 구버전 래퍼에 없던 보조 필드는 당시 백업 대상이 아니므로 현재 값을 보존합니다.
+    // 캡처됐다고 명시된 필드만 원래 값으로 복원합니다.
+    localStorageBackupFields.forEach(([propertyName, storageKey]) => {
+        if (!hasBackupField(propertyName)) return;
+        restoreLocalStorageValue(storageKey, backupPayload[propertyName]);
+    });
 };
 
 export const setupImportHandler = () => {

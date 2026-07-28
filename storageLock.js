@@ -31,27 +31,33 @@ export const withAppStateWriteLock = async (task) => {
         throw new TypeError('withAppStateWriteLock에는 함수가 필요합니다.');
     }
 
-    // Web Locks API를 사용할 수 있으면 단일 활성 문서의 저장 경계를 직렬화하는 데 활용합니다.
-    // 이 사용은 멀티탭 동시 편집 지원 계약이 아니며, API가 없거나 실패하면
-    // 현재 문서 컨텍스트 안의 Promise queue로만 폴백합니다.
-    if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
-        let taskStarted = false;
-        try {
-            return await navigator.locks.request(APP_STATE_LOCK_NAME, { mode: 'exclusive' }, async () => {
-                taskStarted = true;
-                return await task();
-            });
-        } catch (error) {
-            if (taskStarted) {
-                // task 내부 오류는 정상적으로 호출자에게 전달해야 하며, 폴백 큐에서 다시 실행하면
-                // 저장/가져오기 같은 부작용 작업이 중복 실행될 수 있습니다.
-                throw error;
+    // [CRITICAL BUG FIX] Web Locks 성공 경로와 폴백 경로가 서로 다른 직렬화 경계를
+    // 사용하면, 한 요청만 일시적으로 실패했을 때 폴백 작업이 이미 실행 중인 Web Lock
+    // 작업과 겹칠 수 있습니다. 모든 쓰기를 먼저 현재 문서의 로컬 큐에 넣은 뒤,
+    // 각 큐 작업 안에서 Web Locks를 시도하여 두 경로 사이의 경쟁 조건도 차단합니다.
+    return runWithLocalQueue(async () => {
+        // Web Locks API를 사용할 수 있으면 단일 활성 문서의 저장 경계를 직렬화하는 데 활용합니다.
+        // 이 사용은 멀티탭 동시 편집 지원 계약이 아니며, API가 없거나 실패하면
+        // 이미 확보한 현재 문서의 Promise queue 경계 안에서 작업을 실행합니다.
+        if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
+            let taskStarted = false;
+            try {
+                return await navigator.locks.request(APP_STATE_LOCK_NAME, { mode: 'exclusive' }, async () => {
+                    taskStarted = true;
+                    return await task();
+                });
+            } catch (error) {
+                if (taskStarted) {
+                    // task 내부 오류는 정상적으로 호출자에게 전달해야 하며, 폴백에서 다시 실행하면
+                    // 저장/가져오기 같은 부작용 작업이 중복 실행될 수 있습니다.
+                    throw error;
+                }
+                // 일부 확장/브라우저 컨텍스트에서 Web Locks 요청 자체가 실패할 수 있습니다.
+                // 이 경우에도 현재 문서의 로컬 큐를 유지한 채 저장 작업을 한 번만 실행합니다.
+                console.warn('Web Locks request failed before the task started. Continuing inside the local storage write queue.', error);
             }
-            // [MAJOR BUG FIX] 일부 확장/브라우저 컨텍스트에서 Web Locks 요청 자체가 실패할 수 있습니다.
-            // 이 경우 저장 작업을 중단하지 않고 로컬 직렬화 큐로 폴백하여 데이터 변경을 계속 보호합니다.
-            console.warn('Web Locks request failed before the task started. Falling back to the local storage write queue.', error);
         }
-    }
 
-    return runWithLocalQueue(task);
+        return await task();
+    });
 };
