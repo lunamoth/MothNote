@@ -85,6 +85,7 @@ let pendingRenamePromise = null;
 let pendingRenameCompletionPromise = null;
 let resolvePendingRename = null;
 let pendingRenameCleanup = null;
+let pendingRenameDraft = null;
 let isStartingRename = false;
 
 export const forceResolvePendingRename = () => {
@@ -100,6 +101,7 @@ export const forceResolvePendingRename = () => {
     resolvePendingRename = null;
     pendingRenamePromise = null;
     pendingRenameCompletionPromise = null;
+    pendingRenameDraft = null;
 };
 
 // [BUG FIX] 이름 변경 중 다른 작업 실행 시, 변경 사항이 유실되는 'Major' 버그를 수정합니다.
@@ -118,9 +120,17 @@ export const finishPendingRename = async () => {
         const renamingElementWrapper = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
         
         if (!renamingElementWrapper) {
-            // 만약 요소가 렌더 갱신 등으로 사라졌다면 강제로 상태를 정리합니다.
+            // 렌더 갱신으로 편집 DOM이 교체돼도 input 이벤트에서 보존한 최신 초안을
+            // 정상 이름 변경 경로로 커밋합니다. 초안까지 없을 때만 실패로 전달합니다.
+            if (pendingRenameDraft?.id === id) {
+                return await _handleRenameEnd(id, pendingRenameDraft.type, {
+                    contentEditable: false,
+                    isConnected: true,
+                    textContent: pendingRenameDraft.newName
+                }, true);
+            }
             forceResolvePendingRename();
-            return true; // 요소가 없으면 더 이상 할 작업이 없으므로 성공으로 간주
+            return false;
         }
 
         const type = renamingElementWrapper.dataset.type;
@@ -132,9 +142,16 @@ export const finishPendingRename = async () => {
             // 'true'를 전달하여 변경 내용을 저장하도록 지시하며, _handleRenameEnd의 결과를 직접 반환합니다.
             return await _handleRenameEnd(id, type, nameSpan, true);
         } else {
-            // span을 찾을 수 없는 예외적인 경우에도 상태를 정리합니다.
+            // 이름 입력 요소만 교체된 경우에도 캐시된 입력값으로 커밋합니다.
+            if (pendingRenameDraft?.id === id) {
+                return await _handleRenameEnd(id, pendingRenameDraft.type, {
+                    contentEditable: false,
+                    isConnected: true,
+                    textContent: pendingRenameDraft.newName
+                }, true);
+            }
             forceResolvePendingRename();
-            return true; // span이 없으면 더 이상 할 작업이 없으므로 성공으로 간주
+            return false;
         }
     }
     // 렌더 직후 요소를 찾지 못한 과거 경합 상태가 남아 있더라도 앱을 잠그지 않습니다.
@@ -1480,6 +1497,10 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         let result = false;
 
         try {
+            if (pendingRenameDraft?.id === id) {
+                pendingRenameDraft.newName = String(nameSpan.textContent ?? '');
+            }
+
             // contentEditable을 끄면 blur가 발생할 수 있으므로, 저장용 blur 리스너를 먼저 제거합니다.
             // Escape 취소가 blur 저장과 경합해 새 이름을 커밋하는 문제를 방지합니다.
             if (pendingRenameCleanup) {
@@ -1576,6 +1597,9 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
                 resolvePendingRename = null;
             }
             pendingRenamePromise = null;
+            if (pendingRenameDraft?.id === id) {
+                pendingRenameDraft = null;
+            }
         }
     })();
 
@@ -1630,6 +1654,8 @@ export const startRename = async (liElement, type) => {
         
         // 상태가 먼저 바뀐 직후 다른 작업이 들어와도 finishPendingRename()이
         // 반드시 이 작업을 인식하도록 Promise를 타이머보다 먼저 생성합니다.
+        const originalName = type === CONSTANTS.ITEM_TYPE.FOLDER ? currentItem.name : currentItem.title;
+        pendingRenameDraft = { id, type, newName: String(originalName ?? '') };
         pendingRenamePromise = new Promise(resolve => { resolvePendingRename = resolve; });
         setState({ renamingItemId: id });
 
@@ -1651,6 +1677,11 @@ export const startRename = async (liElement, type) => {
             nameSpan.focus();
             document.execCommand('selectAll', false, null);
 
+            const onInput = () => {
+                if (pendingRenameDraft?.id === id) {
+                    pendingRenameDraft.newName = String(nameSpan.textContent ?? '');
+                }
+            };
             const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
             const onKeydown = (event) => {
                 if (event.key === 'Enter') {
@@ -1661,9 +1692,11 @@ export const startRename = async (liElement, type) => {
                     void _handleRenameEnd(id, type, nameSpan, false);
                 }
             };
+            nameSpan.addEventListener('input', onInput);
             nameSpan.addEventListener('blur', onBlur, { once: true });
             nameSpan.addEventListener('keydown', onKeydown);
             pendingRenameCleanup = () => {
+                nameSpan.removeEventListener('input', onInput);
                 nameSpan.removeEventListener('blur', onBlur);
                 nameSpan.removeEventListener('keydown', onKeydown);
             };

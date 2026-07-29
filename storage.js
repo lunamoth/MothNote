@@ -76,6 +76,7 @@ import { withAppStateWriteLock } from './storageLock.js';
 import {
     parseEmergencyBackupChanges,
     shouldDiscardEmergencyNoteUpdate,
+    shouldDiscardEmergencyItemRename,
     shouldDiscardEmergencyBackupAfterTransaction
 } from './emergencyRecoveryUtils.js';
 
@@ -747,21 +748,22 @@ export const loadData = async () => {
                     return null;
                 };
 
-                const noteExistsForEmergencyRecovery = (noteId, data) =>
-                    Boolean(findNoteForEmergencyRecovery(noteId, data));
-
-                const itemExistsForEmergencyRecovery = (id, type, data) => {
+                const findItemForEmergencyRecovery = (id, type, data) => {
                     const normalizedId = String(id ?? '');
-                    if (!normalizedId || !data) return false;
+                    if (!normalizedId || !data) return null;
 
                     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
                         const activeFolders = Array.isArray(data.folders) ? data.folders : [];
                         const trashItems = Array.isArray(data.trash) ? data.trash : [];
-                        return activeFolders.some(folder => String(folder?.id ?? '') === normalizedId)
-                            || trashItems.some(item => String(item?.id ?? '') === normalizedId && (item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item?.notes)));
+                        return activeFolders.find(folder => String(folder?.id ?? '') === normalizedId)
+                            || trashItems.find(item =>
+                                String(item?.id ?? '') === normalizedId
+                                && (item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item?.notes))
+                            )
+                            || null;
                     }
 
-                    return noteExistsForEmergencyRecovery(normalizedId, data);
+                    return findNoteForEmergencyRecovery(normalizedId, data);
                 };
 
                 if (backupChanges.noteUpdate) {
@@ -774,9 +776,19 @@ export const loadData = async () => {
                         delete backupChanges.noteUpdate;
                     }
                 }
-                if (backupChanges.itemRename && !itemExistsForEmergencyRecovery(backupChanges.itemRename.id, backupChanges.itemRename.type, authoritativeData)) {
-                    console.warn('Emergency backup rename target no longer exists. Dropping stale rename recovery entry.');
-                    delete backupChanges.itemRename;
+                if (backupChanges.itemRename) {
+                    const recoveryTarget = findItemForEmergencyRecovery(
+                        backupChanges.itemRename.id,
+                        backupChanges.itemRename.type,
+                        authoritativeData
+                    );
+                    if (!recoveryTarget) {
+                        console.warn('Emergency backup rename target no longer exists. Dropping stale rename recovery entry.');
+                        delete backupChanges.itemRename;
+                    } else if (shouldDiscardEmergencyItemRename(backupChanges.itemRename, recoveryTarget)) {
+                        console.warn('Emergency backup rename entry is already saved or older than the committed item. Dropping stale recovery entry.');
+                        delete backupChanges.itemRename;
+                    }
                 }
 
                 if (!backupChanges.noteUpdate && !backupChanges.itemRename) {

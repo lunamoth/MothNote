@@ -1818,7 +1818,8 @@ const setupGlobalEventListeners = () => {
                             changesToBackup.itemRename = {
                                 id: state.renamingItemId,
                                 type: renamingElement.dataset.type,
-                                newName: newName
+                                newName: newName,
+                                capturedAt: Date.now()
                             };
                             hasChanges = true;
                         }

@@ -47,6 +47,11 @@ export const parseEmergencyBackupChanges = rawBackup => {
 
         if (hasVisibleText(id) && isSupportedType && newName) {
             normalized.itemRename = { id, type, newName };
+
+            const capturedAt = Number(parsed.itemRename.capturedAt);
+            if (Number.isFinite(capturedAt) && capturedAt > 0) {
+                normalized.itemRename.capturedAt = capturedAt;
+            }
         }
     }
 
@@ -72,6 +77,29 @@ export const shouldDiscardEmergencyNoteUpdate = (noteUpdate, targetNote) => {
         // Date.now()는 밀리초 정밀도이므로, 서로 다른 작업도 같은 시각을 가질 수 있습니다.
         // 내용이 다른데 시각까지 같다면 저장과 캡처의 선후 관계를 증명할 수 없습니다.
         // 이 모호한 초안을 폐기하면 실제 최신 입력을 잃을 수 있으므로 복구 대상으로 보존합니다.
+        && capturedAt < updatedAt;
+};
+
+// 이름 변경도 노트 본문과 같은 방식으로, 이미 반영되었거나 저장본보다 오래된 비상
+// 백업이면 폐기합니다. capturedAt이 없는 구버전 백업은 선후 관계를 증명할 수 없으므로
+// 이름이 다른 경우에는 실제 미저장 입력일 가능성을 보존합니다.
+export const shouldDiscardEmergencyItemRename = (itemRename, targetItem) => {
+    if (!isRecord(itemRename) || !isRecord(targetItem)) return false;
+
+    const newName = String(itemRename.newName ?? '').trim();
+    if (!newName) return false;
+
+    const currentName = itemRename.type === 'folder'
+        ? String(targetItem.name ?? '').trim()
+        : String(targetItem.title ?? '').trim();
+    if (currentName === newName) return true;
+
+    const capturedAt = Number(itemRename.capturedAt);
+    const updatedAt = Number(targetItem.updatedAt);
+    return Number.isFinite(capturedAt)
+        && capturedAt > 0
+        && Number.isFinite(updatedAt)
+        && updatedAt > 0
         && capturedAt < updatedAt;
 };
 
