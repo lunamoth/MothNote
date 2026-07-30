@@ -2192,15 +2192,24 @@ export const setupImportHandler = () => {
                     && !Array.isArray(importedData.settings);
                 const sanitizedSettings = hasSettingsInFile
                     ? sanitizeSettings(importedData.settings)
-                    : (hasSettingsField ? JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS)) : getCurrentSettingsOrDefault());
+                    : getCurrentSettingsOrDefault();
+                const skippedImportFields = [...skippedIntegratedFields];
+                if (hasSettingsField && !hasSettingsInFile) {
+                    // [MAJOR BUG FIX] 손상된 settings 필드가 있다는 이유만으로 사용자의 현재
+                    // 레이아웃·글꼴·날씨 위치를 기본값으로 덮어쓰지 않습니다. 다른 선택 데이터와
+                    // 동일하게 해당 필드만 건너뛰고 현재 설정을 그대로 유지합니다.
+                    console.warn('설정 백업이 손상되어 해당 항목만 건너뜁니다.');
+                    skippedImportFields.unshift('설정');
+                }
 
-                const skippedIntegratedFieldsWarning = skippedIntegratedFields.length > 0
-                    ? `<br><br><strong>⚠️ 손상된 부가 데이터는 건너뜁니다.</strong><br>${skippedIntegratedFields.map(escapeHtml).join(', ')} 항목은 복원하지 않고 현재 데이터를 유지합니다.`
+                const skippedImportFieldsWarning = skippedImportFields.length > 0
+                    ? `<br><br><strong>⚠️ 손상된 부가 데이터는 건너뜁니다.</strong><br>${skippedImportFields.map(escapeHtml).join(', ')} 항목은 복원하지 않고 현재 데이터를 유지합니다.`
                     : '';
+                const overwriteTarget = hasSettingsInFile ? '모든 노트와 설정' : '모든 노트';
 
                 const firstConfirm = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
-                    message: `가져오기를 실행하면 현재의 모든 노트와 설정이 <strong>파일의 내용으로 덮어씌워집니다.</strong>${skippedIntegratedFieldsWarning}<br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`,
+                    message: `가져오기를 실행하면 현재 데이터 중 <strong>${overwriteTarget}</strong> 항목을 파일 내용으로 교체합니다.${skippedImportFieldsWarning}<br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`,
                     isHtml: true, confirmText: '📥 가져와서 덮어쓰기', confirmButtonType: 'danger'
                 });
 

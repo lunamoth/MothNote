@@ -497,41 +497,63 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         
         migrateData(oldDataString, legacyKey = null) {
+            const previousState = this.state;
             try {
                 const oldState = JSON.parse(oldDataString);
-                if (!oldState.habits) return;
+                if (!oldState || typeof oldState !== 'object' || Array.isArray(oldState) || !Array.isArray(oldState.habits)) {
+                    throw new Error('Legacy habit data has an invalid top-level structure.');
+                }
 
                 // 아주 오래된 데이터 형식(V1)인지 확인
                 const isVeryOld = !oldState.version;
                 const legacyKeyToRemove = legacyKey || (isVeryOld ? 'habitTrackerData' : 'habitTrackerDataV2');
+                let migrationCandidate;
 
                 if (isVeryOld) {
-                     this.state.habits = oldState.habits.map((habit, index) => ({
-                        id: habit.id || Date.now() + index,
-                        name: habit.name || 'Untitled',
-                        type: 'check',
-                        goal: 1,
-                        frequency: { type: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
-                        isArchived: false,
-                        order: index,
-                        createdAt: habit.id || Date.now() + index,
-                        logs: Object.entries(habit.logs || {}).reduce((acc, [date, value]) => {
-                            const wasCompleted = (habit.type === 'count' && habit.goal) ? (value >= habit.goal) : (value > 0);
-                            acc[date] = { value: wasCompleted ? 1 : 0 };
-                            return acc;
-                        }, {}),
-                    }));
-                    this.state.settings.theme = oldState.settings?.theme || 'light';
+                    migrationCandidate = {
+                        ...this.state,
+                        habits: oldState.habits.map((habit, index) => ({
+                            id: habit.id || Date.now() + index,
+                            name: habit.name || 'Untitled',
+                            type: 'check',
+                            goal: 1,
+                            frequency: { type: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
+                            isArchived: false,
+                            order: index,
+                            createdAt: habit.id || Date.now() + index,
+                            logs: Object.entries(habit.logs || {}).reduce((acc, [date, value]) => {
+                                const wasCompleted = (habit.type === 'count' && habit.goal) ? (value >= habit.goal) : (value > 0);
+                                acc[date] = { value: wasCompleted ? 1 : 0 };
+                                return acc;
+                            }, {}),
+                        })),
+                        settings: { ...this.state.settings, theme: oldState.settings?.theme || 'light' }
+                    };
                 } else {
                     // V2 데이터 마이그레이션 (기존 로직 유지)
-                    this.state.habits = oldState.habits;
-                    this.state.achievements = oldState.achievements || {};
-                    this.state.visitedViews = oldState.visitedViews || {};
-                    this.state.filters = oldState.filters || { search: '', showArchived: false, sortBy: 'order' };
-                    this.state.settings.theme = oldState.settings?.theme || 'light';
+                    migrationCandidate = {
+                        ...this.state,
+                        habits: oldState.habits,
+                        achievements: oldState.achievements || {},
+                        visitedViews: oldState.visitedViews || {},
+                        filters: oldState.filters || { search: '', showArchived: false, sortBy: 'order' },
+                        settings: { ...this.state.settings, theme: oldState.settings?.theme || 'light' }
+                    };
                 }
 
-                this.state = { ...this.state, ...this.sanitizeLoadedState(this.state), chartInstances: {} };
+                // [CRITICAL BUG FIX] 레거시 구조가 손상된 경우 빈 정제본을 새 통합 키에 저장한 뒤
+                // 유일한 구버전 원본까지 삭제하면 복구할 수 없는 데이터 유실이 발생합니다.
+                // 후보 상태를 메모리 밖에서 검증하고, 모든 레코드가 구조 검사를 통과한 경우에만
+                // 현재 상태 교체·신규 키 저장·레거시 키 삭제를 순서대로 수행합니다.
+                let hasStructuralCorruption = false;
+                const sanitizedCandidate = this.sanitizeLoadedState(migrationCandidate, {
+                    onStructuralCorruption: () => { hasStructuralCorruption = true; }
+                });
+                if (hasStructuralCorruption) {
+                    throw new Error('Legacy habit data contains malformed habit, frequency, or log records.');
+                }
+
+                this.state = { ...this.state, ...sanitizedCandidate, chartInstances: {} };
                 if (this.saveData()) { // 새 키로 저장이 끝난 뒤에만 기존 키 제거
                     this._hasPersistedIntegratedData = true;
                     try {
@@ -544,10 +566,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     this.showToast("데이터 구조가 최신 버전으로 업데이트되었습니다!", 'info');
                 } else {
+                    this.state = previousState;
+                    this._hadDataLoadError = true;
                     this.showToast("데이터 구조 업데이트 중 저장에 실패했습니다. 기존 데이터를 유지했습니다.", 'error');
                 }
             } catch (e) {
+                // 마이그레이션이 실패한 세션에서 기본 샘플이나 후속 UI 저장이 신규 통합 키를
+                // 만들어 레거시 원본을 가리는 일을 막습니다. 사용자가 명시적으로 초기화하기
+                // 전까지 기존 키를 유일한 복구 원본으로 보존합니다.
+                this.state = previousState;
+                this._hadDataLoadError = true;
                 console.error("Failed to migrate old data:", e);
+                this.showToast("구버전 습관 데이터 구조를 확인할 수 없어 원본을 보존했습니다. 정상 백업을 복원하거나 명시적으로 초기화해주세요.", 'error');
             }
         },
         

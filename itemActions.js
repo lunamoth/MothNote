@@ -1510,9 +1510,11 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
             nameSpan.contentEditable = false;
 
             if (!nameSpan.isConnected) {
-                setState({ renamingItemId: null });
-                result = true;
-                return result;
+                // [MAJOR BUG FIX] 이름을 입력하는 동안 다른 상태 변경으로 목록이 다시 렌더링되면
+                // 기존 contentEditable 요소가 DOM에서 분리되며 blur가 발생할 수 있습니다.
+                // 이때 성공으로만 처리하면 위에서 캡처한 최신 초안이 저장되지 않은 채 사라집니다.
+                // 분리된 요소의 textContent는 여전히 읽을 수 있으므로 정상 커밋 경로를 계속 진행합니다.
+                console.warn('Rename editor was detached during rendering. Committing the captured draft.');
             }
 
             const { item: currentItem } = (type === CONSTANTS.ITEM_TYPE.FOLDER ? findFolder(id) : findNote(id));
