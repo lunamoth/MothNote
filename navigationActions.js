@@ -13,6 +13,14 @@ let searchDebounceTimer;
 let searchRequestVersion = 0;
 const debounce = (fn, delay) => { clearTimeout(searchDebounceTimer); searchDebounceTimer = setTimeout(fn, delay); };
 
+// 명시적인 화면 이동/항목 작업이 시작되면 대기 중인 검색이 뒤늦게 새 화면을 덮어쓰지 않도록 무효화합니다.
+export const cancelPendingSearchRequest = ({ restoreInput = true } = {}) => {
+    searchRequestVersion += 1;
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = undefined;
+    if (restoreInput && searchInput) searchInput.value = state.searchTerm;
+};
+
 // [수정] 폴더 전환 중 중복 호출을 막기 위한 잠금 변수
 let isChangingFolder = false;
 const SEARCH_TERM_MAX_LENGTH = 100; // [버그 수정] 검색어 최대 길이 상수 추가
@@ -25,6 +33,8 @@ export const confirmNavigation = async () => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
+    cancelPendingSearchRequest();
+
     // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
     const renameSuccess = await finishPendingRename();
     if (!renameSuccess) {
@@ -51,6 +61,8 @@ export const changeActiveNote = async (newNoteId) => {
 };
 
 export const changeActiveFolder = async (newFolderId, options = {}) => {
+    cancelPendingSearchRequest();
+
     // [수정] 이미 다른 폴더로 전환하는 작업이 진행 중이라면, 새로운 요청을 무시합니다.
     if (isChangingFolder) return false;
     isChangingFolder = true; // 잠금을 설정하여 중복 실행을 방지합니다.

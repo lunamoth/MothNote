@@ -43,7 +43,7 @@ import {
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
-    handleClearSearch, handleSortChange, confirmNavigation 
+    handleClearSearch, handleSortChange, confirmNavigation, cancelPendingSearchRequest
 } from './navigationActions.js';
 
 let appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
@@ -590,6 +590,8 @@ const _closeAllIFrames = () => {
 };
 
 const prepareForDashboardNavigation = async (actionName = '화면 전환') => {
+    cancelPendingSearchRequest();
+
     if (!(await finishPendingRename())) {
         showToast(`이름 변경 저장에 실패하여 ${actionName}을 취소했습니다.`, CONSTANTS.TOAST_TYPE.ERROR);
         return false;
@@ -1151,6 +1153,8 @@ class Dashboard {
             const target = getClosestElement(e.target, '.date-cell.has-notes');
             if (!target) return;
 
+            cancelPendingSearchRequest();
+
             if (!(await finishPendingRename())) {
                 showToast('이름 변경 저장에 실패하여 날짜 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
                 return;
@@ -1215,6 +1219,7 @@ const handleListClick = async (e, type) => {
     const id = li.dataset.id;
     const actionBtn = getClosestElement(e.target, '.icon-button');
     if (actionBtn) {
+        cancelPendingSearchRequest();
         void handleItemActionClick(actionBtn, id, li.dataset.type);
         return;
     }

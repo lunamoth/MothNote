@@ -6818,14 +6818,16 @@
             
             if(!wInput) return;
             
-            const newWeight = parseFloat(wInput.value);
-            const hasFatInput = fInput && String(fInput.value ?? '').trim() !== '';
-            const newFat = hasFatInput ? parseFloat(fInput.value) : NaN;
+            const weightText = String(wInput.value ?? '').trim();
+            const fatText = String(fInput?.value ?? '').trim();
+            const newWeight = Number(weightText);
+            const hasFatInput = fatText !== '';
+            const newFat = hasFatInput ? Number(fatText) : null;
             
-            if (isNaN(newWeight) || newWeight < CONFIG.LIMITS.MIN_WEIGHT || newWeight > CONFIG.LIMITS.MAX_WEIGHT) {
+            if (!weightText || !Number.isFinite(newWeight) || newWeight < CONFIG.LIMITS.MIN_WEIGHT || newWeight > CONFIG.LIMITS.MAX_WEIGHT) {
                 return showToast(`유효한 체중을 입력해주세요 (${CONFIG.LIMITS.MIN_WEIGHT}~${CONFIG.LIMITS.MAX_WEIGHT}kg).`);
             }
-            if (!isNaN(newFat) && (newFat < CONFIG.LIMITS.MIN_FAT || newFat > CONFIG.LIMITS.MAX_FAT)) {
+            if (hasFatInput && (!Number.isFinite(newFat) || newFat < CONFIG.LIMITS.MIN_FAT || newFat > CONFIG.LIMITS.MAX_FAT)) {
                  return showToast(`유효한 체지방률을 입력해주세요 (${CONFIG.LIMITS.MIN_FAT}~${CONFIG.LIMITS.MAX_FAT}%).`);
             }
 
@@ -6833,7 +6835,7 @@
             if(recordIndex >= 0) {
                 const nextRecords = cloneDietRecords(AppState.records);
                 nextRecords[recordIndex].weight = MathUtil.round(newWeight);
-                if(!isNaN(newFat)) nextRecords[recordIndex].fat = MathUtil.round(newFat);
+                if(hasFatInput) nextRecords[recordIndex].fat = MathUtil.round(newFat);
                 else delete nextRecords[recordIndex].fat; 
                 nextRecords[recordIndex] = sanitizeDietRecord(nextRecords[recordIndex]);
                 if (!nextRecords[recordIndex]) return showToast('수정된 기록이 유효하지 않습니다.');
