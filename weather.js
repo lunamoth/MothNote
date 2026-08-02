@@ -351,16 +351,20 @@
 
     // --- UTILITY FUNCTIONS ---
     function getWeatherDetails(wmoCode, isDay = true) {
-        const details = CONFIG.WMO_MAP[wmoCode];
+        const normalizedCode = toFiniteNumber(wmoCode);
+        if (normalizedCode === null) {
+            return { description: '정보 없음', icon: '❓', effect: null };
+        }
+        const details = CONFIG.WMO_MAP[normalizedCode];
         if (details) {
             let icon = details.icon;
             if (!isDay) {
-                if (wmoCode === 0) icon = "🌙";
-                else if (wmoCode === 1) icon = "☁️🌙";
+                if (normalizedCode === 0) icon = "🌙";
+                else if (normalizedCode === 1) icon = "☁️🌙";
             }
             return { ...details, icon };
         }
-        return { description: `코드 ${wmoCode}`, icon: "❓", effect: null };
+        return { description: `코드 ${normalizedCode}`, icon: "❓", effect: null };
     }
 
     function formatTime(dateString, includeSeconds = false) {
@@ -430,6 +434,8 @@
     }
 
     function toFiniteNumber(value) {
+        if (value === null || value === undefined) return null;
+        if (typeof value === 'string' && value.trim() === '') return null;
         const number = Number(value);
         return Number.isFinite(number) ? number : null;
     }
@@ -1344,10 +1350,10 @@
 
         const weatherDetails = getWeatherDetails(current.weathercode, current.is_day === 1);
         DOM.currentWeatherIcon.textContent = weatherDetails.icon;
-        DOM.currentTemp.textContent = `${Math.round(current.temperature)}°C`;
+        DOM.currentTemp.textContent = formatWithUnit(current.temperature, 0, '°C', 'N/A');
         DOM.currentWeatherDesc.textContent = weatherDetails.description;
-        if (DOM.currentWindSpeed) DOM.currentWindSpeed.textContent = `${current.windspeed?.toFixed(1) ?? 'N/A'} km/h`;
-        if (DOM.currentWindDir) DOM.currentWindDir.textContent = degreesToCardinal(current.winddirection);
+        if (DOM.currentWindSpeed) DOM.currentWindSpeed.textContent = formatWithUnit(current.windspeed, 1, ' km/h', 'N/A');
+        if (DOM.currentWindDir) DOM.currentWindDir.textContent = degreesToCardinal(toFiniteNumber(current.winddirection));
         if (DOM.currentTime) DOM.currentTime.textContent = `${formatTime(current.time)} (${timezone || 'KST'})`;
         applySpecificIconAnimation(DOM.currentWeatherIcon, weatherDetails.icon);
 
@@ -1594,42 +1600,45 @@
 
     function createForecastCardHTML(dayData, index, hourlyAqiData, options = {}) {
         const isTrendCard = Boolean(options.isTrendCard);
-        const dateObj = new Date(`${dayData.time[index]}T00:00:00`);
+        const dateString = dayData.time[index];
+        const dateObj = new Date(`${dateString}T00:00:00`);
         
         const dayNameOriginal = dateObj.toLocaleDateString('ko-KR', { weekday: 'long' });
         const dayNameFormattedForCard = `(${dayNameOriginal})`;
 
         const monthDay = dateObj.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
-        const weatherDetails = getWeatherDetails(dayData.weather_code[index], true);
+        const weatherDetails = getWeatherDetails(dayData.weather_code?.[index], true);
 
-        const tempMin = Math.round(dayData.temperature_2m_min[index]);
-        const tempMax = Math.round(dayData.temperature_2m_max[index]);
-        const apparentMin = Math.round(dayData.apparent_temperature_min[index]);
-        const apparentMax = Math.round(dayData.apparent_temperature_max[index]);
-        const precipSum = dayData.precipitation_sum[index].toFixed(1);
-        const precipProbMax = dayData.precipitation_probability_max[index];
-        const windMax = dayData.wind_speed_10m_max[index].toFixed(1);
-        const windDir = degreesToCardinal(dayData.wind_direction_10m_dominant[index]);
-        const uvMax = dayData.uv_index_max[index].toFixed(1);
-        const sunriseTime = formatTime(dayData.sunrise[index]);
-        const sunsetTime = formatTime(dayData.sunset[index]);
-        const precipHours = dayData.precipitation_hours[index].toFixed(0);
+        const tempMin = formatNumber(dayData.temperature_2m_min?.[index]);
+        const tempMax = formatNumber(dayData.temperature_2m_max?.[index]);
+        const apparentMin = formatNumber(dayData.apparent_temperature_min?.[index]);
+        const apparentMax = formatNumber(dayData.apparent_temperature_max?.[index]);
+        const precipSum = formatNumber(dayData.precipitation_sum?.[index], 1);
+        const precipProbMax = formatNumber(dayData.precipitation_probability_max?.[index]);
+        const windMax = formatNumber(dayData.wind_speed_10m_max?.[index], 1);
+        const windDir = degreesToCardinal(toFiniteNumber(dayData.wind_direction_10m_dominant?.[index]));
+        const uvMax = formatNumber(dayData.uv_index_max?.[index], 1);
+        const sunriseTime = formatTime(dayData.sunrise?.[index]);
+        const sunsetTime = formatTime(dayData.sunset?.[index]);
+        const precipHours = formatNumber(dayData.precipitation_hours?.[index]);
 
         let precipType = "";
-        if (dayData.rain_sum[index] > 0) precipType += "비 ";
-        if (dayData.showers_sum[index] > 0) precipType += "소나기 ";
-        if (dayData.snowfall_sum[index] > 0) precipType += "눈 ";
+        if ((toFiniteNumber(dayData.rain_sum?.[index]) ?? 0) > 0) precipType += "비 ";
+        if ((toFiniteNumber(dayData.showers_sum?.[index]) ?? 0) > 0) precipType += "소나기 ";
+        if ((toFiniteNumber(dayData.snowfall_sum?.[index]) ?? 0) > 0) precipType += "눈 ";
         precipType = precipType.trim() || "없음";
         
         let dailyAqiHTML = `<div class="detail-item air-quality"><span class="label">대기질</span><span class="value">정보 없음</span></div>`;
         if (hourlyAqiData?.time?.length > 0) {
-            const dateStr = dayData.time[index];
+            const dateStr = dateString;
             const todaysAqiPm10 = [];
             const todaysAqiPm25 = [];
             hourlyAqiData.time.forEach((time, i) => {
-                if (time.startsWith(dateStr)) {
-                    if (hourlyAqiData.pm10[i] != null) todaysAqiPm10.push(hourlyAqiData.pm10[i]);
-                    if (hourlyAqiData.pm2_5[i] != null) todaysAqiPm25.push(hourlyAqiData.pm2_5[i]);
+                if (typeof time === 'string' && time.startsWith(dateStr)) {
+                    const pm10 = toFiniteNumber(hourlyAqiData.pm10?.[i]);
+                    const pm25 = toFiniteNumber(hourlyAqiData.pm2_5?.[i]);
+                    if (pm10 !== null) todaysAqiPm10.push(pm10);
+                    if (pm25 !== null) todaysAqiPm25.push(pm25);
                 }
             });
 
@@ -1652,7 +1661,7 @@
 
         const card = document.createElement('div');
         card.className = `weather-card${isTrendCard ? ' trend-forecast-card' : ''}`;
-        card.dataset.dateStr = dayData.time[index];
+        card.dataset.dateStr = dateString;
         card.dataset.dayName = dayNameOriginal; 
         card.dataset.monthDay = monthDay;
         if (isTrendCard) card.dataset.forecastType = 'trend';
