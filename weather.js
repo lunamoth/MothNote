@@ -63,26 +63,53 @@
         }
     };
 
-    const isWeatherCachePayloadValid = data => Boolean(
-        data
-        && typeof data === 'object'
-        && (data.current || data.current_weather)
-        && data.hourly
-        && typeof data.hourly === 'object'
-        && Array.isArray(data.hourly.time)
-        && data.daily
-        && typeof data.daily === 'object'
-        && Array.isArray(data.daily.time)
-    );
+    const hasValidTimeSeries = (section, requiredFields) => {
+        if (!section || typeof section !== 'object' || !Array.isArray(section.time) || section.time.length === 0) {
+            return false;
+        }
+        const itemCount = section.time.length;
+        const hasValidTimes = section.time.every(time => (
+            typeof time === 'string'
+            && time.trim() !== ''
+            && !Number.isNaN(new Date(time).getTime())
+        ));
+        return hasValidTimes && requiredFields.every(field => (
+            Array.isArray(section[field]) && section[field].length >= itemCount
+        ));
+    };
+
+    const isWeatherCachePayloadValid = data => {
+        if (!data || typeof data !== 'object') return false;
+        const current = data.current || data.current_weather;
+        const temperature = current?.temperature_2m ?? current?.temperature;
+        const weatherCode = current?.weather_code ?? current?.weathercode;
+        const isDay = toFiniteNumber(current?.is_day);
+        return Boolean(
+            current
+            && typeof current === 'object'
+            && toFiniteNumber(temperature) !== null
+            && toFiniteNumber(weatherCode) !== null
+            && (isDay === 0 || isDay === 1)
+            && hasValidTimeSeries(data.hourly, [
+                'temperature_2m',
+                'precipitation_probability',
+                'weather_code',
+                'is_day'
+            ])
+            && hasValidTimeSeries(data.daily, [
+                'weather_code',
+                'temperature_2m_max',
+                'temperature_2m_min'
+            ])
+        );
+    };
 
     const isAirQualityCachePayloadValid = data => Boolean(
         data
         && typeof data === 'object'
         && data.current
         && typeof data.current === 'object'
-        && data.hourly
-        && typeof data.hourly === 'object'
-        && Array.isArray(data.hourly.time)
+        && hasValidTimeSeries(data.hourly, ['pm10', 'pm2_5', 'us_aqi'])
     );
 
     const readFreshWeatherCache = (key, now, payloadValidator) => {
@@ -91,11 +118,15 @@
 
         try {
             const parsed = JSON.parse(cachedString);
-            const timestamp = Number(parsed?.timestamp);
+            const timestamp = toFiniteNumber(parsed?.timestamp);
+            const cachedLat = toFiniteNumber(parsed?.lat);
+            const cachedLon = toFiniteNumber(parsed?.lon);
             const age = now - timestamp;
-            const isValid = Number(parsed?.lat) === LAT
-                && Number(parsed?.lon) === LON
-                && Number.isFinite(timestamp)
+            const isValid = cachedLat !== null
+                && cachedLon !== null
+                && cachedLat === LAT
+                && cachedLon === LON
+                && timestamp !== null
                 && age >= 0
                 && age < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000
                 && payloadValidator(parsed?.data);
@@ -1821,15 +1852,16 @@
     }
 
     function createHourlyForecastItemHTML(hourlyData, index) {
-        const weatherDetails = getWeatherDetails(hourlyData.weather_code[index], hourlyData.is_day[index] === 1);
-        const temp = Math.round(hourlyData.temperature_2m[index]);
-        const precipProb = hourlyData.precipitation_probability[index];
-        return `<div class="hourly-item"><span class="time">${formatTime(hourlyData.time[index])}</span><span class="icon">${weatherDetails.icon}</span><span class="temp">${temp}&deg;C</span><span class="precip">${precipProb}%</span><span class="desc">${weatherDetails.description}</span></div>`;
+        const weatherDetails = getWeatherDetails(hourlyData?.weather_code?.[index], hourlyData?.is_day?.[index] === 1);
+        const time = formatTime(hourlyData?.time?.[index]);
+        const temp = formatWithUnit(hourlyData?.temperature_2m?.[index], 0, '°C');
+        const precipProb = formatWithUnit(hourlyData?.precipitation_probability?.[index], 0, '%');
+        return `<div class="hourly-item"><span class="time">${escapeHTML(time)}</span><span class="icon">${escapeHTML(weatherDetails.icon)}</span><span class="temp">${escapeHTML(temp)}</span><span class="precip">${escapeHTML(precipProb)}</span><span class="desc">${escapeHTML(weatherDetails.description)}</span></div>`;
     }
     
     function renderHourlyDataInModal(dateStr, dayName, monthDay) { 
         const hourlyFullData = _appState.hourlyFullData;
-        if (!hourlyFullData?.time) {
+        if (!Array.isArray(hourlyFullData?.time)) {
             console.error("Hourly data for modal is not available in app state.");
             DOM.modalTitle.textContent = "오류";
             setSafeHTML(DOM.hourlyForecastList, "<div class='hourly-item'>시간별 예보 데이터를 불러올 수 없습니다.</div>");
@@ -1847,14 +1879,17 @@
         let hourlyItemsHTML = "";
 
         hourlyFullData.time.forEach((time, index) => {
-            if (time.startsWith(selectedDate)) {
+            if (typeof time === 'string' && time.startsWith(selectedDate)) {
                 hourlyItemsHTML += createHourlyForecastItemHTML(hourlyFullData, index);
                 chartLabels.push(new Date(time));
-                chartTemps.push(hourlyFullData.temperature_2m[index]);
-                chartPrecipProbs.push(hourlyFullData.precipitation_probability[index]);
+                chartTemps.push(toFiniteNumber(hourlyFullData.temperature_2m?.[index]));
+                chartPrecipProbs.push(toFiniteNumber(hourlyFullData.precipitation_probability?.[index]));
             }
         });
-        setSafeHTML(DOM.hourlyForecastList, hourlyItemsHTML);
+        setSafeHTML(
+            DOM.hourlyForecastList,
+            hourlyItemsHTML || "<div class='hourly-item'>선택한 날짜의 시간별 예보가 없습니다.</div>"
+        );
 
         const chartColors = getChartColors();
         const baseOptions = getBaseChartOptions();
@@ -1925,7 +1960,7 @@
                 throw new Error(`HTTP ${response.status}: ${errorData.reason || errorData.message}`);
             }
             const data = normalizeForecastData(await response.json());
-            if (!data?.current || !data?.current_weather || !data?.daily || !data?.hourly) {
+            if (!isWeatherCachePayloadValid(data)) {
                 throw new Error("API 응답 데이터 형식이 올바르지 않습니다.");
             }
             return { data, url };
@@ -1954,7 +1989,7 @@
                 throw new Error(`HTTP ${response.status}: ${errorData.reason || errorData.message}`);
             }
             const data = await response.json();
-            if (!data?.current || !data?.hourly) {
+            if (!isAirQualityCachePayloadValid(data)) {
                 throw new Error("대기질 API 응답 데이터 형식이 올바르지 않습니다.");
             }
             return { data, url };
@@ -1999,7 +2034,18 @@
             console.warn("캐시를 읽는 중 오류 발생:", e);
             clearWeatherCaches();
         }
-        if (cachedWeather && cachedAqi) { processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp); renderSkeleton(false); return; }
+        if (cachedWeather && cachedAqi) {
+            try {
+                processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp);
+                renderSkeleton(false);
+                return;
+            } catch (error) {
+                console.warn('캐시된 날씨 화면 구성에 실패해 데이터를 새로 갱신합니다.', error);
+                cachedWeather = null;
+                cachedAqi = null;
+                clearWeatherCaches();
+            }
+        }
         renderSkeleton(true); clearError();
         const weatherPromise = cachedWeather ? Promise.resolve({data: cachedWeather.data}) : fetchWeatherData();
         const aqiPromise = cachedAqi ? Promise.resolve({data: cachedAqi.data}) : fetchAirQualityData();
@@ -2012,6 +2058,9 @@
             processAndDisplayAllData(weatherData, aqiData, fetchTimestamp);
             if (weatherResult.status === 'fulfilled' && !cachedWeather) { try { localStorage.setItem(CONFIG.WEATHER_DETAIL_CACHE_KEY, JSON.stringify({ timestamp: fetchTimestamp, lat: LAT, lon: LON, data: weatherData })); } catch(e) { console.warn("날씨 캐시 저장 실패", e); } }
             if (aqiResult.status === 'fulfilled' && !cachedAqi) { try { localStorage.setItem(CONFIG.AIR_QUALITY_CACHE_KEY, JSON.stringify({ timestamp: fetchTimestamp, lat: LAT, lon: LON, data: aqiData })); } catch(e) { console.warn("대기질 캐시 저장 실패", e); } }
+        } catch (error) {
+            console.error('날씨 화면 구성 중 오류:', error);
+            renderError('날씨 화면 구성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
         } finally { renderSkeleton(false); }
     }
     

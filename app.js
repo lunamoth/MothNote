@@ -74,9 +74,16 @@ const clearDashboardWeatherCache = () => {
 const DASHBOARD_WEATHER_CACHE_DURATION_MS = 60 * 60 * 1000;
 const DASHBOARD_WEATHER_LAST_KNOWN_WARNING_MS = 12 * 60 * 60 * 1000;
 
-const normalizeWeatherCoordinateForCache = (value) => {
+const toFiniteDashboardWeatherNumber = value => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? Number(parsed.toFixed(4)) : parsed;
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeWeatherCoordinateForCache = (value) => {
+    const parsed = toFiniteDashboardWeatherNumber(value);
+    return parsed === null ? null : Number(parsed.toFixed(4));
 };
 
 const getWeatherLocationKey = (weather = {}) => {
@@ -85,13 +92,11 @@ const getWeatherLocationKey = (weather = {}) => {
     return `${lat},${lon}`;
 };
 
-const isSameWeatherLocation = (a = {}, b = {}) => (
-    Number.isFinite(Number(a.lat))
-    && Number.isFinite(Number(a.lon))
-    && Number.isFinite(Number(b.lat))
-    && Number.isFinite(Number(b.lon))
-    && getWeatherLocationKey(a) === getWeatherLocationKey(b)
-);
+const isSameWeatherLocation = (a = {}, b = {}) => {
+    const coordinates = [a.lat, a.lon, b.lat, b.lon].map(toFiniteDashboardWeatherNumber);
+    return coordinates.every(value => value !== null)
+        && getWeatherLocationKey(a) === getWeatherLocationKey(b);
+};
 
 const readDashboardWeatherCache = (cacheKey, weatherSettings) => {
     const rawCache = localStorage.getItem(cacheKey);
@@ -110,23 +115,31 @@ const readDashboardWeatherCache = (cacheKey, weatherSettings) => {
         return null;
     }
 
-    const timestamp = Number(cachedData?.timestamp);
-    const temp = Number(cachedData?.data?.temp);
+    const timestamp = toFiniteDashboardWeatherNumber(cachedData?.timestamp);
+    const temp = toFiniteDashboardWeatherNumber(cachedData?.data?.temp);
+    const cachedLat = toFiniteDashboardWeatherNumber(cachedData?.lat);
+    const cachedLon = toFiniteDashboardWeatherNumber(cachedData?.lon);
     const weather = cachedData?.data?.weather;
 
-    if (!Number.isFinite(timestamp)
-        || !Number.isFinite(temp)
+    if (timestamp === null
+        || temp === null
+        || cachedLat === null
+        || cachedLon === null
         || !weather
+        || typeof weather !== 'object'
         || typeof weather.text !== 'string'
+        || weather.text.trim() === ''
         || weather.icon === undefined
+        || weather.icon === null
+        || String(weather.icon).trim() === ''
         || !isSameWeatherLocation(cachedData, weatherSettings)) {
         return null;
     }
 
     return {
         timestamp,
-        lat: Number(cachedData.lat),
-        lon: Number(cachedData.lon),
+        lat: cachedLat,
+        lon: cachedLon,
         data: {
             weather: { icon: String(weather.icon), text: weather.text },
             temp: Math.round(temp)
@@ -1071,8 +1084,14 @@ class Dashboard {
                 if (!data?.current) throw new Error("API 응답에서 current 객체를 찾을 수 없습니다.");
 
                 const { temperature_2m, weather_code, is_day } = data.current;
-                const weather = this._getWeatherInfo(weather_code, is_day === 1);
-                const temp = Math.round(temperature_2m);
+                const temperature = toFiniteDashboardWeatherNumber(temperature_2m);
+                const weatherCode = toFiniteDashboardWeatherNumber(weather_code);
+                const isDay = toFiniteDashboardWeatherNumber(is_day);
+                if (temperature === null || weatherCode === null || (isDay !== 0 && isDay !== 1)) {
+                    throw new Error("API 응답의 현재 날씨 값이 올바르지 않습니다.");
+                }
+                const weather = this._getWeatherInfo(weatherCode, isDay === 1);
+                const temp = Math.round(temperature);
 
                 this._setDashboardWeatherContent(weather.icon, temp);
                 this.dom.weatherContainer.title = buildDashboardWeatherTitle(weather, temp);

@@ -309,18 +309,31 @@ export const verifyAndSanitizeLoadedData = (data) => {
     // 손실 없이 복구할 수 없는 구조는 저장 가능한 정제본으로 취급하지 않고 원본을 보존합니다.
     const hasOwn = (target, key) => Object.prototype.hasOwnProperty.call(target, key);
     const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+    const hasLossyTextField = (record, key) => (
+        hasOwn(record, key)
+        && record[key] !== null
+        && typeof record[key] === 'object'
+    );
+    const hasInvalidNoteRecord = note => (
+        !isRecord(note)
+        || hasLossyTextField(note, 'title')
+        || hasLossyTextField(note, 'content')
+    );
     const hasInvalidOptionalArray = key => hasOwn(data, key) && !Array.isArray(data[key]);
     const hasInvalidNoteCollection = folder => (
         hasOwn(folder, 'notes')
-        && (!Array.isArray(folder.notes) || folder.notes.some(note => !isRecord(note)))
+        && (!Array.isArray(folder.notes) || folder.notes.some(hasInvalidNoteRecord))
     );
     const hasInvalidFolderRecords = Array.isArray(data.folders) && data.folders.some(folder => (
-        !isRecord(folder) || hasInvalidNoteCollection(folder)
+        !isRecord(folder)
+        || hasLossyTextField(folder, 'name')
+        || hasInvalidNoteCollection(folder)
     ));
     const hasInvalidTrashRecords = Array.isArray(data.trash) && data.trash.some(item => (
         !isRecord(item)
         || ((item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes))
-            && hasInvalidNoteCollection(item))
+            ? hasLossyTextField(item, 'name') || hasInvalidNoteCollection(item)
+            : hasInvalidNoteRecord(item))
     ));
     const hasUnrecoverableDataStructure = (
         !Array.isArray(data.folders)
@@ -1331,8 +1344,16 @@ const sanitizeContentData = data => {
         }
     };
 
+    const assertSafeTextField = (record, key, label) => {
+        if (record[key] !== null && typeof record[key] === 'object') {
+            throw new Error(`${label} 필드가 텍스트 형식이 아닙니다.`);
+        }
+    };
+
     const sanitizeNote = (rawNote, isTrash = false) => {
         assertRecord(rawNote, '노트');
+        assertSafeTextField(rawNote, 'title', '노트 제목');
+        assertSafeTextField(rawNote, 'content', '노트 본문');
         const noteId = getUniqueId(CONSTANTS.ID_PREFIX.NOTE, rawNote.id, noteIdMap);
         const createdAt = normalizeTimestamp(rawNote.createdAt);
         const updatedAt = normalizeTimestamp(rawNote.updatedAt, createdAt);
@@ -1360,6 +1381,7 @@ const sanitizeContentData = data => {
 
     const sanitizeFolder = (rawFolder, isTrash = false) => {
         assertRecord(rawFolder, '폴더');
+        assertSafeTextField(rawFolder, 'name', '폴더 이름');
         if (Object.prototype.hasOwnProperty.call(rawFolder, 'notes') && !Array.isArray(rawFolder.notes)) {
             throw new Error(`${isTrash ? '휴지통 폴더' : '폴더'}의 노트 목록이 배열 형식이 아닙니다.`);
         }
