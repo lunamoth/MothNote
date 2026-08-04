@@ -88,6 +88,26 @@ let pendingRenameCleanup = null;
 let pendingRenameDraft = null;
 let isStartingRename = false;
 
+// beforeunload에서는 비동기 이름 변경을 끝낼 수 없습니다. 렌더 도중 편집 DOM이
+// 교체되더라도 input 이벤트가 보존한 최신 초안을 비상 복구에 사용할 수 있게 합니다.
+export const getPendingRenameEmergencySnapshot = () => {
+    if (!pendingRenamePromise
+        || !pendingRenameDraft
+        || state.renamingItemId !== pendingRenameDraft.id) {
+        return null;
+    }
+
+    const id = String(pendingRenameDraft.id ?? '');
+    const type = pendingRenameDraft.type;
+    const newName = String(pendingRenameDraft.newName ?? '').trim();
+    const isSupportedType = type === CONSTANTS.ITEM_TYPE.FOLDER
+        || type === CONSTANTS.ITEM_TYPE.NOTE;
+
+    return id && isSupportedType && newName
+        ? { id, type, newName }
+        : null;
+};
+
 export const forceResolvePendingRename = () => {
     if (state.renamingItemId || pendingRenamePromise) {
         console.warn('Force resolving a pending rename operation due to external changes.');
@@ -413,7 +433,20 @@ export const performTransactionalUpdate = async (updateFn) => {
                 buildNoteMap();
                 updateNoteCreationDates();
                 clearSortedNotesCache();
-                if (calendarRenderer) calendarRenderer(true);
+                // 저장은 이미 영구 반영됐으므로, 부가 캘린더 갱신 실패가 트랜잭션
+                // 전체의 실패로 보고되어 사용자가 토글 작업을 재시도하지 않게 합니다.
+                if (calendarRenderer) {
+                    try {
+                        const calendarRenderResult = calendarRenderer(true);
+                        if (calendarRenderResult && typeof calendarRenderResult.catch === 'function') {
+                            calendarRenderResult.catch(error => {
+                                console.error('Calendar refresh failed after a successful data commit.', error);
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Calendar refresh failed after a successful data commit.', error);
+                    }
+                }
 
                 if (postUpdateState) setState(postUpdateState);
                 if (successMessage) showToast(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 6000);

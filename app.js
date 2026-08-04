@@ -37,6 +37,7 @@ import {
     parseYYYYMMDDLocal,
     updateNoteCreationDates,
     forceResolvePendingRename,
+    getPendingRenameEmergencySnapshot,
     performTransactionalUpdate,
     performDeleteItem,
     handleTextareaKeyDown,
@@ -1831,14 +1832,23 @@ const setupGlobalEventListeners = () => {
                 }
 
                 if (isRenaming) {
-                    // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
-                    const safeRenamingId = escapeCssAttributeValue(state.renamingItemId);
-                    const renamingElement = document.querySelector(`.item-list-entry[data-id="${safeRenamingId}"]`);
-                    const nameSpan = renamingElement?.querySelector('.item-name');
-                    if (renamingElement && nameSpan) {
-                        const newName = nameSpan.textContent.trim();
+                    // 저장 시작 렌더가 편집 DOM을 교체하면 새 DOM에는 이전 이름이 들어갈 수 있습니다.
+                    // input 이벤트가 보존한 최신 초안을 우선 사용하고, 캐시가 없는 구간만 DOM으로 보완합니다.
+                    const cachedRename = getPendingRenameEmergencySnapshot();
+                    if (cachedRename) {
+                        changesToBackup.itemRename = {
+                            ...cachedRename,
+                            capturedAt: Date.now()
+                        };
+                        hasChanges = true;
+                    } else {
+                        // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
+                        const safeRenamingId = escapeCssAttributeValue(state.renamingItemId);
+                        const renamingElement = document.querySelector(`.item-list-entry[data-id="${safeRenamingId}"]`);
+                        const nameSpan = renamingElement?.querySelector('.item-name');
+                        const newName = nameSpan?.textContent?.trim();
                         // 빈 이름이 아닌 경우에만 백업
-                        if (newName) {
+                        if (renamingElement && newName) {
                             changesToBackup.itemRename = {
                                 id: state.renamingItemId,
                                 type: renamingElement.dataset.type,
