@@ -1582,9 +1582,12 @@ export const handleExport = async (settings) => {
         // 백업은 현재 메모리 스냅샷이 아니라 영구 저장 데이터를 기준으로 생성합니다.
         // 이를 통해 저장 직전의 기준 appState를 사용해 백업 누락 가능성을 줄입니다.
         const persistedResult = await withAppStateWriteLock(() => storageGet('appState'));
-        const persistedState = persistedResult?.appState;
-        const exportState = persistedState && Array.isArray(persistedState.folders)
-            ? persistedState
+        const hasPersistedAppState = Boolean(persistedResult)
+            && Object.prototype.hasOwnProperty.call(persistedResult, 'appState')
+            && persistedResult.appState !== null
+            && persistedResult.appState !== undefined;
+        const rawExportState = hasPersistedAppState
+            ? persistedResult.appState
             : {
                 folders: state.folders,
                 trash: state.trash,
@@ -1592,6 +1595,20 @@ export const handleExport = async (settings) => {
                 lastActiveNotePerFolder: state.lastActiveNotePerFolder || {},
                 lastSavedTimestamp: state.lastSavedTimestamp
             };
+
+        // folders 하나만 확인하고 백업을 생성하면 trash/favorites/노트 레코드가 손상된
+        // appState도 성공한 백업처럼 다운로드되어, 정작 복구 시 전체 파일이 거부될 수 있습니다.
+        // 원본을 변경하지 않는 복제본을 전체 로드 경계와 동일한 검증기로 확인합니다.
+        let exportVerification;
+        try {
+            exportVerification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(rawExportState)));
+        } catch (validationError) {
+            throw createUnrecoverableAppStateError(`백업 대상 데이터를 복제하거나 검증하지 못했습니다: ${validationError.message}`);
+        }
+        if (exportVerification.isTopLevelInvalid) {
+            throw createUnrecoverableAppStateError('저장된 노트 데이터의 구조가 손상되어 안전한 백업을 만들 수 없습니다.');
+        }
+        const exportState = exportVerification.sanitizedData;
 
         let settingsToExport = sanitizeSettings(settings);
         const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
@@ -1701,7 +1718,10 @@ export const handleExport = async (settings) => {
         return true;
     } catch (e) {
         console.error("내보내기 준비 중 오류 발생:", e);
-        showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
+        const message = e?.name === 'UnrecoverableAppStateError'
+            ? '저장된 노트 데이터의 무결성 검사에 실패하여 원본 보호를 위해 백업을 취소했습니다.'
+            : CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE;
+        showToast(message, CONSTANTS.TOAST_TYPE.ERROR);
         return false;
     }
 };

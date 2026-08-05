@@ -64,7 +64,18 @@ document.addEventListener('DOMContentLoaded', () => {
             this.state.currentView = 'calendar';
             
             // --- MODIFIED: 사용자가 데이터를 초기화한 후 새로고침 시 기본 습관이 추가되는 것을 방지 ---
-            const hasBeenInitialized = localStorage.getItem('habitTrackerInitialized') === 'true';
+            let hasBeenInitialized = false;
+            if (!this._hadDataLoadError) {
+                try {
+                    hasBeenInitialized = localStorage.getItem('habitTrackerInitialized') === 'true';
+                } catch (error) {
+                    // 초기화 플래그를 읽지 못한 상태에서 샘플 데이터를 저장하면 접근할 수 없는
+                    // 기존 사용자 데이터를 덮어쓸 수 있으므로, 보수적으로 오류 상태로 전환합니다.
+                    this._hadDataLoadError = true;
+                    this._hasPersistedIntegratedData = true;
+                    console.error('Failed to read the habit tracker initialization flag. Default data creation was blocked.', error);
+                }
+            }
             // 통합 키에 정상적인 빈 상태가 있다면 '초기화하지 않음'이 아니라
             // 사용자가 의도적으로 모두 지운 저장된 상태일 수 있습니다.
             if (this.state.habits.length === 0
@@ -85,6 +96,9 @@ document.addEventListener('DOMContentLoaded', () => {
             this.addEventListeners();
             this.render();
             this.showRandomQuote();
+            if (this._hadDataLoadError) {
+                this.showToast('습관 데이터를 안전하게 불러오지 못했습니다. 원본 보호를 위해 자동 저장과 기본 데이터 생성을 중단했습니다.', 'error', 6000);
+            }
         },
         
             setupDefaultHabits(saveOptions = {}) {
@@ -332,6 +346,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)));
                 return { type, days: days.length ? days : defaultDays };
             };
+            const getValidLocalDateTimestamp = (dateStr) => {
+                if (!safeDatePattern.test(dateStr)) return null;
+                const [year, month, day] = dateStr.split('-').map(Number);
+                const localDate = new Date(year, month - 1, day);
+                if (localDate.getFullYear() !== year || localDate.getMonth() !== month - 1 || localDate.getDate() !== day) {
+                    return null;
+                }
+                localDate.setHours(0, 0, 0, 0);
+                return localDate.getTime();
+            };
             const normalizeLogs = (logs) => {
                 const safeLogs = {};
                 if (logs === undefined) return safeLogs;
@@ -340,7 +364,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     return safeLogs;
                 }
                 for (const [date, entry] of Object.entries(logs)) {
-                    if (!safeDatePattern.test(date)) {
+                    // 형식만 맞는 존재하지 않는 날짜(예: 2026-02-31)가 Date에서 다음 달로
+                    // 자동 보정되어 통계·업적 계산에 섞이지 않도록 달력 유효성까지 확인합니다.
+                    if (getValidLocalDateTimestamp(date) === null) {
                         reportStructuralCorruption();
                         continue;
                     }
@@ -352,16 +378,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     safeLogs[date] = { value: value > 0 ? 1 : 0 };
                 }
                 return safeLogs;
-            };
-            const getValidLocalDateTimestamp = (dateStr) => {
-                if (!safeDatePattern.test(dateStr)) return null;
-                const [year, month, day] = dateStr.split('-').map(Number);
-                const localDate = new Date(year, month - 1, day);
-                if (localDate.getFullYear() !== year || localDate.getMonth() !== month - 1 || localDate.getDate() !== day) {
-                    return null;
-                }
-                localDate.setHours(0, 0, 0, 0);
-                return localDate.getTime();
             };
             const habits = Array.isArray(rawState.habits) ? rawState.habits : [];
             const sanitizedHabits = habits
@@ -429,9 +445,25 @@ document.addEventListener('DOMContentLoaded', () => {
             this._hadDataLoadError = false;
 
             // [수정] MothNote와 통합된 키에서 데이터를 로드
-            const data = localStorage.getItem('habitTrackerDataV2_integrated');
-            const oldData = localStorage.getItem('habitTrackerDataV2'); // 이전 버전 키
-            const veryOldData = localStorage.getItem('habitTrackerData'); // 아주 오래된 버전 키
+            let data = null;
+            let oldData = null;
+            let veryOldData = null;
+            try {
+                data = localStorage.getItem('habitTrackerDataV2_integrated');
+                oldData = localStorage.getItem('habitTrackerDataV2'); // 이전 버전 키
+                veryOldData = localStorage.getItem('habitTrackerData'); // 아주 오래된 버전 키
+            } catch (error) {
+                // 저장소 접근 자체가 실패한 경우 데이터의 존재 여부를 알 수 없습니다.
+                // 빈 상태를 표시하되 저장 및 기본 데이터 생성을 막아, 보이지 않는 원본을 보호합니다.
+                this._hadDataLoadError = true;
+                this._hasPersistedIntegratedData = true;
+                console.error('Habit tracker storage could not be read. Starting in a protected safe state.', error);
+                const safeState = this.sanitizeLoadedState({});
+                const initialTheme = new URLSearchParams(window.location.search).get('theme') || 'light';
+                safeState.settings.theme = initialTheme;
+                this.state = { ...this.state, ...safeState, chartInstances: {} };
+                return;
+            }
             this._hasPersistedIntegratedData = data !== null;
 
 			if (data !== null) {
