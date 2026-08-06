@@ -113,8 +113,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 { id: now + 6, name: '🚫 쌀/빵/면/과자/과당음료 먹지 않기', type: 'check', goal: 1, frequency: { type: 'daily', days: [0,1,2,3,4,5,6] }, isArchived: false, order: 6, logs: {}, createdAt: now + 6 },
                 { id: now + 7, name: '🏋️ 운동', type: 'check', goal: 1, frequency: { type: 'daily', days: [0,1,2,3,4,5,6] }, isArchived: false, order: 7, logs: {}, createdAt: now + 7 }
             ];
+            const previousHabits = this.state.habits;
             this.state.habits = defaultHabits;
-            return this.saveData(saveOptions);
+            if (this.saveData(saveOptions)) return true;
+
+            // 저장에 실패한 샘플을 화면에 남기면 사용자는 영구 저장된 것으로 오인하고
+            // 기록을 시작할 수 있습니다. 재시작 시 그 기록이 사라지지 않도록 메모리도
+            // 저장 전 상태로 되돌립니다.
+            this.state.habits = previousHabits;
+            return false;
         },
 
         cacheElements() {

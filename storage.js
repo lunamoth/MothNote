@@ -1800,7 +1800,11 @@ const normalizeHabitTrackerImportValue = value => {
         !isPlainImportObject(logs)
         || Object.entries(logs).some(([dateText, entry]) => {
             if (!isValidHabitLogDate(dateText)) return true;
-            const valueToCheck = entry !== null && typeof entry === 'object'
+            // 습관 트래커 로더는 null 로그를 구조 손상으로 판정합니다. 여기서
+            // Number(null) === 0만 보고 허용하면 가져오기는 성공하지만 다음 실행에서
+            // 전체 습관 데이터가 열리지 않으므로, 저장 전에 동일한 기준으로 거부합니다.
+            if (entry === null) return true;
+            const valueToCheck = typeof entry === 'object'
                 ? entry.value
                 : entry;
             return !Number.isFinite(Number(valueToCheck));
