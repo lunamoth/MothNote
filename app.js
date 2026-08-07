@@ -1467,7 +1467,14 @@ const setupNoteToFolderDrop = () => {
             const { item: note } = findNote(noteId);
             if (note && !state.favorites.has(noteId)) await handleToggleFavorite(noteId);
         } else {
-            await performTransactionalUpdate((latestData) => {
+            // 드롭 당시 선택 상태를 고정합니다. 활성 노트를 실제 폴더에서 다른 폴더로
+            // 옮긴 경우 렌더러의 "목록에 없는 활성 노트" 보정에 맡기면, 이동 직후
+            // 원본 폴더의 다른 노트가 예기치 않게 선택되어 사용자가 잘못된 노트를
+            // 편집할 수 있습니다. 이동한 노트를 대상 폴더에서 계속 선택하도록 합니다.
+            const activeFolderIdAtDrop = state.activeFolderId;
+            const activeNoteIdAtDrop = state.activeNoteId;
+
+            const moveResult = await performTransactionalUpdate((latestData) => {
                 const { folders } = latestData;
                 let sourceFolder = null;
                 let sourceNoteIndex = -1;
@@ -1488,12 +1495,43 @@ const setupNoteToFolderDrop = () => {
                 targetFolder.notes.unshift(noteToMove);
                 sourceFolder.updatedAt = now;
                 targetFolder.updatedAt = now;
+
+                const lastActiveNotePerFolder = latestData.lastActiveNotePerFolder
+                    && typeof latestData.lastActiveNotePerFolder === 'object'
+                    && !Array.isArray(latestData.lastActiveNotePerFolder)
+                    ? { ...latestData.lastActiveNotePerFolder }
+                    : {};
+
+                // 원본 폴더의 마지막 선택이 이동한 노트를 가리키면 오래된 참조를 제거하고,
+                // 대상 폴더에는 이동한 노트를 마지막 선택으로 기록합니다.
+                if (lastActiveNotePerFolder[sourceFolder.id] === noteId) {
+                    delete lastActiveNotePerFolder[sourceFolder.id];
+                }
+                lastActiveNotePerFolder[targetFolder.id] = noteId;
+                latestData.lastActiveNotePerFolder = lastActiveNotePerFolder;
+
+                const shouldFollowMovedActiveNote = activeNoteIdAtDrop === noteId
+                    && activeFolderIdAtDrop === sourceFolder.id;
                 return {
                     newData: latestData,
                     successMessage: CONSTANTS.MESSAGES.SUCCESS.NOTE_MOVED_SUCCESS(noteToMove.title, targetFolder.name),
-                    postUpdateState: {}
+                    payload: { followedMovedActiveNote: shouldFollowMovedActiveNote },
+                    postUpdateState: shouldFollowMovedActiveNote
+                        ? {
+                            activeFolderId: targetFolder.id,
+                            activeNoteId: noteId,
+                            dateFilter: null,
+                            preSearchActiveNoteId: null,
+                            searchTerm: ''
+                        }
+                        : {}
                 };
             });
+
+            if (moveResult?.success && moveResult.payload?.followedMovedActiveNote) {
+                if (searchInput) searchInput.value = '';
+                saveSession();
+            }
         }
     });
 };

@@ -2024,8 +2024,22 @@
         DOM.lastUpdated.textContent = `마지막 업데이트: ${updateTime.toLocaleDateString('ko-KR')} ${updateTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit'})}`;
     }
 
+    // 상세 날씨 화면이 다시 보일 때 visibilitychange가 연속 발생하면 여러 요청이
+    // 동시에 진행될 수 있습니다. 먼저 시작한 요청이 더 늦게 끝났다는 이유로 최신
+    // 화면·캐시를 과거 응답으로 덮어쓰지 못하도록 요청 세대를 추적합니다.
+    let weatherLoadRequestVersion = 0;
+
     async function loadWeatherData() {
-        if (LAT === null || LON === null) { renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다."); renderSkeleton(false); return; }
+        const requestVersion = ++weatherLoadRequestVersion;
+        const isLatestRequest = () => requestVersion === weatherLoadRequestVersion;
+
+        if (LAT === null || LON === null) {
+            if (isLatestRequest()) {
+                renderError("잘못된 위치 정보입니다. 위도는 -90 ~ 90, 경도는 -180 ~ 180 사이의 유효한 숫자여야 합니다.");
+                renderSkeleton(false);
+            }
+            return;
+        }
         let cachedWeather = null; let cachedAqi = null; const now = Date.now();
         try {
             cachedWeather = readFreshWeatherCache(CONFIG.WEATHER_DETAIL_CACHE_KEY, now, isWeatherCachePayloadValid);
@@ -2036,21 +2050,25 @@
         }
         if (cachedWeather && cachedAqi) {
             try {
+                if (!isLatestRequest()) return;
                 processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp);
                 renderSkeleton(false);
                 return;
             } catch (error) {
+                if (!isLatestRequest()) return;
                 console.warn('캐시된 날씨 화면 구성에 실패해 데이터를 새로 갱신합니다.', error);
                 cachedWeather = null;
                 cachedAqi = null;
                 clearWeatherCaches();
             }
         }
+        if (!isLatestRequest()) return;
         renderSkeleton(true); clearError();
         const weatherPromise = cachedWeather ? Promise.resolve({data: cachedWeather.data}) : fetchWeatherData();
         const aqiPromise = cachedAqi ? Promise.resolve({data: cachedAqi.data}) : fetchAirQualityData();
         try {
             const [weatherResult, aqiResult] = await Promise.allSettled([weatherPromise, aqiPromise]);
+            if (!isLatestRequest()) return;
             const weatherData = weatherResult.status === 'fulfilled' ? weatherResult.value.data : null;
             const aqiData = aqiResult.status === 'fulfilled' ? aqiResult.value.data : null;
             const fetchTimestamp = Date.now();
@@ -2059,9 +2077,12 @@
             if (weatherResult.status === 'fulfilled' && !cachedWeather) { try { localStorage.setItem(CONFIG.WEATHER_DETAIL_CACHE_KEY, JSON.stringify({ timestamp: fetchTimestamp, lat: LAT, lon: LON, data: weatherData })); } catch(e) { console.warn("날씨 캐시 저장 실패", e); } }
             if (aqiResult.status === 'fulfilled' && !cachedAqi) { try { localStorage.setItem(CONFIG.AIR_QUALITY_CACHE_KEY, JSON.stringify({ timestamp: fetchTimestamp, lat: LAT, lon: LON, data: aqiData })); } catch(e) { console.warn("대기질 캐시 저장 실패", e); } }
         } catch (error) {
+            if (!isLatestRequest()) return;
             console.error('날씨 화면 구성 중 오류:', error);
             renderError('날씨 화면 구성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
-        } finally { renderSkeleton(false); }
+        } finally {
+            if (isLatestRequest()) renderSkeleton(false);
+        }
     }
     
     // --- EVENT LISTENERS & INITIALIZATION ---
