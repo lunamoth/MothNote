@@ -152,9 +152,10 @@ const getFolderIdAfterSanitization = (folderId, folderIdUpdateMap = new Map()) =
 // appState의 read-modify-write는 storageLock.js를 통해 현재 문서 컨텍스트 안의 비동기 작업 순서를 명확히 합니다.
 
 
-// 세션 상태(활성 폴더/노트 등) 저장 (기능 유지, 변경 없음)
-export const saveSession = () => {
-    if (window.isInitializing) return;
+// 세션 상태(활성 폴더/노트 등) 저장
+// 초기화 중 임의의 중간 상태는 저장하지 않되, loadData()가 검증을 끝낸 최종 상태만 명시적으로 저장할 수 있습니다.
+export const saveSession = ({ allowDuringInitialization = false } = {}) => {
+    if (window.isInitializing && !allowDuringInitialization) return;
     try {
         localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
             f: state.activeFolderId,
@@ -1250,7 +1251,10 @@ export const loadData = async () => {
         }
 
         updateNoteCreationDates();
-        saveSession();
+        // [MAJOR BUG FIX] loadData()는 app.init의 isInitializing=true 구간에서 실행됩니다.
+        // 일반 saveSession()은 중간 상태 저장을 막기 위해 이 구간에서 반환하므로, 최초 실행/복구 직후의
+        // 최종 활성 폴더·노트가 세션에 기록되지 않았습니다. 무결성 검사가 끝난 이 지점에서만 예외적으로 저장합니다.
+        saveSession({ allowDuringInitialization: true });
 
     } catch (e) { 
         // [CRITICAL BUG FIX] 저장소 로딩/복구가 실패했는데도 빈 상태로 앱을 계속 실행하면

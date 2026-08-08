@@ -8,7 +8,7 @@
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
 import { state, setState, findFolder, findNote, CONSTANTS, buildNoteMap, generateUniqueId } from './state.js';
 // [버그 수정] storage.js에 추가된 Promise 래퍼와 저장 데이터 무결성 검사 함수를 가져옵니다.
-import { storageGet, storageSet, verifyAndSanitizeLoadedData } from './storage.js';
+import { storageGet, storageSet, verifyAndSanitizeLoadedData, saveSession } from './storage.js';
 import { withAppStateWriteLock } from './storageLock.js';
 import {
     noteList, folderList, noteTitleInput, noteContentTextarea,
@@ -449,6 +449,13 @@ export const performTransactionalUpdate = async (updateFn) => {
                 }
 
                 if (postUpdateState) setState(postUpdateState);
+
+                // [MAJOR BUG FIX] 삭제/복원/이동 트랜잭션은 activeFolderId/activeNoteId 또는
+                // lastActiveNotePerFolder를 바꿀 수 있습니다. 영구 appState만 갱신하고 localStorage 세션을
+                // 갱신하지 않으면 즉시 새로고침 시 삭제된 항목을 가리키는 오래된 선택 상태가 복원됩니다.
+                // 저장이 성공한 최종 메모리 상태를 기준으로 세션도 같은 커밋 지점에서 동기화합니다.
+                saveSession();
+
                 if (successMessage) showToast(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS, 6000);
 
                 return { success: true, payload: resultPayload, failureReason: null };
@@ -925,8 +932,26 @@ export const performDeleteItem = (id, type) => {
             successMessage = CONSTANTS.MESSAGES.SUCCESS.FOLDER_MOVED_TO_TRASH(folderToMove.name);
             if (state.activeFolderId === id) {
                 const nextFolderIndex = Math.max(0, folderIndex - 1);
-                postUpdateState.activeFolderId = folders.length > 0 ? (folders[folderIndex]?.id ?? folders[nextFolderIndex].id) : CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-                postUpdateState.activeNoteId = null;
+                const nextFolder = folders.length > 0
+                    ? (folders[folderIndex] ?? folders[nextFolderIndex])
+                    : null;
+
+                postUpdateState.activeFolderId = nextFolder?.id ?? CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+
+                // [MAJOR BUG FIX] 활성 폴더 삭제 후 다음 폴더를 선택하면서 activeNoteId를 무조건 null로
+                // 만들면, 다음 폴더에 노트가 있어도 편집기가 빈 화면으로 남습니다. 폴더 전환과 동일하게
+                // 마지막 선택 노트를 우선하고, 없으면 현재 정렬 기준의 첫 노트를 선택합니다.
+                if (nextFolder) {
+                    const rememberedNoteId = latestData.lastActiveNotePerFolder?.[nextFolder.id];
+                    const rememberedNoteExists = rememberedNoteId
+                        && nextFolder.notes.some(note => note.id === rememberedNoteId);
+                    const sortedNextNotes = sortNotes(nextFolder.notes, state.noteSortOrder);
+                    postUpdateState.activeNoteId = rememberedNoteExists
+                        ? rememberedNoteId
+                        : (sortedNextNotes[0]?.id ?? null);
+                } else {
+                    postUpdateState.activeNoteId = null;
+                }
             }
         } else { // NOTE
             let noteToMove, sourceFolder;
