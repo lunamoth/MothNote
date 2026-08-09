@@ -91,6 +91,28 @@ const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 
 const RESERVED_ITEM_IDS = new Set(Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(folder => folder.id));
 const MAX_ITEM_ID_LENGTH = 160;
 
+// 휴지통 항목은 구버전 백업에서 type이 없을 수 있고, 손상된 데이터에서는 type만
+// 반대로 기록될 수 있습니다. type을 무조건 신뢰하면 본문이 있는 노트를 빈 폴더로
+// 정규화할 수 있으므로, 실제 데이터 필드의 형태를 우선해 판별합니다.
+const hasOwnDataField = (item, key) => Object.prototype.hasOwnProperty.call(item, key);
+const hasFolderDataShape = item => hasOwnDataField(item, 'name') || hasOwnDataField(item, 'notes');
+const hasNoteDataShape = item => hasOwnDataField(item, 'title') || hasOwnDataField(item, 'content');
+
+const getTrashItemKind = item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+
+    const hasFolderShape = hasFolderDataShape(item);
+    const hasNoteShape = hasNoteDataShape(item);
+
+    // 폴더·노트 필드가 동시에 있으면 어느 쪽이 원본인지 무손실로 판단할 수 없습니다.
+    if (hasFolderShape && hasNoteShape) return 'ambiguous';
+    if (hasFolderShape) return CONSTANTS.ITEM_TYPE.FOLDER;
+    if (hasNoteShape) return CONSTANTS.ITEM_TYPE.NOTE;
+    return item.type === CONSTANTS.ITEM_TYPE.FOLDER
+        ? CONSTANTS.ITEM_TYPE.FOLDER
+        : CONSTANTS.ITEM_TYPE.NOTE;
+};
+
 const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
 
 const normalizeFolderName = (value, fallback = '새 폴더') => {
@@ -317,6 +339,7 @@ export const verifyAndSanitizeLoadedData = (data) => {
     );
     const hasInvalidNoteRecord = note => (
         !isRecord(note)
+        || hasFolderDataShape(note)
         || hasLossyTextField(note, 'title')
         || hasLossyTextField(note, 'content')
     );
@@ -327,15 +350,18 @@ export const verifyAndSanitizeLoadedData = (data) => {
     );
     const hasInvalidFolderRecords = Array.isArray(data.folders) && data.folders.some(folder => (
         !isRecord(folder)
+        || hasNoteDataShape(folder)
         || hasLossyTextField(folder, 'name')
         || hasInvalidNoteCollection(folder)
     ));
-    const hasInvalidTrashRecords = Array.isArray(data.trash) && data.trash.some(item => (
-        !isRecord(item)
-        || ((item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes))
+    const hasInvalidTrashRecords = Array.isArray(data.trash) && data.trash.some(item => {
+        if (!isRecord(item)) return true;
+        const itemKind = getTrashItemKind(item);
+        if (itemKind === 'ambiguous') return true;
+        return itemKind === CONSTANTS.ITEM_TYPE.FOLDER
             ? hasLossyTextField(item, 'name') || hasInvalidNoteCollection(item)
-            : hasInvalidNoteRecord(item))
-    ));
+            : hasInvalidNoteRecord(item);
+    });
     const hasUnrecoverableDataStructure = (
         !Array.isArray(data.folders)
         || hasInvalidOptionalArray('trash')
@@ -510,8 +536,10 @@ export const verifyAndSanitizeLoadedData = (data) => {
                 markChanged();
                 return null;
             }
-            const isFolderLike = item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes);
-            return isFolderLike ? normalizeFolder(item, true) : normalizeNote(item, true);
+            const itemKind = getTrashItemKind(item);
+            return itemKind === CONSTANTS.ITEM_TYPE.FOLDER
+                ? normalizeFolder(item, true)
+                : normalizeNote(item, true);
         })
         .filter(Boolean);
 
@@ -1356,6 +1384,9 @@ const sanitizeContentData = data => {
 
     const sanitizeNote = (rawNote, isTrash = false) => {
         assertRecord(rawNote, '노트');
+        if (hasFolderDataShape(rawNote)) {
+            throw new Error('노트 항목에 폴더 필드가 포함되어 있어 무손실로 가져올 수 없습니다.');
+        }
         assertSafeTextField(rawNote, 'title', '노트 제목');
         assertSafeTextField(rawNote, 'content', '노트 본문');
         const noteId = getUniqueId(CONSTANTS.ID_PREFIX.NOTE, rawNote.id, noteIdMap);
@@ -1385,6 +1416,9 @@ const sanitizeContentData = data => {
 
     const sanitizeFolder = (rawFolder, isTrash = false) => {
         assertRecord(rawFolder, '폴더');
+        if (hasNoteDataShape(rawFolder)) {
+            throw new Error('폴더 항목에 노트 필드가 포함되어 있어 무손실로 가져올 수 없습니다.');
+        }
         assertSafeTextField(rawFolder, 'name', '폴더 이름');
         if (Object.prototype.hasOwnProperty.call(rawFolder, 'notes') && !Array.isArray(rawFolder.notes)) {
             throw new Error(`${isTrash ? '휴지통 폴더' : '폴더'}의 노트 목록이 배열 형식이 아닙니다.`);
@@ -1426,10 +1460,12 @@ const sanitizeContentData = data => {
             // 손상된 휴지통 항목을 건너뛰고 성공 처리하면 사용자가 백업에
             // 포함됐다고 믿은 노트/폴더가 복원 과정에서 영구 누락됩니다.
             assertRecord(item, '휴지통 항목');
-            // 구버전 백업은 type 필드 없이 notes 배열 유무로 폴더/노트를 구분했습니다.
-            const effectiveType = item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes)
-                ? CONSTANTS.ITEM_TYPE.FOLDER
-                : CONSTANTS.ITEM_TYPE.NOTE;
+            // 구버전 백업은 type 필드가 없을 수 있고, 손상된 type 하나만 믿으면
+            // 노트 본문을 빈 폴더로 바꿀 수 있습니다. 실제 필드 형태를 우선합니다.
+            const effectiveType = getTrashItemKind(item);
+            if (effectiveType === 'ambiguous') {
+                throw new Error('휴지통 항목에 폴더와 노트 필드가 함께 있어 무손실로 판별할 수 없습니다.');
+            }
 
             return effectiveType === CONSTANTS.ITEM_TYPE.FOLDER
                 ? sanitizeFolder(item, true)
