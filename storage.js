@@ -1852,6 +1852,11 @@ const normalizeHabitTrackerImportValue = value => {
     );
     const hasInvalidHabit = parsed.habits.some(habit => (
         !isPlainImportObject(habit)
+        // 습관명 객체/배열/null은 트래커 로더에서 문자열 "[object Object]" 또는
+        // 기본명으로 강제 변환됩니다. 손상된 선택 데이터를 정상 백업으로 받아들여
+        // 기존 습관 데이터를 덮어쓰기 전에 가져오기 경계에서 거부합니다.
+        || (Object.prototype.hasOwnProperty.call(habit, 'name')
+            && (habit.name === null || typeof habit.name === 'object'))
         || ('logs' in habit && hasInvalidLogs(habit.logs))
         || ('frequency' in habit && hasInvalidFrequency(habit.frequency))
     ));

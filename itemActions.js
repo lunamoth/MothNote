@@ -1315,8 +1315,17 @@ export const handleEmptyTrash = async () => {
             });
 
             if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+                const activeNotes = latestData.folders.flatMap(folder => (
+                    Array.isArray(folder.notes) ? folder.notes : []
+                ));
+                const rememberedNoteId = latestData.lastActiveNotePerFolder?.[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
+                const rememberedNoteExists = activeNotes.some(note => note.id === rememberedNoteId);
+                const fallbackNoteId = sortNotes(activeNotes, state.noteSortOrder)[0]?.id ?? null;
+
                 postUpdateState.activeFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
-                postUpdateState.activeNoteId = null;
+                // 휴지통 비우기 후 전체 노트로 이동하면서 유효한 선택까지 복원합니다.
+                // 기존 구현은 활성 노트가 있어도 null로 만들어 편집기를 비웠습니다.
+                postUpdateState.activeNoteId = rememberedNoteExists ? rememberedNoteId : fallbackNoteId;
             } 
             else if (state.activeNoteId && noteIdsInTrash.has(state.activeNoteId)) {
                 postUpdateState.activeNoteId = null;

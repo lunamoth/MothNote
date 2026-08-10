@@ -398,6 +398,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const hasValidCreatedAt = Number.isFinite(rawCreatedAt)
                         && rawCreatedAt > 0
                         && !Number.isNaN(new Date(rawCreatedAt).getTime());
+                    if (Object.prototype.hasOwnProperty.call(habit, 'name')
+                        && (habit.name === null || typeof habit.name === 'object')) {
+                        // 객체/배열/null 습관명을 문자열로 강제 변환해 원본을 조용히
+                        // 훼손하지 않고, 손상 데이터 보호 모드로 전환합니다.
+                        reportStructuralCorruption();
+                    }
                     const earliestLogTimestamp = Object.keys(normalizedLogs)
                         .sort()
                         .map(getValidLocalDateTimestamp)

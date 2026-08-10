@@ -1189,14 +1189,25 @@ class Dashboard {
             if (searchInput) searchInput.value = '';
 
             if (isSameDate) {
-                setState({ dateFilter: null, activeFolderId: 'all-notes-virtual-id', activeNoteId: null, searchTerm: '' });
+                // 날짜 필터를 해제할 때 일반 폴더 전환 경로를 사용해야 마지막 선택 노트가
+                // 복원되고 세션도 함께 저장됩니다. 직접 null로 초기화하면 노트가 있어도
+                // 편집기가 빈 상태로 남습니다.
+                await changeActiveFolder(CONSTANTS.VIRTUAL_FOLDERS.ALL.id, { force: true });
             } else {
                 this.internalState.currentDate = newFilterDate;
                 const notesOnDate = Array.from(state.noteMap.values())
                     .map(e => e.note)
                     .filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date);
                 const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
-                setState({ dateFilter: newFilterDate, activeNoteId: sortedNotes[0]?.id ?? null, activeFolderId: null, searchTerm: '' });
+                // 날짜 필터 자체는 dateFilter가 결정하되, 세션에는 유효한 기반 폴더를 남깁니다.
+                // activeFolderId가 null인 채 새로고침되면 전체 노트 화면에서 선택 노트를
+                // 복원하지 못하고 빈 편집기로 시작합니다.
+                setState({
+                    dateFilter: newFilterDate,
+                    activeNoteId: sortedNotes[0]?.id ?? null,
+                    activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+                    searchTerm: ''
+                });
                 this.renderCalendar();
             }
         };
