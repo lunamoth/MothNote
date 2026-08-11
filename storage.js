@@ -1978,9 +1978,34 @@ const normalizeIntegratedImportFields = importedData => {
 };
 
 
-const getImportableSimplenoteNotes = (notes) => {
-    if (!Array.isArray(notes)) return [];
-    return notes.filter(note => note && typeof note === 'object' && !Array.isArray(note));
+const validateSimplenoteNotesCollection = (notes, fieldName, { optional = false } = {}) => {
+    if (notes === undefined && optional) return [];
+    if (!Array.isArray(notes)) {
+        throw new Error(`Simplenote 백업의 ${fieldName} 항목은 배열이어야 합니다.`);
+    }
+
+    notes.forEach((note, index) => {
+        if (!note || typeof note !== 'object' || Array.isArray(note)) {
+            throw new Error(`Simplenote 백업의 ${fieldName}[${index}] 항목이 올바른 노트 객체가 아닙니다.`);
+        }
+
+        if (note.content !== undefined && note.content !== null && typeof note.content === 'object') {
+            throw new Error(`Simplenote 백업의 ${fieldName}[${index}].content 형식이 올바르지 않습니다.`);
+        }
+
+        if (note.tags !== undefined && note.tags !== null) {
+            if (!Array.isArray(note.tags)
+                || note.tags.some(tag => tag !== null && typeof tag === 'object')) {
+                throw new Error(`Simplenote 백업의 ${fieldName}[${index}].tags 형식이 올바르지 않습니다.`);
+            }
+        }
+
+        if (note.pinned !== undefined && note.pinned !== null && typeof note.pinned !== 'boolean') {
+            throw new Error(`Simplenote 백업의 ${fieldName}[${index}].pinned 형식이 올바르지 않습니다.`);
+        }
+    });
+
+    return notes;
 };
 
 const normalizeSimplenoteContent = (note) => String(note?.content ?? '');
@@ -2129,8 +2154,17 @@ export const setupImportHandler = () => {
 
                 // [기능 추가] Simplenote 백업 파일인지 확인
                 if (importedData && Array.isArray(importedData.activeNotes)) {
-                    const activeSimplenoteNotes = getImportableSimplenoteNotes(importedData.activeNotes);
-                    const trashedSimplenoteNotes = getImportableSimplenoteNotes(importedData.trashedNotes);
+                    // [MAJOR BUG FIX] 일부 손상 항목만 조용히 제외한 채 성공 처리하면 사용자가
+                    // 백업 전체가 복원됐다고 오인할 수 있으므로, 변환 전에 두 목록을 모두 검증합니다.
+                    const activeSimplenoteNotes = validateSimplenoteNotesCollection(
+                        importedData.activeNotes,
+                        'activeNotes'
+                    );
+                    const trashedSimplenoteNotes = validateSimplenoteNotesCollection(
+                        importedData.trashedNotes,
+                        'trashedNotes',
+                        { optional: true }
+                    );
 
                     if (activeSimplenoteNotes.length === 0 && trashedSimplenoteNotes.length === 0) {
                         showAlert({
