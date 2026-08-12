@@ -108,9 +108,20 @@ const getTrashItemKind = item => {
     if (hasFolderShape && hasNoteShape) return 'ambiguous';
     if (hasFolderShape) return CONSTANTS.ITEM_TYPE.FOLDER;
     if (hasNoteShape) return CONSTANTS.ITEM_TYPE.NOTE;
-    return item.type === CONSTANTS.ITEM_TYPE.FOLDER
-        ? CONSTANTS.ITEM_TYPE.FOLDER
-        : CONSTANTS.ITEM_TYPE.NOTE;
+    if (item.type === CONSTANTS.ITEM_TYPE.FOLDER) return CONSTANTS.ITEM_TYPE.FOLDER;
+    if (item.type === CONSTANTS.ITEM_TYPE.NOTE) return CONSTANTS.ITEM_TYPE.NOTE;
+
+    // [CRITICAL BUG FIX] 유형과 데이터 형태를 모두 알 수 없는 레코드를 노트로
+    // 간주하면 빈 노트로 저장되면서 원래의 알 수 없는 필드가 영구 소실됩니다.
+    return null;
+};
+
+// Number.isFinite만으로는 Date가 표현할 수 없는 1e300 같은 값도 통과합니다.
+// 날짜 표시·정렬·달력 필터가 Invalid Date/NaN으로 오염되지 않도록 실제 Date 범위까지 확인합니다.
+const toValidTimestamp = value => {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+    return Number.isNaN(new Date(timestamp).getTime()) ? null : timestamp;
 };
 
 const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
@@ -279,11 +290,10 @@ const parseSimplenoteTimestamp = (value, fallback) => {
     // 그렇지 않으면 초 단위 값이 밀리초로 해석되어 1970년 날짜가 됩니다.
     const numeric = Number(value);
     if (Number.isFinite(numeric) && numeric > 0) {
-        return numeric < 100000000000 ? numeric * 1000 : numeric;
+        return toValidTimestamp(numeric < 100000000000 ? numeric * 1000 : numeric) ?? fallback;
     }
     const parsed = new Date(value).getTime();
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-    return fallback;
+    return toValidTimestamp(parsed) ?? fallback;
 };
 
 const createUnrecoverableAppStateError = message => {
@@ -357,7 +367,7 @@ export const verifyAndSanitizeLoadedData = (data) => {
     const hasInvalidTrashRecords = Array.isArray(data.trash) && data.trash.some(item => {
         if (!isRecord(item)) return true;
         const itemKind = getTrashItemKind(item);
-        if (itemKind === 'ambiguous') return true;
+        if (!itemKind || itemKind === 'ambiguous') return true;
         return itemKind === CONSTANTS.ITEM_TYPE.FOLDER
             ? hasLossyTextField(item, 'name') || hasInvalidNoteCollection(item)
             : hasInvalidNoteRecord(item);
@@ -416,8 +426,8 @@ export const verifyAndSanitizeLoadedData = (data) => {
         return text;
     };
     const normalizeTimestamp = (value, fallback = now, shouldNotify = true) => {
-        const timestamp = Number(value);
-        if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
+        const timestamp = toValidTimestamp(value);
+        if (timestamp !== null) return timestamp;
         markChanged(shouldNotify);
         return fallback;
     };
@@ -1350,8 +1360,7 @@ const sanitizeContentData = data => {
     const now = Date.now();
 
     const normalizeTimestamp = (value, fallback = now) => {
-        const timestamp = Number(value);
-        return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : fallback;
+        return toValidTimestamp(value) ?? fallback;
     };
 
     const getUniqueId = (prefix, id, referenceMap) => {
@@ -1465,6 +1474,9 @@ const sanitizeContentData = data => {
             const effectiveType = getTrashItemKind(item);
             if (effectiveType === 'ambiguous') {
                 throw new Error('휴지통 항목에 폴더와 노트 필드가 함께 있어 무손실로 판별할 수 없습니다.');
+            }
+            if (!effectiveType) {
+                throw new Error('휴지통 항목의 유형을 판별할 수 없어 원본 보호를 위해 가져오기를 중단했습니다.');
             }
 
             return effectiveType === CONSTANTS.ITEM_TYPE.FOLDER
@@ -2153,7 +2165,15 @@ export const setupImportHandler = () => {
                 sanitizeObjectForPrototypePollution(importedData);
 
                 // [기능 추가] Simplenote 백업 파일인지 확인
-                if (importedData && Array.isArray(importedData.activeNotes)) {
+                // [MAJOR BUG FIX] MothNote 백업에 activeNotes 확장 필드가 있어도 Simplenote로
+                // 오인해 폴더 구조를 무시하고 병합하지 않도록 자사 백업 표식을 우선합니다.
+                const isMothNoteBackup = isPlainImportObject(importedData)
+                    && (Object.prototype.hasOwnProperty.call(importedData, 'mothNoteVersion')
+                        || Array.isArray(importedData.folders));
+                const isSimplenoteBackup = isPlainImportObject(importedData)
+                    && !isMothNoteBackup
+                    && Array.isArray(importedData.activeNotes);
+                if (isSimplenoteBackup) {
                     // [MAJOR BUG FIX] 일부 손상 항목만 조용히 제외한 채 성공 처리하면 사용자가
                     // 백업 전체가 복원됐다고 오인할 수 있으므로, 변환 전에 두 목록을 모두 검증합니다.
                     const activeSimplenoteNotes = validateSimplenoteNotesCollection(
