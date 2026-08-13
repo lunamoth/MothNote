@@ -1989,6 +1989,76 @@ const normalizeIntegratedImportFields = importedData => {
     return { normalized, skippedFields };
 };
 
+const INTEGRATED_IMPORT_TARGETS = Object.freeze([
+    {
+        propertyName: 'habitTrackerData',
+        label: '습관 트래커',
+        storageKey: HABIT_TRACKER_DATA_KEY,
+        isEmpty: value => {
+            if (value === null) return true;
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed?.habits) && parsed.habits.length === 0;
+        },
+        hasMeaningfulCurrentData: value => {
+            const parsed = JSON.parse(value);
+            return Boolean(
+                Array.isArray(parsed?.habits) && parsed.habits.length > 0
+                || (parsed?.achievements && typeof parsed.achievements === 'object'
+                    && Object.keys(parsed.achievements).length > 0)
+                || (parsed?.visitedViews && typeof parsed.visitedViews === 'object'
+                    && Object.keys(parsed.visitedViews).length > 0)
+            );
+        }
+    },
+    {
+        propertyName: 'dietChallengeData',
+        label: '다이어트 기록',
+        storageKey: DIET_CHALLENGE_DATA_KEY,
+        isEmpty: value => value === null || JSON.parse(value).length === 0,
+        hasMeaningfulCurrentData: value => {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) && parsed.length > 0;
+        }
+    },
+    {
+        propertyName: 'dietChallengeSettings',
+        label: '다이어트 설정',
+        storageKey: DIET_CHALLENGE_SETTINGS_KEY,
+        isEmpty: value => value === null,
+        hasMeaningfulCurrentData: value => {
+            const parsed = JSON.parse(value);
+            return isPlainImportObject(parsed) && Object.keys(parsed).length > 0;
+        }
+    }
+]);
+
+const getIntegratedImportImpact = normalizedIntegratedFields => {
+    const targetLabels = [];
+    const clearedCurrentDataLabels = [];
+
+    INTEGRATED_IMPORT_TARGETS.forEach(target => {
+        if (!Object.prototype.hasOwnProperty.call(normalizedIntegratedFields, target.propertyName)) return;
+        targetLabels.push(target.label);
+
+        const importedValue = normalizedIntegratedFields[target.propertyName];
+        if (!target.isEmpty(importedValue)) return;
+
+        const currentValue = localStorage.getItem(target.storageKey);
+        if (currentValue === null) return;
+
+        // 현재 값이 손상돼 파싱할 수 없는 경우에도 유일한 복구 원본일 수 있으므로,
+        // 빈 백업으로 덮어쓰기 전에 반드시 삭제 경고를 표시합니다.
+        try {
+            if (!target.hasMeaningfulCurrentData(currentValue)) return;
+        } catch (error) {
+            console.warn(`${target.label}의 현재 저장값을 확인하지 못해 삭제 대상으로 보수적으로 처리합니다.`, error);
+        }
+        clearedCurrentDataLabels.push(target.label);
+    });
+
+    return { targetLabels, clearedCurrentDataLabels };
+};
+
 
 const validateSimplenoteNotesCollection = (notes, fieldName, { optional = false } = {}) => {
     if (notes === undefined && optional) return [];
@@ -2319,17 +2389,12 @@ export const setupImportHandler = () => {
                     skippedFields: skippedIntegratedFields
                 } = normalizeIntegratedImportFields(importedData);
                 const sanitizedContent = sanitizeContentData(importedData);
+                const {
+                    targetLabels: integratedImportTargetLabels,
+                    clearedCurrentDataLabels
+                } = getIntegratedImportImpact(normalizedIntegratedFields);
                 
                 const hasOwnImportedField = (propertyName) => Object.prototype.hasOwnProperty.call(importedData, propertyName);
-                const getCurrentSettingsOrDefault = () => {
-                    try {
-                        const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-                        if (storedSettings) return sanitizeSettings(JSON.parse(storedSettings));
-                    } catch (settingsError) {
-                        console.warn('현재 설정을 읽지 못해 기본 설정을 사용합니다.', settingsError);
-                    }
-                    return JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
-                };
                 const hasSettingsField = hasOwnImportedField('settings');
                 const hasSettingsInFile = hasSettingsField
                     && importedData.settings
@@ -2337,7 +2402,7 @@ export const setupImportHandler = () => {
                     && !Array.isArray(importedData.settings);
                 const sanitizedSettings = hasSettingsInFile
                     ? sanitizeSettings(importedData.settings)
-                    : getCurrentSettingsOrDefault();
+                    : null;
                 const skippedImportFields = [...skippedIntegratedFields];
                 if (hasSettingsField && !hasSettingsInFile) {
                     // [MAJOR BUG FIX] 손상된 settings 필드가 있다는 이유만으로 사용자의 현재
@@ -2350,15 +2415,38 @@ export const setupImportHandler = () => {
                 const skippedImportFieldsWarning = skippedImportFields.length > 0
                     ? `<br><br><strong>⚠️ 손상된 부가 데이터는 건너뜁니다.</strong><br>${skippedImportFields.map(escapeHtml).join(', ')} 항목은 복원하지 않고 현재 데이터를 유지합니다.`
                     : '';
-                const overwriteTarget = hasSettingsInFile ? '모든 노트와 설정' : '모든 노트';
+                const overwriteTargetLabels = [
+                    '모든 노트',
+                    ...(hasSettingsInFile ? ['설정'] : []),
+                    ...integratedImportTargetLabels
+                ];
+                const overwriteTarget = overwriteTargetLabels.map(escapeHtml).join(', ');
+                const clearedCurrentDataWarning = clearedCurrentDataLabels.length > 0
+                    ? `<br><br><strong>🚨 현재 데이터가 비워지는 항목:</strong><br>${clearedCurrentDataLabels.map(escapeHtml).join(', ')}`
+                    : '';
 
                 const firstConfirm = await showConfirm({
                     title: CONSTANTS.MODAL_TITLES.IMPORT_DATA,
-                    message: `가져오기를 실행하면 현재 데이터 중 <strong>${overwriteTarget}</strong> 항목을 파일 내용으로 교체합니다.${skippedImportFieldsWarning}<br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`,
+                    message: `가져오기를 실행하면 현재 데이터 중 <strong>${overwriteTarget}</strong> 항목을 파일 내용으로 교체합니다.${clearedCurrentDataWarning}${skippedImportFieldsWarning}<br><br>이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`,
                     isHtml: true, confirmText: '📥 가져와서 덮어쓰기', confirmButtonType: 'danger'
                 });
 
                 if (!firstConfirm) { e.target.value = ''; return; }
+
+                if (clearedCurrentDataLabels.length > 0) {
+                    const clearIntegratedDataConfirm = await showConfirm({
+                        title: '🚨 부가 데이터 삭제 경고',
+                        message: `선택한 백업의 해당 항목이 비어 있어 현재의 <strong>${clearedCurrentDataLabels.map(escapeHtml).join(', ')}</strong> 데이터가 영구적으로 삭제됩니다.<br><br>정말로 이 데이터를 비우시겠습니까?`,
+                        isHtml: true,
+                        confirmText: '💥 예, 해당 데이터를 삭제합니다',
+                        confirmButtonType: 'danger'
+                    });
+                    if (!clearIntegratedDataConfirm) {
+                        showToast('데이터 가져오기 작업이 취소되었습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+                        e.target.value = '';
+                        return;
+                    }
+                }
 
                 if (sanitizedContent.folders.length === 0 && sanitizedContent.trash.length === 0) {
                     const finalConfirm = await showConfirm({
@@ -2422,7 +2510,12 @@ export const setupImportHandler = () => {
 
                     try {
                         await storageSet({ appState: importPayload });
-                        localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                        // 설정 필드가 없거나 손상돼 건너뛴 백업은 현재 설정을 바이트 단위로 보존합니다.
+                        // 정제본/기본값을 다시 쓰면 "현재 설정 유지" 안내와 달리 알 수 없는 필드나
+                        // 복구 가능한 원본을 조용히 잃을 수 있습니다.
+                        if (hasSettingsInFile) {
+                            localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
+                        }
 
                         restoreImportedLocalStorageValueIfPresent(HABIT_TRACKER_DATA_KEY, 'habitTrackerData');
                         restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_DATA_KEY, 'dietChallengeData');

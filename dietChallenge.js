@@ -651,6 +651,43 @@
         };
     };
 
+    const normalizeImportedDietSettings = (settings, currentSettings) => {
+        if (!isPlainObject(settings)) {
+            return { ok: false, settings: null, error: 'settings 항목은 객체 형식이어야 합니다.' };
+        }
+
+        const current = sanitizeDietSettings(currentSettings);
+        const rules = {
+            height: { min: Number.EPSILON, max: 300, label: '키' },
+            startWeight: { min: Number.EPSILON, max: 500, label: '시작 체중' },
+            goal1: { min: Number.EPSILON, max: 500, label: '목표 체중' },
+            intake: { min: 1, max: 10000, label: '하루 섭취 칼로리', integer: true }
+        };
+        const candidate = { ...current };
+
+        for (const [key, rule] of Object.entries(rules)) {
+            if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;
+
+            const rawValue = settings[key];
+            const numberValue = Number(rawValue);
+            if (rawValue === null
+                || (typeof rawValue === 'string' && rawValue.trim() === '')
+                || !Number.isFinite(numberValue)
+                || numberValue < rule.min
+                || numberValue > rule.max) {
+                return {
+                    ok: false,
+                    settings: null,
+                    error: `settings의 ${rule.label} 값이 올바르지 않습니다.`
+                };
+            }
+
+            candidate[key] = rule.integer ? Math.round(numberValue) : MathUtil.round(numberValue);
+        }
+
+        return { ok: true, settings: candidate, error: '' };
+    };
+
     const syncDietSettingsInputs = (settings) => {
         const fields = [
             ['userHeight', 'height'],
@@ -1377,9 +1414,10 @@
                 if (!importResult.ok) throw new Error(importResult.error);
 
                 const hasSettings = Object.prototype.hasOwnProperty.call(data, 'settings');
-                if (hasSettings && !isPlainObject(data.settings)) {
-                    throw new Error('settings 항목은 객체 형식이어야 합니다.');
-                }
+                const settingsImportResult = hasSettings
+                    ? normalizeImportedDietSettings(data.settings, AppState.settings)
+                    : { ok: true, settings: AppState.settings, error: '' };
+                if (!settingsImportResult.ok) throw new Error(settingsImportResult.error);
 
                 if (data.records.length === 0 && AppState.records.length > 0) {
                     const shouldReplaceWithEmpty = confirm(`가져올 백업에 체중 기록이 없습니다. 계속하면 현재 기록 ${AppState.records.length}건이 모두 삭제됩니다. 빈 백업으로 복원하시겠습니까?`);
@@ -1390,7 +1428,7 @@
                 }
 
                 const nextRecords = importResult.records;
-                const nextSettings = hasSettings ? sanitizeDietSettings(data.settings) : AppState.settings;
+                const nextSettings = settingsImportResult.settings;
                 if (!persistDietStateSnapshot(nextRecords, nextSettings, { allowCorruptDataReplacement: true })) return;
 
                 AppState.records = nextRecords;
