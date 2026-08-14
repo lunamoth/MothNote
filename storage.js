@@ -2175,6 +2175,7 @@ const restoreImportBackupPayload = async (backupPayload) => {
     }
 
     const localStorageBackupFields = [
+        ['session', CONSTANTS.LS_KEY],
         ['settings', CONSTANTS.LS_KEY_SETTINGS],
         ['habitTrackerData', HABIT_TRACKER_DATA_KEY],
         ['dietChallengeData', DIET_CHALLENGE_DATA_KEY],
@@ -2228,6 +2229,31 @@ export const setupImportHandler = () => {
             let importRollbackCompleted = false;
             let importRollbackFailed = false;
             let importCommitted = false;
+            let importReloadScheduled = false;
+
+            const scheduleImportReload = () => {
+                const reloadTimer = setTimeout(() => {
+                    try {
+                        window.location.reload();
+                    } catch (reloadError) {
+                        console.error('Import completed, but the automatic reload failed.', reloadError);
+                        window.isImportReloadPending = false;
+                        window.isImporting = false;
+                        if (overlay?.parentElement) overlay.remove();
+                        void showAlert({
+                            title: '📥 가져오기 완료',
+                            message: '데이터 적용은 완료되었지만 화면을 자동으로 다시 시작하지 못했습니다. 새 탭을 다시 열어주세요.',
+                            confirmText: '✅ 확인'
+                        });
+                    }
+                }, 500);
+
+                // setTimeout 등록이 성공한 뒤에만 finally에서 화면 잠금을 유지합니다.
+                if (reloadTimer !== undefined) {
+                    importReloadScheduled = true;
+                    window.isImportReloadPending = true;
+                }
+            };
 
             try {
                 const importedData = JSON.parse(event.target.result);
@@ -2276,10 +2302,13 @@ export const setupImportHandler = () => {
                     if (!(await flushPendingChangesForDataOperation('Simplenote 가져오기'))) return;
 
                     window.isImporting = true;
+                    window.isImportReloadPending = false;
                     overlay = document.createElement('div');
                     overlay.className = 'import-overlay';
+                    overlay.tabIndex = -1;
                     overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">Simplenote 데이터를 변환하는 중...</p></div>`;
                     document.body.appendChild(overlay);
+                    overlay.focus({ preventScroll: true });
 
                     const { performTransactionalUpdate } = await import('./itemActions.js');
                     const { success } = await performTransactionalUpdate((latestData) => {
@@ -2372,7 +2401,7 @@ export const setupImportHandler = () => {
 
                     if (success) {
                         showToast("✅ Simplenote 데이터를 성공적으로 가져왔습니다! 앱을 다시 시작합니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
-                        setTimeout(() => window.location.reload(), 500);
+                        scheduleImportReload();
                     } else {
                         showAlert({ title: '오류', message: 'Simplenote 데이터를 가져오는 중 오류가 발생했습니다.' });
                     }
@@ -2476,6 +2505,7 @@ export const setupImportHandler = () => {
                     const backupPayload = {
                         hadAppState: hasCurrentAppState,
                         appState: hasCurrentAppState ? currentDataResult.appState : null,
+                        session: localStorage.getItem(CONSTANTS.LS_KEY),
                         settings: localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS),
                         habitTrackerData: localStorage.getItem(HABIT_TRACKER_DATA_KEY),
                         dietChallengeData: localStorage.getItem(DIET_CHALLENGE_DATA_KEY),
@@ -2497,11 +2527,14 @@ export const setupImportHandler = () => {
 
                     localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
                     window.isImporting = true;
+                    window.isImportReloadPending = false;
 
                     overlay = document.createElement('div');
                     overlay.className = 'import-overlay';
+                    overlay.tabIndex = -1;
                     overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
                     document.body.appendChild(overlay);
+                    overlay.focus({ preventScroll: true });
 
                     const restoreImportedLocalStorageValueIfPresent = (key, propertyName) => {
                         if (!Object.prototype.hasOwnProperty.call(normalizedIntegratedFields, propertyName)) return;
@@ -2521,6 +2554,10 @@ export const setupImportHandler = () => {
                         restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_DATA_KEY, 'dietChallengeData');
                         restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_SETTINGS_KEY, 'dietChallengeSettings');
 
+                        // 교체 가져오기 뒤에는 이전 화면의 세션을 재사용하지 않습니다. 남겨 두면
+                        // 다음 로드에서 가져온 lastActiveNotePerFolder보다 기존 세션이 우선되어
+                        // 복원 직후의 선택 상태가 가져오기 전 값으로 되돌아갈 수 있습니다.
+                        localStorage.removeItem(CONSTANTS.LS_KEY);
                         localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'done');
                         return true;
                     } catch (applyError) {
@@ -2542,7 +2579,7 @@ export const setupImportHandler = () => {
                 importCommitted = true;
 
                 showToast(CONSTANTS.MESSAGES.SUCCESS.IMPORT_RELOAD, CONSTANTS.TOAST_TYPE.SUCCESS);
-                setTimeout(() => window.location.reload(), 500);
+                scheduleImportReload();
 
             } catch (err) {
                 console.error('Import failed critically:', err);
@@ -2599,8 +2636,14 @@ export const setupImportHandler = () => {
                     });
                 }
             } finally {
-                window.isImporting = false;
-                if (overlay?.parentElement) overlay.remove();
+                if (importReloadScheduled) {
+                    const importMessage = overlay?.querySelector('.import-message');
+                    if (importMessage) importMessage.textContent = '데이터 적용을 완료했습니다. 앱을 다시 시작하는 중입니다...';
+                } else {
+                    window.isImportReloadPending = false;
+                    window.isImporting = false;
+                    if (overlay?.parentElement) overlay.remove();
+                }
                 e.target.value = '';
             }
         };

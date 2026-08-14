@@ -1230,6 +1230,10 @@ class Dashboard {
 
 window.isInitializing = true;
 window.isImporting = false;
+// 가져오기 적용이 끝난 뒤 예약된 재시작은 진행 중 가져오기와 구분합니다.
+// 완료된 가져오기의 자동 reload에는 이탈 경고를 띄우지 않되, 실제 화면 전환 전까지
+// 이전 편집 화면의 키보드 입력과 저장 경로는 계속 차단합니다.
+window.isImportReloadPending = false;
 
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
@@ -1592,6 +1596,11 @@ const _navigateList = async (type, direction) => {
 };
 const handleListKeyDown = async (e, type) => { if (state.renamingItemId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); return; } if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1); } else if (e.key === 'Enter') { e.preventDefault(); if (type === CONSTANTS.ITEM_TYPE.FOLDER) { const firstNote = noteList?.querySelector('.item-list-entry'); if (firstNote) firstNote.focus(); else searchInput?.focus(); } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) { noteTitleInput?.focus(); } } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) { if (state.activeNoteId && noteContentTextarea) { e.preventDefault(); noteContentTextarea.focus(); } } };
 const handleGlobalKeyDown = async (e) => {
+    if (window.isImporting) {
+        e.preventDefault();
+        return;
+    }
+
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
 
@@ -1834,12 +1843,19 @@ const initializeDragAndDrop = () => { setupDragAndDrop(folderList, CONSTANTS.ITE
 
 const setupGlobalEventListeners = () => {
     window.addEventListener('unload', () => {
+        // 교체 가져오기가 성공해 기존 세션을 비운 뒤 자동 재시작하는 동안에는
+        // 메모리에 남은 가져오기 전 선택 상태를 다시 세션에 기록하지 않습니다.
+        if (window.isImporting) return;
         saveSession();
     });
     
     // [BUG FIX] visibilitychange 이벤트 핸들러를 async로 만들고 내부 함수들을 await 합니다.
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'hidden') {
+            // 가져오기 중에는 flush 단계에서 기존 편집 내용을 이미 저장했습니다.
+            // 적용 완료 후 재시작 전의 이전 메모리 상태로 다시 저장하지 않습니다.
+            if (window.isImporting) return;
+
             // [MAJOR BUG FIX] 다른 데이터 조작 경로와 같은 순서로 인라인 이름 변경을 먼저 확정합니다.
             // 편집 저장으로 목록이 다시 렌더링된 뒤 이름 변경 DOM이 사라지는 경합을 피합니다.
             await finishPendingRename();
@@ -1924,7 +1940,7 @@ const setupGlobalEventListeners = () => {
             return message;
         }
     
-        if (window.isImporting) {
+        if (window.isImporting && !window.isImportReloadPending) {
             const message = '데이터 가져오기 작업이 진행 중입니다. 이 페이지를 나가면 작업이 취소될 수 있습니다.';
             e.preventDefault();
             e.returnValue = message;
