@@ -21,6 +21,31 @@ let renderEditorRevision = 0;
 // 활성 노트가 바뀌면 포커스 여부와 관계없이 새 노트의 값으로 교체해야 합니다.
 let editorBoundNoteId = null;
 const HIGHLIGHT_TERM_MAX_LENGTH = 50; // [버그 수정] 하이라이트를 적용할 최대 검색어 길이 상수 추가
+const NOTE_SNIPPET_MAX_LENGTH = 180;
+
+// [메이저 버그 수정] 긴 단일 행이나 대용량 본문 전체가 목록 DOM에 복사되지 않도록
+// 첫 번째 비어 있지 않은 행만 탐색하고, 미리보기 길이를 제한합니다.
+const getFirstNonEmptyLineSnippet = content => {
+    const text = String(content ?? '');
+    let start = 0;
+
+    while (start <= text.length) {
+        const newlineIndex = text.indexOf('\n', start);
+        const end = newlineIndex === -1 ? text.length : newlineIndex;
+        const line = text.slice(start, end).trim();
+
+        if (line) {
+            return line.length > NOTE_SNIPPET_MAX_LENGTH
+                ? `${line.slice(0, NOTE_SNIPPET_MAX_LENGTH).trimEnd()}…`
+                : line;
+        }
+
+        if (newlineIndex === -1) break;
+        start = newlineIndex + 1;
+    }
+
+    return '';
+};
 
 // [수정] marked 모듈을 안전하게 로드하는 비동기 함수를 추가합니다.
 async function getMarkedParser() {
@@ -199,8 +224,7 @@ const _updateNoteListItemElement = (li, item, isBeingRenamed) => {
         snippetText = (start > 0 ? '...' : '') + content.substring(start, end) + (end < content.length ? '...' : '');
         showSnippet = true;
     } else if (content) {
-        // [버그 수정] 내용이 있는 첫 줄을 찾습니다. (앞뒤 공백 무시)
-        const firstNonEmptyLine = content.split('\n').find(line => line.trim() !== '');
+        const firstNonEmptyLine = getFirstNonEmptyLineSnippet(content);
 
         if (firstNonEmptyLine) {
             snippetText = firstNonEmptyLine;
@@ -423,7 +447,13 @@ const getActiveViewData = () => {
     const { item: activeFolderData } = findFolder(state.activeFolderId);
     if (!activeFolderData) return { name: '📝 노트', notes: [], isSortable: false, canAddNote: false, needsFolderSelection: true };
     if (activeFolderData.isVirtual) {
-        return { name: activeFolderData.displayName, notes: activeFolderData.getNotes(state), isSortable: activeFolderData.isSortable !== false, canAddNote: !!activeFolderData.canAddNote, isTrashView: activeFolderData.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id };
+        // [메이저 버그 수정] findFolder()가 계산하고 무효화까지 관리하는 캐시를 재사용합니다.
+        // getNotes()를 다시 호출하면 가상 폴더를 렌더링할 때마다 전체 노트 순회/정렬이 반복되고,
+        // 매번 새 배열이 생성되어 아래 정렬 캐시도 무력화됩니다.
+        const virtualNotes = Array.isArray(activeFolderData.notes)
+            ? activeFolderData.notes
+            : activeFolderData.getNotes(state);
+        return { name: activeFolderData.displayName, notes: virtualNotes, isSortable: activeFolderData.isSortable !== false, canAddNote: !!activeFolderData.canAddNote, isTrashView: activeFolderData.id === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id };
     }
     return { name: `📁 ${activeFolderData.name}`, notes: activeFolderData.notes, isSortable: true, canAddNote: true, isTrashView: false };
 };
