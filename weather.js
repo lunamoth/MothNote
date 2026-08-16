@@ -131,7 +131,11 @@
                 && age < CONFIG.REFRESH_INTERVAL_MINUTES * 60 * 1000
                 && payloadValidator(parsed?.data);
 
-            if (isValid) return parsed;
+            if (isValid) {
+                // 검증에는 숫자로 정규화한 값을 사용하면서 원본 문자열을 그대로 반환하면
+                // Date 생성 시 Invalid Date가 되거나 좌표/시각의 타입이 호출 경로마다 달라집니다.
+                return { ...parsed, timestamp, lat: cachedLat, lon: cachedLon };
+            }
         } catch (error) {
             console.warn(`날씨 캐시(${key})를 읽지 못해 새로 갱신합니다.`, error);
         }
@@ -140,6 +144,15 @@
         // 유효한 1시간 캐시로 간주하지 않고 제거한 뒤 네트워크에서 다시 가져옵니다.
         removeWeatherCacheEntry(key);
         return null;
+    };
+
+    // 날씨와 대기질은 서로 다른 시각의 캐시/응답이 한 화면에 함께 쓰일 수 있습니다.
+    // 화면의 "마지막 업데이트"는 가장 오래된 실제 원본보다 새롭게 표시되어서는 안 됩니다.
+    const getOldestWeatherSourceTimestamp = (...timestamps) => {
+        const validTimestamps = timestamps
+            .map(toFiniteNumber)
+            .filter(timestamp => timestamp !== null && timestamp > 0);
+        return validTimestamps.length > 0 ? Math.min(...validTimestamps) : Date.now();
     };
 
 
@@ -2051,7 +2064,11 @@
         if (cachedWeather && cachedAqi) {
             try {
                 if (!isLatestRequest()) return;
-                processAndDisplayAllData(cachedWeather.data, cachedAqi.data, cachedWeather.timestamp);
+                processAndDisplayAllData(
+                    cachedWeather.data,
+                    cachedAqi.data,
+                    getOldestWeatherSourceTimestamp(cachedWeather.timestamp, cachedAqi.timestamp)
+                );
                 renderSkeleton(false);
                 return;
             } catch (error) {
@@ -2073,7 +2090,15 @@
             const aqiData = aqiResult.status === 'fulfilled' ? aqiResult.value.data : null;
             const fetchTimestamp = Date.now();
             if (!weatherData) { const errorInfo = weatherResult.reason; const errorMessage = errorInfo?.originalError?.message || '날씨 정보 로드 실패'; renderError(errorMessage, errorInfo?.failedUrl); return; }
-            processAndDisplayAllData(weatherData, aqiData, fetchTimestamp);
+            const weatherSourceTimestamp = cachedWeather?.timestamp ?? fetchTimestamp;
+            const aqiSourceTimestamp = aqiData
+                ? (cachedAqi?.timestamp ?? fetchTimestamp)
+                : null;
+            processAndDisplayAllData(
+                weatherData,
+                aqiData,
+                getOldestWeatherSourceTimestamp(weatherSourceTimestamp, aqiSourceTimestamp)
+            );
             if (weatherResult.status === 'fulfilled' && !cachedWeather) { try { localStorage.setItem(CONFIG.WEATHER_DETAIL_CACHE_KEY, JSON.stringify({ timestamp: fetchTimestamp, lat: LAT, lon: LON, data: weatherData })); } catch(e) { console.warn("날씨 캐시 저장 실패", e); } }
             if (aqiResult.status === 'fulfilled' && !cachedAqi) { try { localStorage.setItem(CONFIG.AIR_QUALITY_CACHE_KEY, JSON.stringify({ timestamp: fetchTimestamp, lat: LAT, lon: LON, data: aqiData })); } catch(e) { console.warn("대기질 캐시 저장 실패", e); } }
         } catch (error) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MothNote",
-  "version": "25.15",
+  "version": "25.16",
   "description": "폴더 기반 노트 시스템과 시계·날씨·달력 위젯, 습관·다이어트 트래커를 통합하여 크롬 새 탭을 강력한 올인원 생산성 대시보드로 전환하는 확장 프로그램",
   "homepage_url": "http://lunamoth.com/entry/MothNote",
   "permissions": [

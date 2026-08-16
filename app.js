@@ -1929,8 +1929,10 @@ const setupGlobalEventListeners = () => {
                 if (hasChanges) {
                     localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP, JSON.stringify(changesToBackup));
                 } else {
-                    // 유효한 변경사항이 없으면 기존 백업을 제거하여 혼동 방지
-                    localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                    // dirtyNoteId와 현재 편집기가 일치하지 않는 경합 상태에서는 DOM 값으로
+                    // 안전한 새 백업을 만들 수 없습니다. 입력 이벤트가 앞서 기록한 유일한
+                    // 복구 사본까지 지우지 않고 그대로 보존합니다.
+                    console.warn('No safe unload snapshot could be captured; the existing emergency draft was preserved.');
                 }
             } catch (err) {
                 console.error("Emergency changes backup failed:", err);

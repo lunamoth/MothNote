@@ -189,6 +189,52 @@ export const setCalendarRenderer = (renderer) => {
 
 const EMERGENCY_BACKUP_CONTENT_KEYS = ['noteUpdate', 'itemRename'];
 
+// beforeunload는 탭 충돌, 브라우저 강제 종료, 프로세스 종료에서 실행이 보장되지 않습니다.
+// 편집 이벤트가 발생한 시점에 최소 변경분을 동기적으로 기록해 자동 저장 전의 짧은
+// 구간에도 실제 복구 사본이 존재하도록 합니다. 두 편집 유형은 서로 덮어쓰지 않게 병합합니다.
+export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
+    if (typeof localStorage === 'undefined'
+        || !EMERGENCY_BACKUP_CONTENT_KEYS.includes(entryKey)
+        || !entryValue
+        || typeof entryValue !== 'object'
+        || Array.isArray(entryValue)) {
+        return false;
+    }
+
+    const backupKey = CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP;
+    const backup = {};
+
+    try {
+        const rawBackup = localStorage.getItem(backupKey);
+        if (rawBackup) {
+            try {
+                const parsed = JSON.parse(rawBackup);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    EMERGENCY_BACKUP_CONTENT_KEYS.forEach(key => {
+                        const existingEntry = parsed[key];
+                        if (existingEntry && typeof existingEntry === 'object' && !Array.isArray(existingEntry)) {
+                            backup[key] = existingEntry;
+                        }
+                    });
+                }
+            } catch (error) {
+                // 읽을 수 없는 과거 백업은 다음 시작에서도 복원할 수 없습니다. 현재의
+                // 유효한 초안을 우선 보존하고, 손상 값은 새 최소 백업으로 교체합니다.
+                console.warn('Malformed emergency backup was replaced with the current valid draft.', error);
+            }
+        }
+
+        backup[entryKey] = entryValue;
+        localStorage.setItem(backupKey, JSON.stringify(backup));
+        return true;
+    } catch (error) {
+        // 입력 흐름을 막거나 토스트를 연속 표시하지 않습니다. 정상 자동 저장과
+        // beforeunload의 최종 동기 백업이 계속 재시도할 수 있습니다.
+        console.warn('Emergency draft backup could not be persisted.', error);
+        return false;
+    }
+};
+
 export const TRANSACTION_FAILURE_REASON = Object.freeze({
     NO_CHANGE: 'no-change',
     ERROR: 'error'
@@ -1525,6 +1571,15 @@ export async function handleUserInput() {
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
 
     if (hasChanged) {
+        // 자동 저장 타이머나 beforeunload보다 먼저, 현재 입력 이벤트 자체에서 복구본을 만듭니다.
+        // 비정상 프로세스 종료처럼 생명주기 이벤트가 생략되는 경우에도 마지막 초안을 복원할 수 있습니다.
+        persistEmergencyChangesBackupEntry('noteUpdate', {
+            noteId: activeNote.id,
+            title: currentTitle,
+            content: currentContent,
+            capturedAt: Date.now()
+        });
+
         if (!state.isDirty || state.dirtyNoteId !== state.activeNoteId) {
             setState({ isDirty: true, dirtyNoteId: state.activeNoteId });
         }
@@ -1748,7 +1803,22 @@ export const startRename = async (liElement, type) => {
 
             const onInput = () => {
                 if (pendingRenameDraft?.id === id) {
-                    pendingRenameDraft.newName = String(nameSpan.textContent ?? '');
+                    const rawName = String(nameSpan.textContent ?? '');
+                    pendingRenameDraft.newName = rawName;
+                    const newName = rawName.trim();
+
+                    if (newName) {
+                        persistEmergencyChangesBackupEntry('itemRename', {
+                            id,
+                            type,
+                            newName,
+                            capturedAt: Date.now()
+                        });
+                    } else {
+                        // 빈 이름은 정상 커밋 대상이 아닙니다. 직전의 부분 입력이 다음 실행에서
+                        // 되살아나지 않도록 이 이름 변경의 비상 사본만 정리합니다.
+                        clearRenameEmergencyBackup(id, type);
+                    }
                 }
             };
             const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
