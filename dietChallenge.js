@@ -409,6 +409,61 @@
         }
     };
 
+    const isNextCalendarDay = (previousRecord, currentRecord) => {
+        if (!previousRecord || !currentRecord) return false;
+        const previousDate = DateUtil.parse(previousRecord.date);
+        const currentDate = DateUtil.parse(currentRecord.date);
+        return previousDate instanceof Date
+            && currentDate instanceof Date
+            && !Number.isNaN(previousDate.getTime())
+            && !Number.isNaN(currentDate.getTime())
+            && DateUtil.daysBetween(previousDate, currentDate) === 1;
+    };
+
+    const isConsecutiveDailyRecordRange = (records) => (
+        Array.isArray(records)
+        && records.length > 0
+        && records.every((record, index) => index === 0 || isNextCalendarDay(records[index - 1], record))
+    );
+
+    const getLongestConsecutiveRecordRun = (records) => {
+        if (!Array.isArray(records) || records.length === 0) return 0;
+
+        let longestRun = 1;
+        let currentRun = 1;
+        for (let index = 1; index < records.length; index++) {
+            currentRun = isNextCalendarDay(records[index - 1], records[index])
+                ? currentRun + 1
+                : 1;
+            longestRun = Math.max(longestRun, currentRun);
+        }
+        return longestRun;
+    };
+
+    const hasConsecutivePlateauBreak = (records, minimumStableDays, minimumDrop = Number.EPSILON) => {
+        if (!Array.isArray(records) || records.length < minimumStableDays + 1) return false;
+
+        let stableRecordCount = 1;
+        for (let index = 1; index < records.length; index++) {
+            if (!isNextCalendarDay(records[index - 1], records[index])) {
+                stableRecordCount = 1;
+                continue;
+            }
+
+            const change = records[index].weight - records[index - 1].weight;
+            if (Math.abs(change) < 0.2) {
+                stableRecordCount += 1;
+                continue;
+            }
+
+            if (stableRecordCount >= minimumStableDays && -change >= minimumDrop) {
+                return true;
+            }
+            stableRecordCount = 1;
+        }
+        return false;
+    };
+
     const MathUtil = {
         round: (num, decimals = 1) => {
             if (num === null || num === undefined) return 0;
@@ -1644,13 +1699,13 @@
                 const diff = MathUtil.diff(records[i].weight, records[i-1].weight);
                 diffs.push(diff);
 
-                if (diff <= 0) curStreak++;
+                const dayDiff = DateUtil.daysBetween(DateUtil.parse(records[i-1].date), DateUtil.parse(records[i].date));
+                if (dayDiff === 1 && diff <= 0) curStreak++;
                 else curStreak = 0;
                 if (curStreak > maxStreak) maxStreak = curStreak;
 
                 if (diff < 0) successCount++;
 
-                const dayDiff = DateUtil.daysBetween(DateUtil.parse(records[i-1].date), DateUtil.parse(records[i].date));
                 if (dayDiff === 1) {
                     if (diff < 0 && Math.abs(diff) > maxDrop) maxDrop = Math.abs(diff);
                     if (diff > 0 && diff > maxGain) maxGain = diff;
@@ -1680,7 +1735,8 @@
 
         let maxPlateau = 0, curPlateau = 0;
         for(let i=1; i<records.length; i++) {
-            if(Math.abs(MathUtil.diff(records[i].weight, records[i-1].weight)) < 0.2) curPlateau++;
+            if(isNextCalendarDay(records[i-1], records[i])
+                && Math.abs(MathUtil.diff(records[i].weight, records[i-1].weight)) < 0.2) curPlateau++;
             else curPlateau = 0;
             if(curPlateau > maxPlateau) maxPlateau = curPlateau;
         }
@@ -3249,19 +3305,18 @@
 
         let maxLossStreak = 0, currLossStreak = 0;
         let maxGainStreak = 0, currGainStreak = 0;
-        let maxRecStreak = 0, currRecStreak = 0;
+        const maxRecStreak = getLongestConsecutiveRecordRun(AppState.records);
         let maxGap = 0;
 
         for(let i=1; i<AppState.records.length; i++) {
             const diff = AppState.records[i].weight - AppState.records[i-1].weight;
             const dayDiff = DateUtil.daysBetween(DateUtil.parse(AppState.records[i-1].date), DateUtil.parse(AppState.records[i].date));
             
-            if(dayDiff === 1) {
-                currRecStreak++;
-                if(currRecStreak > maxRecStreak) maxRecStreak = currRecStreak;
-            } else {
-                currRecStreak = 0;
+            if(dayDiff !== 1) {
+                currLossStreak = 0;
+                currGainStreak = 0;
                 if(dayDiff > maxGap) maxGap = dayDiff;
+                continue;
             }
 
             if(diff < 0) {
@@ -3589,13 +3644,13 @@
         let current = 0;
         for (let i = AppState.records.length - 1; i > 0; i--) {
             const diff = Math.abs(AppState.records[i].weight - AppState.records[i - 1].weight);
-            if (diff < 0.2) current++;
+            if (isNextCalendarDay(AppState.records[i - 1], AppState.records[i]) && diff < 0.2) current++;
             else break;
         }
         let longest = 0, run = 0;
         for (let i = 1; i < AppState.records.length; i++) {
             const diff = Math.abs(AppState.records[i].weight - AppState.records[i - 1].weight);
-            if (diff < 0.2) run++;
+            if (isNextCalendarDay(AppState.records[i - 1], AppState.records[i]) && diff < 0.2) run++;
             else run = 0;
             longest = Math.max(longest, run);
         }
@@ -6142,7 +6197,12 @@
              const diff = AppState.records[i].weight - AppState.records[i-1].weight;
              if(diff < 0) {
                  drops.push({ date: AppState.records[i].date, val: diff });
-                 curStreak++;
+                 if (isNextCalendarDay(AppState.records[i-1], AppState.records[i])) {
+                     curStreak++;
+                 } else {
+                     if(curStreak > maxStreak) maxStreak = curStreak;
+                     curStreak = 0;
+                 }
              } else {
                  gains.push({ date: AppState.records[i].date, val: diff });
                  if(curStreak > maxStreak) maxStreak = curStreak;
@@ -6290,6 +6350,7 @@
         if(AppState.records.length === 0) return;
         const totalLost = MathUtil.diff(AppState.settings.startWeight, s.current);
         const streak = s.maxStreak || 0;
+        const longestRecordingRun = getLongestConsecutiveRecordRun(AppState.records);
 
         const flags = {
             weekendDef: false,
@@ -6353,7 +6414,7 @@
                     const slice = AppState.records.slice(i-6, i+1);
                     const diffs = [];
                     for(let j=1; j<slice.length; j++) diffs.push(Math.abs(slice[j].weight - slice[j-1].weight));
-                    if(diffs.every(d => d <= 0.1)) { flags.equanimity = true; break; }
+                    if(isConsecutiveDailyRecordRange(slice) && diffs.every(d => d <= 0.1)) { flags.equanimity = true; break; }
                 }
             }
 
@@ -6386,14 +6447,7 @@
                 }
             }
             
-            let stableDays = 0;
-            for(let i=1; i<AppState.records.length; i++) {
-                if(Math.abs(MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight)) < 0.2) stableDays++;
-                else {
-                    if(stableDays >= 7 && (AppState.records[i].weight < AppState.records[i-1].weight)) flags.plateauBreak = true;
-                    stableDays = 0;
-                }
-            }
+            flags.plateauBreak = hasConsecutivePlateauBreak(AppState.records, 7);
 
             const h = AppState.settings.height / 100;
             const bmiStart = AppState.settings.startWeight / (h*h);
@@ -6410,13 +6464,27 @@
 
             if(s.current <= AppState.settings.goal1) {
                 const recent = AppState.records.slice(-10);
-                if(recent.length >= 10 && recent.every(r => Math.abs(r.weight - AppState.settings.goal1) <= 0.5)) flags.yoyoPrev = true;
+                if(recent.length >= 10
+                    && isConsecutiveDailyRecordRange(recent)
+                    && recent.every(r => Math.abs(r.weight - AppState.settings.goal1) <= 0.5)) flags.yoyoPrev = true;
             }
 
-            for(let i=0; i<AppState.records.length-3; i++) {
-                if(MathUtil.diff(AppState.records[i+1].weight, AppState.records[i].weight) >= 0.5) {
-                    if(AppState.records[i+3].weight <= AppState.records[i].weight) flags.ottogi = true;
+            for(let i=1; i<AppState.records.length; i++) {
+                if(!isNextCalendarDay(AppState.records[i-1], AppState.records[i])
+                    || MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight) < 0.5) continue;
+
+                for (let j=i+1; j<AppState.records.length; j++) {
+                    const recoveryDays = DateUtil.daysBetween(
+                        DateUtil.parse(AppState.records[i].date),
+                        DateUtil.parse(AppState.records[j].date)
+                    );
+                    if (recoveryDays > 3) break;
+                    if (recoveryDays > 0 && AppState.records[j].weight <= AppState.records[i-1].weight) {
+                        flags.ottogi = true;
+                        break;
+                    }
                 }
+                if (flags.ottogi) break;
             }
 
             if(AppState.records.length > 30) {
@@ -6429,16 +6497,9 @@
                 flags.fatDestroyer = true;
             }
 
-            stableDays = 0;
-            for(let i=1; i<AppState.records.length; i++) {
-                if(Math.abs(MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight)) < 0.2) stableDays++;
-                else {
-                    if(stableDays >= 7 && (MathUtil.diff(AppState.records[i-1].weight, AppState.records[i].weight) >= 0.5)) flags.plateauMaster = true;
-                    stableDays = 0;
-                }
-            }
+            flags.plateauMaster = hasConsecutivePlateauBreak(AppState.records, 7, 0.5);
 
-            if(streak >= 90) flags.recordMaster = true;
+            if(longestRecordingRun >= 90) flags.recordMaster = true;
 
             if(s.max - s.current >= 10) flags.reborn = true;
 
@@ -6458,9 +6519,9 @@
                 if(rec && (rec.weight - s.current >= 4)) flags.weightExpert = true;
             }
 
-            if(s.maxPlateau >= 14 && s.current < s.lastRec.weight) flags.plateauDestroyer = true;
+            flags.plateauDestroyer = hasConsecutivePlateauBreak(AppState.records, 14, 0.2);
 
-            if(streak >= 180) flags.iconOfConstancy = true;
+            if(longestRecordingRun >= 180) flags.iconOfConstancy = true;
 
             for(let i=1; i<AppState.records.length; i++) {
                 const days = DateUtil.daysBetween(DateUtil.parse(AppState.records[i-1].date), DateUtil.parse(AppState.records[i].date));
@@ -6494,12 +6555,15 @@
                 if(!AppState.records[i].fat) noFatStreak++;
                 else {
                     if(noFatStreak >= 10) { 
-                        let recordedStreak = 0;
+                        const recordedStreak = [];
                         for(let j=i; j<Math.min(i+10, AppState.records.length); j++) {
-                            if(AppState.records[j].fat) recordedStreak++;
+                            if(AppState.records[j].fat) recordedStreak.push(AppState.records[j]);
                             else break;
                         }
-                        if(recordedStreak >= 10) { flags.curiosity = true; break; }
+                        if(recordedStreak.length >= 10 && isConsecutiveDailyRecordRange(recordedStreak)) {
+                            flags.curiosity = true;
+                            break;
+                        }
                     }
                     noFatStreak = 0;
                 }
@@ -6526,24 +6590,12 @@
             if(AppState.records.length >= 14) {
                  const recs14 = AppState.records.slice(-14);
                  const w14 = recs14.map(r => r.weight);
-                 if(Math.max(...w14) - Math.min(...w14) <= 0.6) flags.parking = true;
+                 if(isConsecutiveDailyRecordRange(recs14) && Math.max(...w14) - Math.min(...w14) <= 0.6) flags.parking = true;
             }
 
-            let plat = 0;
-            for(let i=1; i<AppState.records.length; i++) {
-                if(Math.abs(AppState.records[i].weight - AppState.records[i-1].weight) < 0.2) plat++;
-                else {
-                    if(plat >= 3 && AppState.records[i-1].weight - AppState.records[i].weight >= 0.8) flags.whoosh = true;
-                    plat = 0;
-                }
-            }
+            flags.whoosh = hasConsecutivePlateauBreak(AppState.records, 4, 0.8);
 
-            let consec = 0;
-            for(let i=1; i<AppState.records.length; i++) {
-                if(DateUtil.daysBetween(DateUtil.parse(AppState.records[i-1].date), DateUtil.parse(AppState.records[i].date)) === 1) consec++;
-                else consec = 0;
-                if(consec >= 30) flags.fullMoon = true;
-            }
+            if(longestRecordingRun >= 30) flags.fullMoon = true;
 
             if(s.current.toString().endsWith('.7') || s.current.toString().endsWith('.77')) flags.lucky7 = true;
 
@@ -6611,7 +6663,9 @@
             // Break Master
             for(let i=1; i<AppState.records.length-1; i++) {
                 const surge = AppState.records[i].weight - AppState.records[i-1].weight;
-                if(surge >= 0.5) {
+                if(surge >= 0.5
+                    && isNextCalendarDay(AppState.records[i-1], AppState.records[i])
+                    && isNextCalendarDay(AppState.records[i], AppState.records[i+1])) {
                     const next = AppState.records[i+1].weight;
                     const recovery = AppState.records[i].weight - next;
                     if(recovery >= surge * 0.5) { flags.breakMaster = true; break; }
@@ -6634,10 +6688,11 @@
             // Maintainer Qual
             if(AppState.records.length >= 10) {
                 for(let i=9; i<AppState.records.length; i++) {
-                    const slice = AppState.records.slice(i-9, i+1).map(r=>r.weight);
-                    const maxS = Math.max(...slice);
-                    const minS = Math.min(...slice);
-                    if(maxS - minS <= 0.4) { flags.maintainerQual = true; break; } 
+                    const recordSlice = AppState.records.slice(i-9, i+1);
+                    const weightSlice = recordSlice.map(r=>r.weight);
+                    const maxS = Math.max(...weightSlice);
+                    const minS = Math.min(...weightSlice);
+                    if(isConsecutiveDailyRecordRange(recordSlice) && maxS - minS <= 0.4) { flags.maintainerQual = true; break; }
                 }
             }
             
