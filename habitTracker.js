@@ -348,6 +348,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     specific_days: [0,1,2,3,4,5,6]
                 }[type];
                 const rawDays = Array.isArray(frequency?.days) ? frequency.days : defaultDays;
+                const hasInvalidDay = rawDays.some(day => {
+                    if (day === null || typeof day === 'boolean') return true;
+                    if (typeof day === 'string' && day.trim() === '') return true;
+                    const numericDay = Number(day);
+                    return !Number.isInteger(numericDay) || numericDay < 0 || numericDay > 6;
+                });
+                if (Array.isArray(frequency?.days) && (rawDays.length === 0 || hasInvalidDay)) {
+                    reportStructuralCorruption();
+                }
                 const days = Array.from(new Set(rawDays
                     .map(Number)
                     .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)));

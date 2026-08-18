@@ -1843,7 +1843,10 @@ const normalizeHabitTrackerImportValue = value => {
             && !validFrequencyTypes.has(frequency.type))
         || (Object.prototype.hasOwnProperty.call(frequency, 'days')
             && (!Array.isArray(frequency.days)
+                || frequency.days.length === 0
                 || frequency.days.some(day => {
+                    if (day === null || typeof day === 'boolean') return true;
+                    if (typeof day === 'string' && day.trim() === '') return true;
                     const numericDay = Number(day);
                     return !Number.isInteger(numericDay) || numericDay < 0 || numericDay > 6;
                 })))

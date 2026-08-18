@@ -10,6 +10,7 @@
         MAX_PARTICLES: 250,
         MODAL_ACTIVE_CLASS: 'active',
         REFRESH_INTERVAL_MINUTES: 60,
+        REQUEST_TIMEOUT_MS: 15 * 1000,
         WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v8_trend_precip_priority_notice_fit',
         AIR_QUALITY_CACHE_KEY: 'air_quality_cache_v4',
         WMO_MAP: {0:{description:"맑음",icon:"☀️",effect:null},1:{description:"대체로 맑음",icon:"🌤️",effect:null},2:{description:"부분적 흐림",icon:"🌥️",effect:null},3:{description:"흐림",icon:"☁️",effect:null},45:{description:"안개",icon:"🌫️",effect:null},48:{description:"서리 안개",icon:"🌫️❄️",effect:null},51:{description:"가벼운 가랑비",icon:"💧",effect:"rain"},53:{description:"보통 가랑비",icon:"💧",effect:"rain"},55:{description:"강한 가랑비",icon:"💧",effect:"rain"},56:{description:"가벼운 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},57:{description:"강한 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},61:{description:"가벼운 비",icon:"🌧️",effect:"rain"},63:{description:"보통 비",icon:"🌧️",effect:"rain"},65:{description:"강한 비",icon:"🌧️",effect:"rain"},66:{description:"가벼운 어는 비",icon:"🥶🌧️",effect:"rain_snow"},67:{description:"강한 어는 비",icon:"🥶🌧️",effect:"rain_snow"},71:{description:"가벼운 눈",icon:"❄️",effect:"snow"},73:{description:"보통 눈",icon:"❄️",effect:"snow"},75:{description:"강한 눈",icon:"❄️",effect:"snow"},77:{description:"싸락눈",icon:"❄️",effect:"snow"},80:{description:"가벼운 소나기",icon:"🌦️",effect:"rain"},81:{description:"보통 소나기",icon:"🌦️",effect:"rain"},82:{description:"강한 소나기",icon:"⛈️",effect:"rain"},85:{description:"가벼운 소낙눈",icon:"🌨️",effect:"snow"},86:{description:"강한 소낙눈",icon:"🌨️",effect:"snow"},95:{description:"뇌우",icon:"⛈️",effect:"rain"},96:{description:"가벼운 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"},99:{description:"강한 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"}},
@@ -1948,6 +1949,35 @@
     function startWeatherEffect(effectType) { const effect = _appState.weatherEffect; if (effect.animationFrameId) cancelAnimationFrame(effect.animationFrameId); effect.currentEffectType = effectType; effect.particles = []; weatherEffectsCtx.clearRect(0, 0, DOM.weatherEffectsCanvas.width, DOM.weatherEffectsCanvas.height); if (effectType) { createParticles(effectType); if (effect.particles.length > 0) animateParticles(); } }
     
     // --- DATA FETCHING AND PROCESSING ---
+    async function fetchJsonWithTimeout(url) {
+        const controller = new AbortController();
+        let requestTimedOut = false;
+        const timeoutId = setTimeout(() => {
+            requestTimedOut = true;
+            controller.abort();
+        }, CONFIG.REQUEST_TIMEOUT_MS);
+
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (error) {
+                if (response.ok || requestTimedOut) throw error;
+            }
+            return { response, data };
+        } catch (error) {
+            if (requestTimedOut) {
+                const timeoutError = new Error('날씨 정보 요청 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.');
+                timeoutError.name = 'TimeoutError';
+                throw timeoutError;
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
     async function fetchWeatherData() {
         const currentP = "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m";
         const dailyP = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,rain_sum,showers_sum,snowfall_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max";
@@ -1966,13 +1996,12 @@
         });
         const url = `${CONFIG.API_BASE_URL}?${params.toString()}`;
         try {
-            const response = await fetch(url);
+            const { response, data: responseData } = await fetchJsonWithTimeout(url);
             if (!response.ok) {
-                let errorData = { message: response.statusText, reason: "Unknown error" };
-                try { errorData = await response.json(); } catch (e) { /* ignore */ }
+                const errorData = responseData || { message: response.statusText, reason: "Unknown error" };
                 throw new Error(`HTTP ${response.status}: ${errorData.reason || errorData.message}`);
             }
-            const data = normalizeForecastData(await response.json());
+            const data = normalizeForecastData(responseData);
             if (!isWeatherCachePayloadValid(data)) {
                 throw new Error("API 응답 데이터 형식이 올바르지 않습니다.");
             }
@@ -1995,13 +2024,11 @@
         });
         const url = `${CONFIG.AIR_QUALITY_API_BASE_URL}?${params.toString()}`;
         try {
-            const response = await fetch(url);
+            const { response, data } = await fetchJsonWithTimeout(url);
             if (!response.ok) {
-                let errorData = { message: response.statusText, reason: "Unknown error" };
-                try { errorData = await response.json(); } catch (e) { /* ignore */ }
+                const errorData = data || { message: response.statusText, reason: "Unknown error" };
                 throw new Error(`HTTP ${response.status}: ${errorData.reason || errorData.message}`);
             }
-            const data = await response.json();
             if (!isAirQualityCachePayloadValid(data)) {
                 throw new Error("대기질 API 응답 데이터 형식이 올바르지 않습니다.");
             }

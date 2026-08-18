@@ -74,6 +74,7 @@ const clearDashboardWeatherCache = () => {
 
 const DASHBOARD_WEATHER_CACHE_DURATION_MS = 60 * 60 * 1000;
 const DASHBOARD_WEATHER_LAST_KNOWN_WARNING_MS = 12 * 60 * 60 * 1000;
+const DASHBOARD_WEATHER_REQUEST_TIMEOUT_MS = 15 * 1000;
 
 const toFiniteDashboardWeatherNumber = value => {
     if (value === null || value === undefined) return null;
@@ -1059,9 +1060,15 @@ class Dashboard {
             this.internalState.weatherFetchController.abort();
         }
 
-        this.internalState.weatherFetchController = new AbortController();
+        const requestController = new AbortController();
+        let requestTimedOut = false;
+        const requestTimeoutId = setTimeout(() => {
+            requestTimedOut = true;
+            requestController.abort();
+        }, DASHBOARD_WEATHER_REQUEST_TIMEOUT_MS);
+        this.internalState.weatherFetchController = requestController;
         this.internalState.weatherFetchKey = requestKey;
-        const signal = this.internalState.weatherFetchController.signal;
+        const signal = requestController.signal;
 
         if (!displayedStaleCache) {
             this._setDashboardWeatherContent('⏳');
@@ -1108,7 +1115,11 @@ class Dashboard {
                     console.warn("Could not save weather cache.", e);
                 }
             } catch (error) {
-                if (error.name === 'AbortError') return;
+                if (error?.name === 'AbortError' && !requestTimedOut) return;
+
+                if (requestTimedOut) {
+                    console.warn('Dashboard weather request timed out.');
+                }
 
                 if (displayedStaleCache) {
                     const { weather, temp } = displayedStaleCache.data;
@@ -1122,7 +1133,11 @@ class Dashboard {
                 }
 
                 this._setDashboardWeatherContent('⚠️');
-                this.dom.weatherContainer.title = "날씨 정보를 불러오는 데 실패했습니다.";
+                this.dom.weatherContainer.title = requestTimedOut
+                    ? "날씨 정보 요청 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+                    : "날씨 정보를 불러오는 데 실패했습니다.";
+            } finally {
+                clearTimeout(requestTimeoutId);
             }
         })();
 
