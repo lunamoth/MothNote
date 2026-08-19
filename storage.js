@@ -1817,6 +1817,97 @@ const parseIntegratedImportValue = (value, label) => {
     }
 };
 
+
+const normalizeAppSettingsImportValue = value => {
+    if (!isPlainImportObject(value)) {
+        throw new Error('설정 백업 구조가 올바르지 않습니다.');
+    }
+
+    sanitizeObjectForPrototypePollution(value);
+
+    let currentSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
+    const storedCurrentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
+    if (storedCurrentSettings) {
+        try {
+            const currentParsed = JSON.parse(storedCurrentSettings);
+            if (isPlainImportObject(currentParsed)) {
+                currentSettings = sanitizeSettings(currentParsed);
+            }
+        } catch (error) {
+            console.warn('현재 설정을 읽지 못해 기본 설정을 기준으로 가져옵니다.', error);
+        }
+    }
+
+    const candidate = JSON.parse(JSON.stringify(currentSettings));
+    const requirePlainSection = sectionName => {
+        if (!Object.prototype.hasOwnProperty.call(value, sectionName)) return null;
+        const section = value[sectionName];
+        if (!isPlainImportObject(section)) {
+            throw new Error(`설정의 ${sectionName} 항목 형식이 올바르지 않습니다.`);
+        }
+        return section;
+    };
+    const readNumber = (section, key, min, max, label) => {
+        if (!Object.prototype.hasOwnProperty.call(section, key)) return undefined;
+        const rawValue = section[key];
+        if (rawValue === null
+            || typeof rawValue === 'boolean'
+            || (typeof rawValue === 'string' && rawValue.trim() === '')) {
+            throw new Error(`설정의 ${label} 값이 올바르지 않습니다.`);
+        }
+        const numericValue = Number(rawValue);
+        if (!Number.isFinite(numericValue) || numericValue < min || numericValue > max) {
+            throw new Error(`설정의 ${label} 값이 올바르지 않습니다.`);
+        }
+        return numericValue;
+    };
+
+    const layout = requirePlainSection('layout');
+    if (layout) {
+        const col1 = readNumber(layout, 'col1', 10, 50, '왼쪽 패널 너비');
+        const col2 = readNumber(layout, 'col2', 10, 50, '오른쪽 패널 너비');
+        if (col1 !== undefined) candidate.layout.col1 = col1;
+        if (col2 !== undefined) candidate.layout.col2 = col2;
+    }
+
+    const zenMode = requirePlainSection('zenMode');
+    if (zenMode) {
+        const maxWidth = readNumber(zenMode, 'maxWidth', 500, 2000, '집중 모드 최대 너비');
+        if (maxWidth !== undefined) candidate.zenMode.maxWidth = maxWidth;
+    }
+
+    const editor = requirePlainSection('editor');
+    if (editor) {
+        if (Object.prototype.hasOwnProperty.call(editor, 'fontFamily')) {
+            const fontFamily = editor.fontFamily;
+            const isSupportedFont = typeof fontFamily === 'string'
+                && fontFamily.trim().length > 0
+                && fontFamily.length <= 300
+                && (typeof CSS === 'undefined'
+                    || typeof CSS.supports !== 'function'
+                    || CSS.supports('font-family', fontFamily));
+            if (!isSupportedFont) {
+                throw new Error('설정의 글꼴 값이 올바르지 않습니다.');
+            }
+            candidate.editor.fontFamily = fontFamily.trim();
+        }
+        const fontSize = readNumber(editor, 'fontSize', 10, 30, '글꼴 크기');
+        if (fontSize !== undefined) candidate.editor.fontSize = fontSize;
+    }
+
+    const weather = requirePlainSection('weather');
+    if (weather) {
+        const lat = readNumber(weather, 'lat', -90, 90, '날씨 위도');
+        const lon = readNumber(weather, 'lon', -180, 180, '날씨 경도');
+        if (lat !== undefined) candidate.weather.lat = lat;
+        if (lon !== undefined) candidate.weather.lon = lon;
+    }
+
+    // [MAJOR BUG FIX] 구버전/부분 백업에서 빠진 하위 설정은 현재 값을 유지하고,
+    // 백업에 실제로 들어 있는 잘못된 값은 기본값으로 조용히 치환하지 않고 설정 필드 전체를 건너뜁니다.
+    return sanitizeSettings(candidate);
+};
+
 const normalizeHabitTrackerImportValue = value => {
     const parsed = parseIntegratedImportValue(value, '습관 트래커');
     if (parsed === null) return null;
@@ -1950,20 +2041,62 @@ const normalizeDietSettingsImportValue = value => {
 
     sanitizeObjectForPrototypePollution(parsed);
     const defaults = { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 };
-    const getNumberOrDefault = (propertyName, min, max, { integer = false } = {}) => {
-        if (!Object.prototype.hasOwnProperty.call(parsed, propertyName)) return defaults[propertyName];
-        const number = Number(parsed[propertyName]);
-        if (!Number.isFinite(number) || number < min || number > max) {
+    let currentSettings = { ...defaults };
+    const storedCurrentSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
+    if (storedCurrentSettings) {
+        try {
+            const currentParsed = JSON.parse(storedCurrentSettings);
+            if (isPlainImportObject(currentParsed)) {
+                currentSettings = { ...currentSettings, ...currentParsed };
+            }
+        } catch (error) {
+            console.warn('현재 다이어트 설정을 읽지 못해 유효한 기본값을 기준으로 가져옵니다.', error);
+        }
+    }
+
+    const rules = {
+        height: { min: Number.EPSILON, max: 300 },
+        startWeight: { min: Number.EPSILON, max: 500 },
+        goal1: { min: Number.EPSILON, max: 500 },
+        intake: { min: 1, max: 10000, integer: true }
+    };
+    const getValidatedNumber = (source, propertyName, fallback) => {
+        const rule = rules[propertyName];
+        if (!Object.prototype.hasOwnProperty.call(source, propertyName)) return fallback;
+        const rawValue = source[propertyName];
+        if (rawValue === null
+            || typeof rawValue === 'boolean'
+            || (typeof rawValue === 'string' && rawValue.trim() === '')) {
             throw new Error(`다이어트 설정의 ${propertyName} 값이 올바르지 않습니다.`);
         }
-        return integer ? Math.round(number) : roundDietImportNumber(number);
+        const number = Number(rawValue);
+        if (!Number.isFinite(number) || number < rule.min || number > rule.max) {
+            throw new Error(`다이어트 설정의 ${propertyName} 값이 올바르지 않습니다.`);
+        }
+        return rule.integer ? Math.round(number) : roundDietImportNumber(number);
     };
 
+    // [MAJOR BUG FIX] 통합 백업이 구버전/부분 백업이라 일부 설정 키가 없을 때
+    // 누락 항목을 내장 기본값으로 되돌리지 않고 현재 사용자의 유효한 값을 유지합니다.
+    // 현재 값이 자체적으로 손상된 경우에만 해당 키의 안전한 기본값으로 폴백합니다.
+    const normalizedCurrent = {};
+    for (const propertyName of Object.keys(rules)) {
+        try {
+            normalizedCurrent[propertyName] = getValidatedNumber(
+                currentSettings,
+                propertyName,
+                defaults[propertyName]
+            );
+        } catch (error) {
+            normalizedCurrent[propertyName] = defaults[propertyName];
+        }
+    }
+
     return JSON.stringify({
-        height: getNumberOrDefault('height', Number.EPSILON, 300),
-        startWeight: getNumberOrDefault('startWeight', Number.EPSILON, 500),
-        goal1: getNumberOrDefault('goal1', Number.EPSILON, 500),
-        intake: getNumberOrDefault('intake', 1, 10000, { integer: true })
+        height: getValidatedNumber(parsed, 'height', normalizedCurrent.height),
+        startWeight: getValidatedNumber(parsed, 'startWeight', normalizedCurrent.startWeight),
+        goal1: getValidatedNumber(parsed, 'goal1', normalizedCurrent.goal1),
+        intake: getValidatedNumber(parsed, 'intake', normalizedCurrent.intake)
     });
 };
 
@@ -2428,20 +2561,19 @@ export const setupImportHandler = () => {
                 
                 const hasOwnImportedField = (propertyName) => Object.prototype.hasOwnProperty.call(importedData, propertyName);
                 const hasSettingsField = hasOwnImportedField('settings');
-                const hasSettingsInFile = hasSettingsField
-                    && importedData.settings
-                    && typeof importedData.settings === 'object'
-                    && !Array.isArray(importedData.settings);
-                const sanitizedSettings = hasSettingsInFile
-                    ? sanitizeSettings(importedData.settings)
-                    : null;
+                let hasSettingsInFile = false;
+                let sanitizedSettings = null;
                 const skippedImportFields = [...skippedIntegratedFields];
-                if (hasSettingsField && !hasSettingsInFile) {
-                    // [MAJOR BUG FIX] 손상된 settings 필드가 있다는 이유만으로 사용자의 현재
-                    // 레이아웃·글꼴·날씨 위치를 기본값으로 덮어쓰지 않습니다. 다른 선택 데이터와
-                    // 동일하게 해당 필드만 건너뛰고 현재 설정을 그대로 유지합니다.
-                    console.warn('설정 백업이 손상되어 해당 항목만 건너뜁니다.');
-                    skippedImportFields.unshift('설정');
+                if (hasSettingsField) {
+                    try {
+                        sanitizedSettings = normalizeAppSettingsImportValue(importedData.settings);
+                        hasSettingsInFile = true;
+                    } catch (settingsError) {
+                        // [MAJOR BUG FIX] settings 객체 자체뿐 아니라 내부 하위 필드가 손상된 경우에도
+                        // 기본값으로 조용히 치환해 현재 설정을 잃지 않도록 해당 설정 복원만 건너뜁니다.
+                        console.warn('설정 백업이 손상되어 해당 항목만 건너뜁니다.', settingsError);
+                        skippedImportFields.unshift('설정');
+                    }
                 }
 
                 const skippedImportFieldsWarning = skippedImportFields.length > 0
