@@ -1069,6 +1069,11 @@ class Dashboard {
         this.internalState.weatherFetchController = requestController;
         this.internalState.weatherFetchKey = requestKey;
         const signal = requestController.signal;
+        const isCurrentWeatherRequest = () => (
+            this.internalState.weatherFetchController === requestController
+            && this.internalState.weatherFetchKey === requestKey
+            && getWeatherLocationKey(appSettings.weather) === requestKey
+        );
 
         if (!displayedStaleCache) {
             this._setDashboardWeatherContent('⏳');
@@ -1101,6 +1106,12 @@ class Dashboard {
                 const weather = this._getWeatherInfo(weatherCode, isDay === 1);
                 const temp = Math.round(temperature);
 
+                // [MAJOR BUG FIX] 지역 변경으로 이전 요청을 abort해도 응답 파싱 단계까지 이미 진행된
+                // Promise는 뒤늦게 UI/공용 캐시를 갱신할 수 있습니다. 현재 컨트롤러·요청 키·실제 설정
+                // 위치가 모두 이 요청과 일치할 때만 화면과 캐시에 반영하여 이전 지역 날씨가 새 지역을
+                // 다시 덮어쓰는 비동기 경합을 차단합니다.
+                if (!isCurrentWeatherRequest()) return;
+
                 this._setDashboardWeatherContent(weather.icon, temp);
                 this.dom.weatherContainer.title = buildDashboardWeatherTitle(weather, temp);
 
@@ -1116,6 +1127,8 @@ class Dashboard {
                 }
             } catch (error) {
                 if (error?.name === 'AbortError' && !requestTimedOut) return;
+                // 새 위치/새 요청이 이미 주도권을 가져간 뒤에는 이전 요청의 실패 UI도 표시하지 않습니다.
+                if (!isCurrentWeatherRequest()) return;
 
                 if (requestTimedOut) {
                     console.warn('Dashboard weather request timed out.');

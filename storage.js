@@ -1137,24 +1137,39 @@ export const loadData = async () => {
             const { findFolder } = await import('./state.js'); 
             const folderExists = state.folders.some(f => f.id === state.activeFolderId) || Object.values(CONSTANTS.VIRTUAL_FOLDERS).some(vf => vf.id === state.activeFolderId);
 
+            const getStartupNoteForFolder = (folderId) => {
+                const { item: folder } = findFolder(folderId);
+                let selectableNotes = Array.isArray(folder?.notes) ? folder.notes : [];
+
+                if (folderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
+                    selectableNotes = [...selectableNotes].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
+                } else if (folder?.isSortable !== false) {
+                    selectableNotes = sortNotes(selectableNotes, state.noteSortOrder);
+                }
+
+                const rememberedNoteId = state.lastActiveNotePerFolder?.[folderId] ?? null;
+                const rememberedNoteExists = rememberedNoteId
+                    && selectableNotes.some(note => String(note?.id ?? '') === String(rememberedNoteId));
+                return rememberedNoteExists ? rememberedNoteId : (selectableNotes[0]?.id ?? null);
+            };
+
             if (!folderExists) {
-                setState({ activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id, activeNoteId: null });
+                // [MAJOR BUG FIX] 성공한 가져오기는 이전 세션을 의도적으로 제거합니다. 이때 appState에는
+                // activeFolderId/activeNoteId가 없으므로 기존 로직은 '모든 노트'로만 이동한 뒤 activeNoteId를
+                // null로 남겨, 노트가 충분히 있어도 가져오기 직후 편집기가 빈 화면으로 시작했습니다.
+                // 세션이 없거나 오래되어 폴더 참조가 무효인 경우에도 안전한 가상 폴더를 선택한 뒤
+                // 기억된 노트 또는 현재 정렬 기준 첫 노트까지 함께 선택해 즉시 편집 가능한 상태를 복원합니다.
+                const fallbackFolderId = CONSTANTS.VIRTUAL_FOLDERS.ALL.id;
+                setState({
+                    activeFolderId: fallbackFolderId,
+                    activeNoteId: getStartupNoteForFolder(fallbackFolderId)
+                });
             } else if (!isValidLastActiveReference(
                 state.activeFolderId,
                 state.activeNoteId,
                 buildDataReferenceContext(state)
             )) {
-                const { item: activeFolder } = findFolder(state.activeFolderId);
-                let selectableNotes = Array.isArray(activeFolder?.notes) ? activeFolder.notes : [];
-
-                if (state.activeFolderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
-                    selectableNotes = [...selectableNotes].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
-                } else if (activeFolder?.isSortable !== false) {
-                    selectableNotes = sortNotes(selectableNotes, state.noteSortOrder);
-                }
-
-                const firstNoteId = selectableNotes[0]?.id ?? null;
-                setState({ activeNoteId: firstNoteId });
+                setState({ activeNoteId: getStartupNoteForFolder(state.activeFolderId) });
             }
 
         } else { // 데이터가 아예 없는 초기 실행
