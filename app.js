@@ -38,6 +38,7 @@ import {
     updateNoteCreationDates,
     forceResolvePendingRename,
     getPendingRenameEmergencySnapshot,
+    persistEmergencyChangesBackupEntry,
     performTransactionalUpdate,
     performDeleteItem,
     handleTextareaKeyDown,
@@ -1953,9 +1954,20 @@ const setupGlobalEventListeners = () => {
                     }
                 }
                 
-                // 유효한 변경사항이 있을 때만 백업 파일을 생성
+                // 유효한 변경사항은 기존 비상 백업과 항목별로 병합합니다.
+                // beforeunload 시점에 한 종류의 변경만 관찰되더라도 입력 이벤트가
+                // 앞서 보존한 다른 종류의 복구 초안을 통째로 덮어쓰지 않습니다.
                 if (hasChanges) {
-                    localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP, JSON.stringify(changesToBackup));
+                    let persistedAnyChange = false;
+                    if (changesToBackup.noteUpdate) {
+                        persistedAnyChange = persistEmergencyChangesBackupEntry('noteUpdate', changesToBackup.noteUpdate) || persistedAnyChange;
+                    }
+                    if (changesToBackup.itemRename) {
+                        persistedAnyChange = persistEmergencyChangesBackupEntry('itemRename', changesToBackup.itemRename) || persistedAnyChange;
+                    }
+                    if (!persistedAnyChange) {
+                        console.warn('No unload emergency change could be persisted; the previous valid backup was preserved when possible.');
+                    }
                 } else {
                     // dirtyNoteId와 현재 편집기가 일치하지 않는 경합 상태에서는 DOM 값으로
                     // 안전한 새 백업을 만들 수 없습니다. 입력 이벤트가 앞서 기록한 유일한
