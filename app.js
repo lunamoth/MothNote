@@ -1237,6 +1237,9 @@ class Dashboard {
                     activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
                     searchTerm: ''
                 });
+                // 날짜 필터 자체는 일시적인 UI 상태지만, 기반 폴더와 선택 노트는 세션에
+                // 즉시 기록해야 새로고침 후에도 방금 선택한 노트가 복원됩니다.
+                saveSession();
                 this.renderCalendar();
             }
         };
@@ -1291,7 +1294,12 @@ const handleListClick = async (e, type) => {
     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
         const changed = await changeActiveFolder(id);
         // 상태 변경 후 DOM 업데이트가 완료될 다음 프레임에 포커스를 설정합니다.
-        if (changed) requestAnimationFrame(() => folderList?.focus());
+        if (changed) {
+            // 날씨/습관/식단 iframe이 열린 상태에서도 폴더 선택은 노트 화면으로
+            // 이동하는 명시적인 탐색 동작이어야 합니다.
+            _closeAllIFrames();
+            requestAnimationFrame(() => folderList?.focus());
+        }
     } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
         const changed = await changeActiveNote(id);
         // 노트 리스트도 동일하게 수정하여 일관성을 유지합니다.
@@ -1616,7 +1624,10 @@ const _navigateList = async (type, direction) => {
             ? await changeActiveFolder(nextId)
             : await changeActiveNote(nextId);
 
-        if (changed) setTimeout(() => _focusAndScrollToListItem(list, nextId), 50);
+        if (changed) {
+            if (type === CONSTANTS.ITEM_TYPE.FOLDER) _closeAllIFrames();
+            setTimeout(() => _focusAndScrollToListItem(list, nextId), 50);
+        }
     } finally {
         clearTimeout(keyboardNavDebounceTimer);
         keyboardNavDebounceTimer = setTimeout(saveSession, CONSTANTS.DEBOUNCE_DELAY.KEY_NAV);
