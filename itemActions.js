@@ -1468,13 +1468,15 @@ export async function saveCurrentNoteIfChanged() {
             return null;
         }
 
-        const now = Date.now();
         const finalTitle = deriveFinalNoteTitle(titleToSave, contentToSave);
 
         noteToSave.title = finalTitle;
         noteToSave.content = contentToSave;
-        noteToSave.updatedAt = now;
-        if (parentFolder) parentFolder.updatedAt = now;
+        // 저장 완료 시각이 아니라 편집기 스냅샷을 캡처한 시각을 기록해야 합니다.
+        // 저장 I/O 중 추가 입력이 발생하면 비상 복구 초안의 capturedAt이 이 값보다
+        // 뒤에 오므로, 다음 시작 시 더 최신인 초안을 안전하게 복구할 수 있습니다.
+        noteToSave.updatedAt = saveStartedAt;
+        if (parentFolder) parentFolder.updatedAt = saveStartedAt;
 
         return {
             newData: latestData,

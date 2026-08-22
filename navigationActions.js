@@ -81,9 +81,23 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
             // 존재하지 않는 폴더 ID가 들어오면 잘못된 activeFolderId를 저장하지 않고 안전한 기본 보기로 복귀합니다.
             if (!options.force && !(await confirmNavigation())) return false;
             console.warn('Requested folder does not exist. Falling back to All Notes:', newFolderId);
+
+            const allNotes = Array.from(state.noteMap.values()).map(entry => entry.note);
+            const rememberedNoteId = state.lastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
+            const fallbackNoteId = rememberedNoteId && allNotes.some(note => note.id === rememberedNoteId)
+                ? rememberedNoteId
+                : sortNotes(allNotes, state.noteSortOrder)[0]?.id ?? null;
+            const nextLastActiveNotePerFolder = { ...state.lastActiveNotePerFolder };
+            if (fallbackNoteId) {
+                nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id] = fallbackNoteId;
+            } else {
+                delete nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
+            }
+
             setState({
                 activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
-                activeNoteId: null,
+                activeNoteId: fallbackNoteId,
+                lastActiveNotePerFolder: nextLastActiveNotePerFolder,
                 dateFilter: null,
                 preSearchActiveNoteId: null,
                 searchTerm: ''
