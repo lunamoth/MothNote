@@ -10,7 +10,8 @@ export class EmergencyBackupFormatError extends Error {
 }
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const hasVisibleText = value => String(value ?? '').trim().length > 0;
+const isText = value => typeof value === 'string';
+const hasVisibleText = value => isText(value) && value.trim().length > 0;
 
 export const parseEmergencyBackupChanges = rawBackup => {
     let parsed;
@@ -26,31 +27,43 @@ export const parseEmergencyBackupChanges = rawBackup => {
 
     const normalized = {};
 
-    if (isRecord(parsed.noteUpdate) && hasVisibleText(parsed.noteUpdate.noteId)) {
+    // 비상 백업은 실제 사용자 데이터를 덮어쓰는 입력입니다. 내부 백업 생성기가 기록하는
+    // 정확한 문자열 스키마만 허용해 boolean/null/숫자나 누락 필드가 "false", "", "42"처럼
+    // 강제 변환되어 정상 제목·본문·이름을 덮어쓰지 않게 합니다.
+    const hasSafeNoteUpdate = isRecord(parsed.noteUpdate)
+        && hasVisibleText(parsed.noteUpdate.noteId)
+        && isText(parsed.noteUpdate.title)
+        && isText(parsed.noteUpdate.content);
+    if (hasSafeNoteUpdate) {
         normalized.noteUpdate = {
-            noteId: String(parsed.noteUpdate.noteId),
-            title: String(parsed.noteUpdate.title ?? ''),
-            content: String(parsed.noteUpdate.content ?? '')
+            noteId: parsed.noteUpdate.noteId,
+            title: parsed.noteUpdate.title,
+            content: parsed.noteUpdate.content
         };
 
-        const capturedAt = Number(parsed.noteUpdate.capturedAt);
-        if (Number.isFinite(capturedAt) && capturedAt > 0) {
-            normalized.noteUpdate.capturedAt = capturedAt;
+        if (typeof parsed.noteUpdate.capturedAt === 'number'
+            && Number.isFinite(parsed.noteUpdate.capturedAt)
+            && parsed.noteUpdate.capturedAt > 0) {
+            normalized.noteUpdate.capturedAt = parsed.noteUpdate.capturedAt;
         }
     }
 
-    if (isRecord(parsed.itemRename)) {
-        const id = String(parsed.itemRename.id ?? '');
-        const type = String(parsed.itemRename.type ?? '');
-        const newName = String(parsed.itemRename.newName ?? '').trim();
+    if (isRecord(parsed.itemRename)
+        && hasVisibleText(parsed.itemRename.id)
+        && isText(parsed.itemRename.type)
+        && isText(parsed.itemRename.newName)) {
+        const id = parsed.itemRename.id;
+        const type = parsed.itemRename.type;
+        const newName = parsed.itemRename.newName.trim();
         const isSupportedType = type === 'folder' || type === 'note';
 
-        if (hasVisibleText(id) && isSupportedType && newName) {
+        if (isSupportedType && newName) {
             normalized.itemRename = { id, type, newName };
 
-            const capturedAt = Number(parsed.itemRename.capturedAt);
-            if (Number.isFinite(capturedAt) && capturedAt > 0) {
-                normalized.itemRename.capturedAt = capturedAt;
+            if (typeof parsed.itemRename.capturedAt === 'number'
+                && Number.isFinite(parsed.itemRename.capturedAt)
+                && parsed.itemRename.capturedAt > 0) {
+                normalized.itemRename.capturedAt = parsed.itemRename.capturedAt;
             }
         }
     }

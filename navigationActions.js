@@ -21,8 +21,9 @@ export const cancelPendingSearchRequest = ({ restoreInput = true } = {}) => {
     if (restoreInput && searchInput) searchInput.value = state.searchTerm;
 };
 
-// [수정] 폴더 전환 중 중복 호출을 막기 위한 잠금 변수
-let isChangingFolder = false;
+// 저장/이름 변경을 기다리는 동안 새 폴더 또는 노트 선택이 들어오면 이전 탐색을 무효화합니다.
+// 두 탐색이 별도 상태로 경합하면 서로 다른 폴더와 노트가 한 세션에 섞일 수 있으므로 공유합니다.
+let navigationRequestVersion = 0;
 const SEARCH_TERM_MAX_LENGTH = 100; // [버그 수정] 검색어 최대 길이 상수 추가
 
 export const confirmNavigation = async () => {
@@ -33,10 +34,13 @@ export const confirmNavigation = async () => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
+    const requestVersion = ++navigationRequestVersion;
+    const isLatestRequest = () => requestVersion === navigationRequestVersion;
     cancelPendingSearchRequest();
 
     // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
     const renameSuccess = await finishPendingRename();
+    if (!isLatestRequest()) return false;
     if (!renameSuccess) {
         showToast("이름 변경 저장에 실패하여 노트 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         return false; // 이름 변경 실패 시 작업 중단하고 실패를 반환
@@ -44,7 +48,8 @@ export const changeActiveNote = async (newNoteId) => {
 
     if (state.activeNoteId === newNoteId) return true;
 
-    if (!(await confirmNavigation())) return false;
+    const canNavigate = await confirmNavigation();
+    if (!isLatestRequest() || !canNavigate) return false;
 
     if (newNoteId && state.activeFolderId) {
         setState({
@@ -61,94 +66,96 @@ export const changeActiveNote = async (newNoteId) => {
 };
 
 export const changeActiveFolder = async (newFolderId, options = {}) => {
+    const requestVersion = ++navigationRequestVersion;
+    const isLatestRequest = () => requestVersion === navigationRequestVersion;
     cancelPendingSearchRequest();
 
-    // [수정] 이미 다른 폴더로 전환하는 작업이 진행 중이라면, 새로운 요청을 무시합니다.
-    if (isChangingFolder) return false;
-    isChangingFolder = true; // 잠금을 설정하여 중복 실행을 방지합니다.
+    // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
+    const renameSuccess = await finishPendingRename();
+    if (!isLatestRequest()) return false;
+    if (!renameSuccess) {
+        showToast("이름 변경 저장에 실패하여 폴더 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+        return false; // 이름 변경 실패 시 작업 중단
+    }
 
-    try {
-        // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
-        const renameSuccess = await finishPendingRename();
-        if (!renameSuccess) {
-            showToast("이름 변경 저장에 실패하여 폴더 이동을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
-            return false; // 이름 변경 실패 시 작업 중단
+    const { item: folder } = findFolder(newFolderId);
+    if (!folder) {
+        // [MAJOR BUG FIX] 오래된 DOM 이벤트, 손상된 세션, 가져오기 직후 상태 불일치 등으로
+        // 존재하지 않는 폴더 ID가 들어오면 잘못된 activeFolderId를 저장하지 않고 안전한 기본 보기로 복귀합니다.
+        if (!options.force) {
+            const canNavigate = await confirmNavigation();
+            if (!isLatestRequest() || !canNavigate) return false;
         }
+        if (!isLatestRequest()) return false;
+        console.warn('Requested folder does not exist. Falling back to All Notes:', newFolderId);
 
-        const { item: folder } = findFolder(newFolderId);
-        if (!folder) {
-            // [MAJOR BUG FIX] 오래된 DOM 이벤트, 손상된 세션, 가져오기 직후 상태 불일치 등으로
-            // 존재하지 않는 폴더 ID가 들어오면 잘못된 activeFolderId를 저장하지 않고 안전한 기본 보기로 복귀합니다.
-            if (!options.force && !(await confirmNavigation())) return false;
-            console.warn('Requested folder does not exist. Falling back to All Notes:', newFolderId);
-
-            const allNotes = Array.from(state.noteMap.values()).map(entry => entry.note);
-            const rememberedNoteId = state.lastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
-            const fallbackNoteId = rememberedNoteId && allNotes.some(note => note.id === rememberedNoteId)
-                ? rememberedNoteId
-                : sortNotes(allNotes, state.noteSortOrder)[0]?.id ?? null;
-            const nextLastActiveNotePerFolder = { ...state.lastActiveNotePerFolder };
-            if (fallbackNoteId) {
-                nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id] = fallbackNoteId;
-            } else {
-                delete nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
-            }
-
-            setState({
-                activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
-                activeNoteId: fallbackNoteId,
-                lastActiveNotePerFolder: nextLastActiveNotePerFolder,
-                dateFilter: null,
-                preSearchActiveNoteId: null,
-                searchTerm: ''
-            });
-            if (searchInput) searchInput.value = '';
-            saveSession();
-            showToast('선택한 폴더를 찾을 수 없어 모든 노트 보기로 이동했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
-            return false;
-        }
-
-        if (state.activeFolderId === newFolderId && !state.dateFilter) {
-            // [MAJOR BUG FIX] 새 폴더 생성 직후 postUpdateState로 이미 활성 폴더가 바뀐 경우에도
-            // no-op 반환 전에 세션을 저장해, 즉시 새로고침해도 방금 만든 폴더 선택이 유지되게 합니다.
-            saveSession();
-            return true;
-        }
-
-        if (!options.force && !(await confirmNavigation())) return false;
-        
-        const notesInFolder = Array.isArray(folder.notes) ? folder.notes : [];
-        
-        let nextActiveNoteId = null;
-        const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
-
-        if (lastActiveNoteId && notesInFolder.some(n => n.id === lastActiveNoteId)) {
-            nextActiveNoteId = lastActiveNoteId;
-        } 
-        else if (notesInFolder.length > 0) {
-            const isSortable = folder?.isSortable !== false;
-            const notesToSelectFrom = isSortable
-                ? sortNotes(notesInFolder, state.noteSortOrder)
-                : notesInFolder;
-            nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
+        const allNotes = Array.from(state.noteMap.values()).map(entry => entry.note);
+        const rememberedNoteId = state.lastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
+        const fallbackNoteId = rememberedNoteId && allNotes.some(note => note.id === rememberedNoteId)
+            ? rememberedNoteId
+            : sortNotes(allNotes, state.noteSortOrder)[0]?.id ?? null;
+        const nextLastActiveNotePerFolder = { ...state.lastActiveNotePerFolder };
+        if (fallbackNoteId) {
+            nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id] = fallbackNoteId;
+        } else {
+            delete nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
         }
 
         setState({
-            activeFolderId: newFolderId,
-            activeNoteId: nextActiveNoteId,
+            activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+            activeNoteId: fallbackNoteId,
+            lastActiveNotePerFolder: nextLastActiveNotePerFolder,
             dateFilter: null,
             preSearchActiveNoteId: null,
             searchTerm: ''
         });
-        
         if (searchInput) searchInput.value = '';
         saveSession();
-        return true;
-    } finally {
-        // [수정] try 블록의 코드가 어떤 경로로 종료되든(성공, return, 에러 발생 등)
-        // 항상 잠금을 해제하여 다음 요청을 받을 수 있도록 보장합니다.
-        isChangingFolder = false;
+        showToast('선택한 폴더를 찾을 수 없어 모든 노트 보기로 이동했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
     }
+
+    if (state.activeFolderId === newFolderId && !state.dateFilter) {
+        // [MAJOR BUG FIX] 새 폴더 생성 직후 postUpdateState로 이미 활성 폴더가 바뀐 경우에도
+        // no-op 반환 전에 세션을 저장해, 즉시 새로고침해도 방금 만든 폴더 선택이 유지되게 합니다.
+        saveSession();
+        return true;
+    }
+
+    if (!options.force) {
+        const canNavigate = await confirmNavigation();
+        // 저장이 완료되기 전에 더 최신 선택이 들어왔다면 오래된 요청은 상태를 바꾸지 않습니다.
+        if (!isLatestRequest() || !canNavigate) return false;
+    }
+    if (!isLatestRequest()) return false;
+    
+    const notesInFolder = Array.isArray(folder.notes) ? folder.notes : [];
+    
+    let nextActiveNoteId = null;
+    const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
+
+    if (lastActiveNoteId && notesInFolder.some(n => n.id === lastActiveNoteId)) {
+        nextActiveNoteId = lastActiveNoteId;
+    } 
+    else if (notesInFolder.length > 0) {
+        const isSortable = folder?.isSortable !== false;
+        const notesToSelectFrom = isSortable
+            ? sortNotes(notesInFolder, state.noteSortOrder)
+            : notesInFolder;
+        nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
+    }
+
+    setState({
+        activeFolderId: newFolderId,
+        activeNoteId: nextActiveNoteId,
+        dateFilter: null,
+        preSearchActiveNoteId: null,
+        searchTerm: ''
+    });
+    
+    if (searchInput) searchInput.value = '';
+    saveSession();
+    return true;
 };
 
 const getCurrentViewNotes = () => {
