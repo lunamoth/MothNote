@@ -1925,7 +1925,13 @@ const normalizeAppSettingsImportValue = value => {
 
 const normalizeHabitTrackerImportValue = value => {
     const parsed = parseIntegratedImportValue(value, '습관 트래커');
-    if (parsed === null) return null;
+    if (parsed === null) {
+        // 통합 백업의 null은 "습관 데이터 없음"을 뜻합니다. 저장 키를
+        // 삭제해 표현하면 다음 시작에서 최초 실행으로 오판하여 샘플 습관을
+        // 다시 만들거나, 남아 있던 레거시 키를 다시 마이그레이션할 수 있습니다.
+        // 유효한 빈 통합 상태를 저장해 가져온 빈 상태가 재시작 후에도 유지되게 합니다.
+        return JSON.stringify({ habits: [] });
+    }
     if (!isPlainImportObject(parsed) || !Array.isArray(parsed.habits)) {
         throw new Error('습관 트래커 백업 구조가 올바르지 않습니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');
     }
@@ -2353,8 +2359,18 @@ const restoreImportBackupPayload = async (backupPayload) => {
 
     // 구버전 래퍼에 없던 보조 필드는 당시 백업 대상이 아니므로 현재 값을 보존합니다.
     // 캡처됐다고 명시된 필드만 원래 값으로 복원합니다.
-    localStorageBackupFields.forEach(([propertyName, storageKey]) => {
-        if (!hasBackupField(propertyName)) return;
+    const capturedLocalStorageFields = localStorageBackupFields.filter(([propertyName]) => (
+        hasBackupField(propertyName)
+    ));
+
+    // 대용량 가져오기가 중간에 실패했을 때 기존 값을 현재 가져온 값 위에
+    // 하나씩 덮어쓰면, 최종 원본 크기는 한도 이내여도 복원 중의 임시 합계가
+    // 한도를 넘어 롤백이 영구적으로 반복 실패할 수 있습니다. 캡처한 키만 먼저
+    // 비워 임시 공간을 확보한 다음, 이미 검증한 원본 스냅샷을 순서대로 복원합니다.
+    capturedLocalStorageFields.forEach(([, storageKey]) => {
+        localStorage.removeItem(storageKey);
+    });
+    capturedLocalStorageFields.forEach(([propertyName, storageKey]) => {
         restoreLocalStorageValue(storageKey, backupPayload[propertyName]);
     });
 };
