@@ -622,19 +622,28 @@
         }
     };
 
+    // JSON boolean/배열/객체가 Number()에서 숫자로 바뀌는 타입 혼동을 막습니다.
+    // 기존 숫자 문자열과 실제 숫자만 허용해 레거시 호환성은 유지합니다.
+    const parseFiniteNumericScalar = (value) => {
+        if (typeof value !== 'number' && typeof value !== 'string') return null;
+        if (typeof value === 'string' && value.trim() === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+
     const sanitizeDietRecord = (raw) => {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
         const date = String(raw.date ?? '').trim();
         if (!DateUtil.isValidDateString(date) || DateUtil.isFuture(date)) return null;
 
-        const weight = Number(raw.weight);
-        if (!Number.isFinite(weight) || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) return null;
+        const weight = parseFiniteNumericScalar(raw.weight);
+        if (weight === null || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) return null;
 
         const record = { date, weight: MathUtil.round(weight) };
         const hasFat = raw.fat !== undefined && raw.fat !== null && String(raw.fat).trim() !== '';
         if (hasFat) {
-            const fat = Number(raw.fat);
-            if (Number.isFinite(fat) && fat >= CONFIG.LIMITS.MIN_FAT && fat <= CONFIG.LIMITS.MAX_FAT) {
+            const fat = parseFiniteNumericScalar(raw.fat);
+            if (fat !== null && fat >= CONFIG.LIMITS.MIN_FAT && fat <= CONFIG.LIMITS.MAX_FAT) {
                 record.fat = MathUtil.round(fat);
             }
         }
@@ -694,15 +703,15 @@
     const sanitizeDietSettings = (settings) => {
         const defaults = { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 };
         if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return { ...defaults };
-        const height = Number(settings.height);
-        const startWeight = Number(settings.startWeight);
-        const goal1 = Number(settings.goal1);
-        const intake = Number(settings.intake);
+        const height = parseFiniteNumericScalar(settings.height);
+        const startWeight = parseFiniteNumericScalar(settings.startWeight);
+        const goal1 = parseFiniteNumericScalar(settings.goal1);
+        const intake = parseFiniteNumericScalar(settings.intake);
         return {
-            height: Number.isFinite(height) && height > 0 && height <= 300 ? MathUtil.round(height) : defaults.height,
-            startWeight: Number.isFinite(startWeight) && startWeight > 0 && startWeight <= 500 ? MathUtil.round(startWeight) : defaults.startWeight,
-            goal1: Number.isFinite(goal1) && goal1 > 0 && goal1 <= 500 ? MathUtil.round(goal1) : defaults.goal1,
-            intake: Number.isFinite(intake) && intake >= 1 && intake <= 10000 ? Math.round(intake) : defaults.intake
+            height: height !== null && height > 0 && height <= 300 ? MathUtil.round(height) : defaults.height,
+            startWeight: startWeight !== null && startWeight > 0 && startWeight <= 500 ? MathUtil.round(startWeight) : defaults.startWeight,
+            goal1: goal1 !== null && goal1 > 0 && goal1 <= 500 ? MathUtil.round(goal1) : defaults.goal1,
+            intake: intake !== null && intake >= 1 && intake <= 10000 ? Math.round(intake) : defaults.intake
         };
     };
 
@@ -724,10 +733,8 @@
             if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;
 
             const rawValue = settings[key];
-            const numberValue = Number(rawValue);
-            if (rawValue === null
-                || (typeof rawValue === 'string' && rawValue.trim() === '')
-                || !Number.isFinite(numberValue)
+            const numberValue = parseFiniteNumericScalar(rawValue);
+            if (numberValue === null
                 || numberValue < rule.min
                 || numberValue > rule.max) {
                 return {

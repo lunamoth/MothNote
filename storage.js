@@ -1816,6 +1816,16 @@ const isPlainImportObject = value => (
     && !Array.isArray(value)
 );
 
+// JSON의 boolean/배열/객체는 Number(true) === 1, Number([70]) === 70처럼
+// 유효한 숫자로 강제 변환될 수 있습니다. 가져오기 경계에서는 실제 숫자 또는
+// 하위 호환용 숫자 문자열만 허용해 손상된 선택 데이터가 기존 값을 덮어쓰지 않게 합니다.
+const parseFiniteImportNumber = value => {
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+};
+
 const parseIntegratedImportValue = (value, label) => {
     if (value === null) return null;
     if (typeof value !== 'string') return value;
@@ -1865,13 +1875,8 @@ const normalizeAppSettingsImportValue = value => {
     const readNumber = (section, key, min, max, label) => {
         if (!Object.prototype.hasOwnProperty.call(section, key)) return undefined;
         const rawValue = section[key];
-        if (rawValue === null
-            || typeof rawValue === 'boolean'
-            || (typeof rawValue === 'string' && rawValue.trim() === '')) {
-            throw new Error(`설정의 ${label} 값이 올바르지 않습니다.`);
-        }
-        const numericValue = Number(rawValue);
-        if (!Number.isFinite(numericValue) || numericValue < min || numericValue > max) {
+        const numericValue = parseFiniteImportNumber(rawValue);
+        if (numericValue === null || numericValue < min || numericValue > max) {
             throw new Error(`설정의 ${label} 값이 올바르지 않습니다.`);
         }
         return numericValue;
@@ -1957,24 +1962,21 @@ const normalizeHabitTrackerImportValue = value => {
             && (!Array.isArray(frequency.days)
                 || frequency.days.length === 0
                 || frequency.days.some(day => {
-                    if (day === null || typeof day === 'boolean') return true;
-                    if (typeof day === 'string' && day.trim() === '') return true;
-                    const numericDay = Number(day);
-                    return !Number.isInteger(numericDay) || numericDay < 0 || numericDay > 6;
+                    const numericDay = parseFiniteImportNumber(day);
+                    return numericDay === null
+                        || !Number.isInteger(numericDay)
+                        || numericDay < 0
+                        || numericDay > 6;
                 })))
     );
     const hasInvalidLogs = logs => (
         !isPlainImportObject(logs)
         || Object.entries(logs).some(([dateText, entry]) => {
             if (!isValidHabitLogDate(dateText)) return true;
-            // 습관 트래커 로더는 null 로그를 구조 손상으로 판정합니다. 여기서
-            // Number(null) === 0만 보고 허용하면 가져오기는 성공하지만 다음 실행에서
-            // 전체 습관 데이터가 열리지 않으므로, 저장 전에 동일한 기준으로 거부합니다.
-            if (entry === null) return true;
-            const valueToCheck = typeof entry === 'object'
+            const valueToCheck = isPlainImportObject(entry)
                 ? entry.value
                 : entry;
-            return !Number.isFinite(Number(valueToCheck));
+            return parseFiniteImportNumber(valueToCheck) === null;
         })
     );
     const hasInvalidHabit = parsed.habits.some(habit => (
@@ -2012,7 +2014,7 @@ const parseDietImportDate = value => {
     return date > today ? null : dateText;
 };
 
-const roundDietImportNumber = value => Math.round((Number(value) + Number.EPSILON) * 10) / 10;
+const roundDietImportNumber = value => Math.round((value + Number.EPSILON) * 10) / 10;
 
 const normalizeDietRecordsImportValue = value => {
     const parsed = parseIntegratedImportValue(value, '다이어트 기록');
@@ -2028,8 +2030,8 @@ const normalizeDietRecordsImportValue = value => {
         }
 
         const date = parseDietImportDate(rawRecord.date);
-        const weight = Number(rawRecord.weight);
-        if (!date || !Number.isFinite(weight) || weight < 30 || weight > 300 || usedDates.has(date)) {
+        const weight = parseFiniteImportNumber(rawRecord.weight);
+        if (!date || weight === null || weight < 30 || weight > 300 || usedDates.has(date)) {
             throw new Error('다이어트 기록 백업에 잘못된 날짜·체중 또는 중복 날짜가 있습니다.');
         }
 
@@ -2038,8 +2040,8 @@ const normalizeDietRecordsImportValue = value => {
             && rawRecord.fat !== null
             && String(rawRecord.fat).trim() !== '';
         if (hasFat) {
-            const fat = Number(rawRecord.fat);
-            if (!Number.isFinite(fat) || fat < 1 || fat > 70) {
+            const fat = parseFiniteImportNumber(rawRecord.fat);
+            if (fat === null || fat < 1 || fat > 70) {
                 throw new Error('다이어트 기록 백업에 잘못된 체지방률이 있습니다.');
             }
             normalized.fat = roundDietImportNumber(fat);
@@ -2085,13 +2087,8 @@ const normalizeDietSettingsImportValue = value => {
         const rule = rules[propertyName];
         if (!Object.prototype.hasOwnProperty.call(source, propertyName)) return fallback;
         const rawValue = source[propertyName];
-        if (rawValue === null
-            || typeof rawValue === 'boolean'
-            || (typeof rawValue === 'string' && rawValue.trim() === '')) {
-            throw new Error(`다이어트 설정의 ${propertyName} 값이 올바르지 않습니다.`);
-        }
-        const number = Number(rawValue);
-        if (!Number.isFinite(number) || number < rule.min || number > rule.max) {
+        const number = parseFiniteImportNumber(rawValue);
+        if (number === null || number < rule.min || number > rule.max) {
             throw new Error(`다이어트 설정의 ${propertyName} 값이 올바르지 않습니다.`);
         }
         return rule.integer ? Math.round(number) : roundDietImportNumber(number);
@@ -2393,6 +2390,7 @@ export const setupImportHandler = () => {
         reader.onload = async event => {
             let overlay = null;
             let importBackupCreated = false;
+            let importMutationStarted = false;
             let importRollbackCompleted = false;
             let importRollbackFailed = false;
             let importCommitted = false;
@@ -2679,19 +2677,28 @@ export const setupImportHandler = () => {
                     };
 
                     try {
+                        // 진행 플래그를 백업보다 먼저 기록합니다. 이 쓰기가 실패하면 아직
+                        // 어떤 사용자 데이터도 변경되지 않았으므로 파괴적인 롤백이 필요 없습니다.
+                        // 플래그 뒤 백업 생성 중 종료되더라도 다음 시작은 '백업 없음' 상태를
+                        // 안전하게 정리하고, 백업이 생성됐다면 기존 자동 복구가 동작합니다.
+                        localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
                         await storageSet({ appState_backup: backupPayload });
                         importBackupCreated = true;
                     } catch (backupError) {
-                        console.error('Import failed: Could not create backup.', backupError);
+                        try {
+                            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                        } catch (statusCleanupError) {
+                            console.warn('Import preparation flag cleanup failed.', statusCleanupError);
+                        }
+                        console.error('Import failed: Could not prepare a recoverable backup.', backupError);
                         showAlert({
                             title: '📥 가져오기 실패',
-                            message: '데이터 백업 생성에 실패했습니다. 기존 데이터는 변경되지 않았습니다.',
+                            message: '안전한 복구 백업을 준비하지 못했습니다. 기존 데이터는 변경되지 않았습니다.',
                             confirmText: '✅ 확인'
                         });
                         return false;
                     }
 
-                    localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
                     window.isImporting = true;
                     window.isImportReloadPending = false;
 
@@ -2708,6 +2715,10 @@ export const setupImportHandler = () => {
                     };
 
                     try {
+                        // 이 시점부터만 실제 사용자 데이터가 바뀔 수 있습니다. 준비 단계의
+                        // UI/브라우저 오류를 데이터 변경 실패로 오인해 원본 localStorage를
+                        // 지우며 롤백하지 않도록 별도로 추적합니다.
+                        importMutationStarted = true;
                         await storageSet({ appState: importPayload });
                         // 설정 필드가 없거나 손상돼 건너뛴 백업은 현재 설정을 바이트 단위로 보존합니다.
                         // 정제본/기본값을 다시 쓰면 "현재 설정 유지" 안내와 달리 알 수 없는 필드나
@@ -2770,7 +2781,7 @@ export const setupImportHandler = () => {
                         message: '가져오기 실패 후 즉시 복원하지 못했습니다. 복구 백업은 보존되어 있으며, 새 탭을 다시 열면 자동 복구를 다시 시도합니다.',
                         confirmText: '✅ 확인'
                     });
-                } else if (importBackupCreated) {
+                } else if (importBackupCreated && importMutationStarted) {
                     // 잠금 내부 복구 전에 예외가 난 극단적 상황에 대한 최후의 안전망입니다.
                     try {
                         await withAppStateWriteLock(async () => {
@@ -2793,8 +2804,34 @@ export const setupImportHandler = () => {
                             confirmText: '✅ 확인'
                         });
                     }
+                } else if (importBackupCreated) {
+                    // 백업 이후 실제 데이터 쓰기 전에 실패한 경우입니다. 원본은 전혀
+                    // 변경되지 않았으므로 복원 루틴(기존 localStorage 키 선삭제 포함)을
+                    // 실행하지 않고 준비용 플래그와 백업만 정리합니다.
+                    try {
+                        await withAppStateWriteLock(async () => {
+                            localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                            await storageRemove('appState_backup');
+                        });
+                        showAlert({
+                            title: '📥 가져오기 실패',
+                            message: '가져오기 준비 중 오류가 발생했습니다. 기존 데이터는 변경되지 않았습니다.',
+                            confirmText: '✅ 확인'
+                        });
+                    } catch (cleanupError) {
+                        console.error('Import preparation cleanup failed. The original data was not mutated.', cleanupError);
+                        showAlert({
+                            title: '📥 가져오기 실패',
+                            message: '가져오기 준비 중 오류가 발생했습니다. 기존 데이터는 변경되지 않았으며, 남은 복구 정보는 다음 실행에서 안전하게 확인됩니다.',
+                            confirmText: '✅ 확인'
+                        });
+                    }
                 } else {
-                    localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                    try {
+                        localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+                    } catch (statusCleanupError) {
+                        console.warn('Import status cleanup failed after a pre-mutation error.', statusCleanupError);
+                    }
                     showAlert({
                         title: '📥 가져오기 실패',
                         message: `파일을 처리하지 못했습니다. 기존 데이터는 변경되지 않았습니다. (오류: ${err?.message || '알 수 없는 오류'})`,

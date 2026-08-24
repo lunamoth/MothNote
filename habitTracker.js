@@ -320,6 +320,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const num = Number(value);
                 return Number.isSafeInteger(num) && num > 0 ? num : fallback;
             };
+            const parseFiniteNumericScalar = value => {
+                if (typeof value !== 'number' && typeof value !== 'string') return null;
+                if (typeof value === 'string' && value.trim() === '') return null;
+                const number = Number(value);
+                return Number.isFinite(number) ? number : null;
+            };
             const makeId = (value, index) => {
                 let id = safeInteger(value, now + index + 1);
                 while (usedIds.has(String(id))) id += 1;
@@ -349,16 +355,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }[type];
                 const rawDays = Array.isArray(frequency?.days) ? frequency.days : defaultDays;
                 const hasInvalidDay = rawDays.some(day => {
-                    if (day === null || typeof day === 'boolean') return true;
-                    if (typeof day === 'string' && day.trim() === '') return true;
-                    const numericDay = Number(day);
-                    return !Number.isInteger(numericDay) || numericDay < 0 || numericDay > 6;
+                    const numericDay = parseFiniteNumericScalar(day);
+                    return numericDay === null
+                        || !Number.isInteger(numericDay)
+                        || numericDay < 0
+                        || numericDay > 6;
                 });
                 if (Array.isArray(frequency?.days) && (rawDays.length === 0 || hasInvalidDay)) {
                     reportStructuralCorruption();
                 }
                 const days = Array.from(new Set(rawDays
-                    .map(Number)
+                    .map(parseFiniteNumericScalar)
                     .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)));
                 return { type, days: days.length ? days : defaultDays };
             };
@@ -386,8 +393,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         reportStructuralCorruption();
                         continue;
                     }
-                    const value = typeof entry === 'object' ? Number(entry?.value) : Number(entry);
-                    if (!Number.isFinite(value)) {
+                    const valueToCheck = entry && typeof entry === 'object' && !Array.isArray(entry)
+                        ? entry.value
+                        : entry;
+                    const value = parseFiniteNumericScalar(valueToCheck);
+                    if (value === null) {
                         reportStructuralCorruption();
                         continue;
                     }
