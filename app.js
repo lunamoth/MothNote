@@ -272,8 +272,10 @@ const loadAndApplySettings = () => {
         const parsedSettings = storedSettings ? JSON.parse(storedSettings) : {};
         appSettings = sanitizeSettings(parsedSettings);
     } catch (e) {
-        console.warn("Could not load settings, using defaults.", e);
-        localStorage.removeItem(CONSTANTS.LS_KEY_SETTINGS);
+        // JSON 손상이나 일시적인 localStorage 접근 오류가 발생해도 유일한 설정 원문을
+        // 삭제하지 않습니다. 현재 세션에만 안전한 기본값을 적용하면 사용자가 진단하거나
+        // 저장소 문제가 해소된 뒤 원본을 다시 확인할 수 있습니다.
+        console.warn("Could not load settings; the stored value was preserved and defaults are used for this session.", e);
         appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
     }
     applySettings(appSettings);

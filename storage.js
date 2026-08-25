@@ -2677,10 +2677,16 @@ export const setupImportHandler = () => {
                     };
 
                     try {
-                        // 진행 플래그를 백업보다 먼저 기록합니다. 이 쓰기가 실패하면 아직
+                        // 이전 정리 실패로 플래그 없이 이전 작업에서 남은 백업을 먼저 제거합니다.
+                        // 이 단계를 생략하고 진행 플래그를 먼저 기록한 직후 탭이 종료되면,
+                        // 다음 시작에서 과거 백업을 이번 가져오기의 복구본으로 오인하여
+                        // 현재 전체 노트 데이터를 오래된 상태로 되돌릴 수 있습니다.
+                        await storageRemove('appState_backup');
+
+                        // 작업에서 남은 백업이 없는 상태에서 진행 플래그를 먼저 기록합니다. 이 쓰기가 실패하면 아직
                         // 어떤 사용자 데이터도 변경되지 않았으므로 파괴적인 롤백이 필요 없습니다.
-                        // 플래그 뒤 백업 생성 중 종료되더라도 다음 시작은 '백업 없음' 상태를
-                        // 안전하게 정리하고, 백업이 생성됐다면 기존 자동 복구가 동작합니다.
+                        // 플래그 뒤 새 백업 생성 중 종료되더라도 다음 시작은 '백업 없음' 상태를
+                        // 안전하게 정리하고, 새 백업이 생성됐다면 기존 자동 복구가 동작합니다.
                         localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
                         await storageSet({ appState_backup: backupPayload });
                         importBackupCreated = true;
