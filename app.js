@@ -1268,6 +1268,9 @@ window.isImporting = false;
 // 완료된 가져오기의 자동 reload에는 이탈 경고를 띄우지 않되, 실제 화면 전환 전까지
 // 이전 편집 화면의 키보드 입력과 저장 경로는 계속 차단합니다.
 window.isImportReloadPending = false;
+// 교체 가져오기의 최종 flush 이후에 대기 중이던 기존 appState 쓰기를 차단합니다.
+// 기존 데이터에 병합하는 Simplenote 가져오기는 이 플래그를 사용하지 않습니다.
+window.isReplacementImportActive = false;
 
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 

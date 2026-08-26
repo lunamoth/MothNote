@@ -237,7 +237,8 @@ export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
 
 export const TRANSACTION_FAILURE_REASON = Object.freeze({
     NO_CHANGE: 'no-change',
-    ERROR: 'error'
+    ERROR: 'error',
+    IMPORT_IN_PROGRESS: 'import-in-progress'
 });
 
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -363,6 +364,21 @@ const clearRenameEmergencyBackup = (id, type) => {
 // 서로 어긋나지 않도록 read-modify-write 순서를 명확히 합니다.
 // 멀티탭 동시 편집의 병합이나 상태 조정은 지원 범위가 아닙니다.
 export const performTransactionalUpdate = async (updateFn) => {
+    const getImportBlockedResult = () => {
+        showToast('데이터 교체 가져오기가 진행 중이어서 대기 중이던 변경 작업을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return {
+            success: false,
+            payload: null,
+            failureReason: TRANSACTION_FAILURE_REASON.IMPORT_IN_PROGRESS
+        };
+    };
+
+    // 편집/삭제 작업이 가져오기 전에 시작됐더라도 저장 큐에서
+    // 교체 가져오기 뒤로 밀리면 새 appState를 오래된 UI 스냅샷으로 변경할 수 있습니다.
+    if (typeof window !== 'undefined' && window.isReplacementImportActive) {
+        return getImportBlockedResult();
+    }
+
     const reportFailure = (error) => {
         console.error('Transactional update failed:', error);
         if (error && error.message && error.message.toLowerCase().includes('quota')) {
@@ -385,6 +401,12 @@ export const performTransactionalUpdate = async (updateFn) => {
 
     try {
         return await withAppStateWriteLock(async () => {
+            // 호출 시점에는 일반 작업이었어도 락 대기 중 가져오기가
+            // 시작될 수 있으므로, 실제 저장 경계에 진입한 직후 다시 확인합니다.
+            if (typeof window !== 'undefined' && window.isReplacementImportActive) {
+                return getImportBlockedResult();
+            }
+
             let resultPayload = null;
 
             try {

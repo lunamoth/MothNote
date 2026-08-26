@@ -86,6 +86,11 @@ const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
 const DIET_CHALLENGE_DATA_KEY = 'diet_pro_records'; // dietChallenge.js의 STORAGE_KEY와 일치해야 함
 const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 SETTINGS_KEY와 일치해야 함
 
+// 파일 읽기·사용자 확인·적용·재시작을 하나의 가져오기 작업으로 취급합니다.
+// 대용량 파일을 읽는 중 다른 파일을 다시 선택하면 두 FileReader 콜백이
+// 각자의 롤백 백업과 재시작 타이머를 서로 덮어쓸 수 있으므로 single-flight로 제한합니다.
+let importOperationInProgress = false;
+
 // [CRITICAL FIX] 실제 데이터 ID가 가상 폴더 ID와 충돌하면 해당 항목을 선택/삭제/복원할 수 없게 됩니다.
 // 로드/가져오기 시 폴더·노트 ID 형식과 예약 ID를 엄격히 검증해 앱 내부 참조 무결성을 보장합니다.
 const RESERVED_ITEM_IDS = new Set(Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(folder => folder.id));
@@ -1801,6 +1806,10 @@ export const handleImport = async () => {
         showToast('가져오기 입력 요소를 찾을 수 없어 작업을 시작하지 못했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
+    if (importOperationInProgress || window.isImporting) {
+        showToast('이미 데이터 가져오기가 진행 중입니다. 현재 작업이 끝난 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     importFileInput.click();
 };
 
@@ -2382,6 +2391,15 @@ export const setupImportHandler = () => {
         const file = e.target.files[0];
         if (!file) return;
 
+        // 첫 번째 FileReader가 끝나기 전에 두 번째 파일이 선택되면
+        // 서로 다른 확인 모달·롤백 백업·재시작 타이머가 겹칠 수 있습니다.
+        if (importOperationInProgress) {
+            showToast('이미 다른 데이터 가져오기가 진행 중이어서 새 파일을 열지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            e.target.value = '';
+            return;
+        }
+        importOperationInProgress = true;
+
         // 백업 파일 크기를 임의로 5MB로 제한하지 않습니다.
         // 핵심 노트 데이터는 chrome.storage.local에 저장되며, manifest의
         // unlimitedStorage 권한으로 기본 저장 용량 한도를 초과할 수 있습니다.
@@ -2404,6 +2422,8 @@ export const setupImportHandler = () => {
                         console.error('Import completed, but the automatic reload failed.', reloadError);
                         window.isImportReloadPending = false;
                         window.isImporting = false;
+                        window.isReplacementImportActive = false;
+                        importOperationInProgress = false;
                         if (overlay?.parentElement) overlay.remove();
                         void showAlert({
                             title: '📥 가져오기 완료',
@@ -2660,6 +2680,20 @@ export const setupImportHandler = () => {
                     lastSavedTimestamp: Date.now()
                 };
 
+                // 최종 flush가 끝난 직후부터 편집·클릭을 차단합니다. 기존에는
+                // 롤백 백업 생성을 기다린 뒤에야 오버레이가 열려, 그 사이에 생긴
+                // 오래된 저장 작업이 가져온 appState에 뒤늦게 반영될 수 있었습니다.
+                window.isReplacementImportActive = true;
+                window.isImporting = true;
+                window.isImportReloadPending = false;
+
+                overlay = document.createElement('div');
+                overlay.className = 'import-overlay';
+                overlay.tabIndex = -1;
+                overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
+                document.body.appendChild(overlay);
+                overlay.focus({ preventScroll: true });
+
                 // 가져오기 전체를 하나의 appState 저장 경계 안에서 수행합니다.
                 // 실패 시 같은 경계 안에서 원본을 복원해 가져오기 실패 시 원본 복구 안정성을 유지합니다.
                 const importApplied = await withAppStateWriteLock(async () => {
@@ -2704,16 +2738,6 @@ export const setupImportHandler = () => {
                         });
                         return false;
                     }
-
-                    window.isImporting = true;
-                    window.isImportReloadPending = false;
-
-                    overlay = document.createElement('div');
-                    overlay.className = 'import-overlay';
-                    overlay.tabIndex = -1;
-                    overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">데이터를 적용하는 중입니다...</p></div>`;
-                    document.body.appendChild(overlay);
-                    overlay.focus({ preventScroll: true });
 
                     const restoreImportedLocalStorageValueIfPresent = (key, propertyName) => {
                         if (!Object.prototype.hasOwnProperty.call(normalizedIntegratedFields, propertyName)) return;
@@ -2851,6 +2875,8 @@ export const setupImportHandler = () => {
                 } else {
                     window.isImportReloadPending = false;
                     window.isImporting = false;
+                    window.isReplacementImportActive = false;
+                    importOperationInProgress = false;
                     if (overlay?.parentElement) overlay.remove();
                 }
                 e.target.value = '';
@@ -2859,8 +2885,31 @@ export const setupImportHandler = () => {
         reader.onerror = () => {
             console.error('Backup file read failed:', reader.error);
             showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FILE_READ_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
+            importOperationInProgress = false;
+            window.isImportReloadPending = false;
+            window.isImporting = false;
+            window.isReplacementImportActive = false;
             e.target.value = '';
         };
-        reader.readAsText(file);
+        reader.onabort = () => {
+            console.warn('Backup file read was aborted.');
+            showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FILE_READ_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
+            importOperationInProgress = false;
+            window.isImportReloadPending = false;
+            window.isImporting = false;
+            window.isReplacementImportActive = false;
+            e.target.value = '';
+        };
+        try {
+            reader.readAsText(file);
+        } catch (readStartError) {
+            console.error('Backup file read could not be started:', readStartError);
+            showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FILE_READ_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
+            importOperationInProgress = false;
+            window.isImportReloadPending = false;
+            window.isImporting = false;
+            window.isReplacementImportActive = false;
+            e.target.value = '';
+        }
     };
 };
