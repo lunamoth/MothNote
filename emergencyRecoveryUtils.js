@@ -12,6 +12,34 @@ export class EmergencyBackupFormatError extends Error {
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = value => typeof value === 'string';
 const hasVisibleText = value => isText(value) && value.trim().length > 0;
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+
+// 복구를 시작할 때 읽은 스냅샷과 정리 시점의 항목이 정확히 같은지 확인합니다.
+// 저장 I/O를 기다리는 동안 같은 종류의 더 최신 초안이 기록될 수 있으므로 ID만
+// 비교해 지우면 방금 입력한 유일한 복구 사본까지 삭제할 수 있습니다.
+export const matchesEmergencyBackupSnapshot = (entryKey, currentEntry, expectedEntry) => {
+    if (!isRecord(currentEntry) || !isRecord(expectedEntry)) return false;
+
+    const currentHasCapturedAt = hasOwn(currentEntry, 'capturedAt');
+    const expectedHasCapturedAt = hasOwn(expectedEntry, 'capturedAt');
+    const hasSameCapturedAt = currentHasCapturedAt === expectedHasCapturedAt
+        && (!currentHasCapturedAt || Number(currentEntry.capturedAt) === Number(expectedEntry.capturedAt));
+    if (!hasSameCapturedAt) return false;
+
+    if (entryKey === 'noteUpdate') {
+        return String(currentEntry.noteId ?? '') === String(expectedEntry.noteId ?? '')
+            && String(currentEntry.title ?? '') === String(expectedEntry.title ?? '')
+            && String(currentEntry.content ?? '') === String(expectedEntry.content ?? '');
+    }
+
+    if (entryKey === 'itemRename') {
+        return String(currentEntry.id ?? '') === String(expectedEntry.id ?? '')
+            && String(currentEntry.type ?? '') === String(expectedEntry.type ?? '')
+            && String(currentEntry.newName ?? '') === String(expectedEntry.newName ?? '');
+    }
+
+    return false;
+};
 
 export const parseEmergencyBackupChanges = rawBackup => {
     let parsed;

@@ -77,7 +77,7 @@ import {
     parseEmergencyBackupChanges,
     shouldDiscardEmergencyNoteUpdate,
     shouldDiscardEmergencyItemRename,
-    shouldDiscardEmergencyBackupAfterTransaction
+    matchesEmergencyBackupSnapshot
 } from './emergencyRecoveryUtils.js';
 
 // [기능 추가] 습관 트래커 데이터 키 상수
@@ -746,8 +746,25 @@ export const loadData = async () => {
         if (emergencyBackupJSON) {
             let emergencyBackupValidated = false;
             let emergencyBackupRemoved = false;
+            let expectedEmergencyBackupJSON = emergencyBackupJSON;
+            const persistEmergencyBackupSnapshot = backupChanges => {
+                const currentBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                if (currentBackupJSON !== expectedEmergencyBackupJSON) {
+                    throw new Error('복구를 준비하는 동안 더 최신 비상 백업이 기록되어 기존 복구 작업을 중단했습니다.');
+                }
+
+                const nextBackupJSON = JSON.stringify(backupChanges);
+                localStorage.setItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP, nextBackupJSON);
+                expectedEmergencyBackupJSON = nextBackupJSON;
+                emergencyBackupRemoved = false;
+            };
             const removeEmergencyBackup = () => {
+                const currentBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                if (currentBackupJSON !== expectedEmergencyBackupJSON) {
+                    throw new Error('복구 처리 중 갱신된 최신 비상 백업은 삭제하지 않았습니다.');
+                }
                 localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                expectedEmergencyBackupJSON = null;
                 emergencyBackupRemoved = true;
             };
 
@@ -852,6 +869,11 @@ export const loadData = async () => {
                     removeEmergencyBackup();
                     console.warn('Emergency backup had no applicable changes and was removed to prevent repeated recovery prompts.');
                 } else {
+                    // 데이터 정제에서 바뀐 ID와 위에서 제거한 오래된 항목을 복구 프롬프트 전에
+                    // 원본 백업에도 반영합니다. 이 쓰기가 없으면 이번 복구 저장이 실패한 뒤 다음
+                    // 실행에서는 이미 보정된 appState와 과거 ID의 백업을 다시 연결할 수 없습니다.
+                    persistEmergencyBackupSnapshot(backupChanges);
+
                     let confirmMessage = "탭이 비정상적으로 종료되기 전, 저장되지 않은 변경사항이 발견되었습니다.<br><br>";
                     
                     if(backupChanges.noteUpdate) {
@@ -914,67 +936,116 @@ export const loadData = async () => {
                             removeEmergencyBackup();
                             showToast('복원할 수 있는 변경사항이 없어 비상 백업을 정리했습니다.', CONSTANTS.TOAST_TYPE.SUCCESS);
                         } else {
-                            const { performTransactionalUpdate } = await import('./itemActions.js');
+                            // 충돌 해결로 이름이 바뀌거나 한 항목의 복원을 취소한 결과도 즉시
+                            // 백업에 반영해, 뒤이은 Storage 오류에서도 다음 실행이 같은 상태로 재시도하게 합니다.
+                            persistEmergencyBackupSnapshot(backupChanges);
+
+                            const recoverySnapshots = {
+                                noteUpdate: backupChanges.noteUpdate ? { ...backupChanges.noteUpdate } : null,
+                                itemRename: backupChanges.itemRename ? { ...backupChanges.itemRename } : null
+                            };
+                            const recoveryOutcome = {
+                                noteUpdate: recoverySnapshots.noteUpdate ? 'pending' : 'not-requested',
+                                itemRename: recoverySnapshots.itemRename ? 'pending' : 'not-requested'
+                            };
+                            const { performTransactionalUpdate, clearEmergencyChangesBackupEntry } = await import('./itemActions.js');
                             const transactionResult = await performTransactionalUpdate(latestData => {
                                 const now = Date.now();
                                 let changesApplied = false;
+                                // 한 복구 묶음의 앞선 변경이 updatedAt을 갱신해 뒤 항목의
+                                // 오래됨 판정을 왜곡하지 않도록, 모든 판정은 커밋 직전 상태의
+                                // 읽기 전용 스냅샷을 기준으로 수행합니다.
+                                const renameTargetBeforeRecovery = recoverySnapshots.itemRename
+                                    ? findItemForEmergencyRecovery(
+                                        recoverySnapshots.itemRename.id,
+                                        recoverySnapshots.itemRename.type,
+                                        latestData
+                                    )
+                                    : null;
+                                const renameTargetSnapshot = renameTargetBeforeRecovery
+                                    ? { ...renameTargetBeforeRecovery }
+                                    : null;
 
                                 // 1. 노트 내용 업데이트 복원
                                 // [CRITICAL BUG FIX] 비상 복구 대상 검증은 활성 폴더와 휴지통을 모두 인정하지만,
                                 // 실제 적용은 활성 폴더만 검색하고 있어 휴지통으로 이동된 노트의 미저장 내용이 사라질 수 있었습니다.
                                 // 활성 폴더, 휴지통 최상위 노트, 휴지통 폴더 내부 노트까지 동일하게 복구합니다.
-                                if (backupChanges.noteUpdate) {
-                                    const { noteId, title, content } = backupChanges.noteUpdate;
+                                if (recoverySnapshots.noteUpdate) {
+                                    const { noteId, title, content } = recoverySnapshots.noteUpdate;
                                     const normalizedNoteId = String(noteId ?? '');
-                                    const applyRecoveredNoteUpdate = (note, parentFolder = null) => {
-                                        if (!note || String(note.id ?? '') !== normalizedNoteId) return false;
-                                        note.title = String(title ?? '');
-                                        note.content = String(content ?? '');
-                                        note.updatedAt = now;
-                                        if (parentFolder) parentFolder.updatedAt = now;
-                                        return true;
-                                    };
+                                    let noteToUpdate = null;
+                                    let parentFolder = null;
 
                                     for (const folder of latestData.folders) {
-                                        const noteToUpdate = (Array.isArray(folder.notes) ? folder.notes : []).find(n => String(n?.id ?? '') === normalizedNoteId);
-                                        if (applyRecoveredNoteUpdate(noteToUpdate, folder)) {
-                                            changesApplied = true;
+                                        const note = (Array.isArray(folder.notes) ? folder.notes : []).find(n => String(n?.id ?? '') === normalizedNoteId);
+                                        if (note) {
+                                            noteToUpdate = note;
+                                            parentFolder = folder;
                                             break;
                                         }
                                     }
 
-                                    if (!changesApplied) {
+                                    if (!noteToUpdate) {
                                         for (const trashItem of latestData.trash) {
                                             const isTopLevelTrashNote = String(trashItem?.id ?? '') === normalizedNoteId
                                                 && (!Array.isArray(trashItem?.notes) || trashItem.type === CONSTANTS.ITEM_TYPE.NOTE);
-                                            if (isTopLevelTrashNote && applyRecoveredNoteUpdate(trashItem)) {
-                                                changesApplied = true;
+                                            if (isTopLevelTrashNote) {
+                                                noteToUpdate = trashItem;
                                                 break;
                                             }
 
                                             if (Array.isArray(trashItem?.notes)) {
                                                 const noteInTrashFolder = trashItem.notes.find(n => String(n?.id ?? '') === normalizedNoteId);
-                                                if (applyRecoveredNoteUpdate(noteInTrashFolder, trashItem)) {
-                                                    changesApplied = true;
+                                                if (noteInTrashFolder) {
+                                                    noteToUpdate = noteInTrashFolder;
+                                                    parentFolder = trashItem;
                                                     break;
                                                 }
                                             }
                                         }
                                     }
+
+                                    if (!noteToUpdate) {
+                                        recoveryOutcome.noteUpdate = 'missing';
+                                    } else if (shouldDiscardEmergencyNoteUpdate(recoverySnapshots.noteUpdate, noteToUpdate)) {
+                                        // 확인 모달을 기다리는 동안 먼저 시작된 저장이 끝났을 수 있습니다.
+                                        // 실제 커밋 기준 상태에서 다시 검사해 최신 저장본을 과거 초안으로 되돌리지 않습니다.
+                                        recoveryOutcome.noteUpdate = 'stale';
+                                    } else {
+                                        noteToUpdate.title = String(title ?? '');
+                                        noteToUpdate.content = String(content ?? '');
+                                        noteToUpdate.updatedAt = now;
+                                        if (parentFolder) parentFolder.updatedAt = now;
+                                        recoveryOutcome.noteUpdate = 'applied';
+                                        changesApplied = true;
+                                    }
                                 }
 
                                 // [CRITICAL BUG FIX & COMMENT FIX] 2. 이름 변경 복원 (활성 폴더 및 휴지통 모두 검색)
-                                if (backupChanges.itemRename) {
-                                    const { id, type, newName } = backupChanges.itemRename;
+                                if (recoverySnapshots.itemRename) {
+                                    const { id, type, newName } = recoverySnapshots.itemRename;
                                     let itemToRename = null;
                                     let parentFolder = null;
 
                                     if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
                                         // 활성 폴더 또는 휴지통에서 폴더 찾기
                                         itemToRename = latestData.folders.find(f => f.id === id) || latestData.trash.find(item => item.id === id && item.type === 'folder');
-                                        if (itemToRename) {
+                                        const hasLatestNameConflict = latestData.folders.some(folder => (
+                                            folder.id !== id
+                                            && String(folder.name ?? '').trim().toLowerCase() === String(newName ?? '').trim().toLowerCase()
+                                        ));
+                                        if (!itemToRename) {
+                                            recoveryOutcome.itemRename = 'missing';
+                                        } else if (shouldDiscardEmergencyItemRename(recoverySnapshots.itemRename, renameTargetSnapshot)) {
+                                            recoveryOutcome.itemRename = 'stale';
+                                        } else if (hasLatestNameConflict) {
+                                            // 프롬프트 이후 실제 저장 직전에 생긴 충돌은 강제로 중복 이름을
+                                            // 만들지 않고, 해당 이름 변경 백업만 다음 재시도용으로 보존합니다.
+                                            recoveryOutcome.itemRename = 'conflict';
+                                        } else {
                                             itemToRename.name = newName;
                                             itemToRename.updatedAt = now;
+                                            recoveryOutcome.itemRename = 'applied';
                                             changesApplied = true;
                                         }
                                     } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
@@ -1001,28 +1072,62 @@ export const loadData = async () => {
                                             }
                                         }
                                         
-                                        if (itemToRename) {
+                                        if (!itemToRename) {
+                                            recoveryOutcome.itemRename = 'missing';
+                                        } else if (shouldDiscardEmergencyItemRename(recoverySnapshots.itemRename, renameTargetSnapshot)) {
+                                            recoveryOutcome.itemRename = 'stale';
+                                        } else {
                                             itemToRename.title = newName;
                                             itemToRename.updatedAt = now;
                                             if (parentFolder) parentFolder.updatedAt = now;
+                                            recoveryOutcome.itemRename = 'applied';
                                             changesApplied = true;
                                         }
                                     }
                                 }
 
                                 if (changesApplied) {
-                                    return { newData: latestData, successMessage: '✅ 변경사항이 성공적으로 복원되었습니다.' };
+                                    return {
+                                        newData: latestData,
+                                        successMessage: '✅ 변경사항이 성공적으로 복원되었습니다.',
+                                        payload: { recoveryOutcome: { ...recoveryOutcome } }
+                                    };
                                 }
                                 return null; // 적용할 변경이 없으면 업데이트 취소
                             });
-                            
+
+                            // 적용되었거나 최신 저장본에 이미 반영된 항목만, 복구 시작 때의
+                            // 정확한 스냅샷과 여전히 일치할 때 개별 정리합니다. 다른 항목의 실패나
+                            // 저장 대기 중 생성된 더 최신 백업은 그대로 남깁니다.
+                            const clearableWithoutCommit = new Set(['missing', 'stale']);
+                            const clearRecoveredEntry = entryKey => {
+                                const outcome = recoveryOutcome[entryKey];
+                                const wasCommitted = transactionResult.success && outcome === 'applied';
+                                if (!wasCommitted && !clearableWithoutCommit.has(outcome)) return;
+
+                                const expectedEntry = recoverySnapshots[entryKey];
+                                if (!expectedEntry) return;
+                                clearEmergencyChangesBackupEntry(
+                                    entryKey,
+                                    currentEntry => matchesEmergencyBackupSnapshot(entryKey, currentEntry, expectedEntry)
+                                );
+                            };
+                            clearRecoveredEntry('noteUpdate');
+                            clearRecoveredEntry('itemRename');
+
+                            const remainingEmergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                            expectedEmergencyBackupJSON = remainingEmergencyBackupJSON;
+                            emergencyBackupRemoved = remainingEmergencyBackupJSON === null;
+                            const hasPendingConflict = Object.values(recoveryOutcome).includes('conflict');
+
                             if (transactionResult.success) {
-                               // 복원에 성공했을 때만 비상 백업을 제거합니다.
-                               removeEmergencyBackup();
-                            } else if (shouldDiscardEmergencyBackupAfterTransaction(transactionResult)) {
-                               // 대상이 이미 삭제되어 적용할 변경이 없었던 경우에만 오래된 백업을 정리합니다.
-                               removeEmergencyBackup();
-                               showToast("복원 대상이 현재 데이터에 없어 비상 백업을 정리했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                                if (hasPendingConflict) {
+                                    showToast('폴더 이름 충돌로 적용하지 못한 이름 변경은 비상 백업에 보존했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+                                }
+                            } else if (transactionResult.failureReason === 'no-change' && !remainingEmergencyBackupJSON) {
+                               showToast("복원 대상이 현재 데이터에 없거나 이미 저장되어 비상 백업을 정리했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                            } else if (hasPendingConflict) {
+                               showToast('최신 폴더 이름과 충돌하여 이름 변경을 적용하지 않았습니다. 비상 백업은 보존했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
                             } else {
                                // 저장공간 부족, Storage API 오류, 잠금 실패 등에서는 유일한 미저장 사본을 보존합니다.
                                showToast("변경사항 복원 저장에 실패했습니다. 비상 백업은 보존되며 다음 실행에서 다시 복원할 수 있습니다.", CONSTANTS.TOAST_TYPE.ERROR);
