@@ -3560,10 +3560,20 @@
 
     function getRecentRecordsByDays(days) {
         if (AppState.records.length === 0) return [];
-        const lastDate = DateUtil.parse(AppState.records[AppState.records.length - 1].date);
-        const cutoff = new Date(lastDate);
-        cutoff.setDate(cutoff.getDate() - days);
-        return AppState.records.filter(r => DateUtil.parse(r.date) >= cutoff);
+
+        // "최근 N일"은 마지막 기록일이 아니라 실제 오늘을 기준으로 계산해야 합니다.
+        // 기록이 오래 중단된 상태에서 과거 기록을 현재 추세로 오인해 감량 속도나
+        // 목표일 예측에 사용하는 것을 막습니다. N일 구간은 오늘을 포함하므로 N-1일 전부터입니다.
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const safeDays = Math.max(1, Math.floor(Number(days) || 1));
+        const cutoff = new Date(today);
+        cutoff.setDate(cutoff.getDate() - (safeDays - 1));
+
+        return AppState.records.filter(r => {
+            const recordDate = DateUtil.parse(r.date);
+            return recordDate >= cutoff && recordDate <= today;
+        });
     }
 
     function calcWindowMetric(days) {
@@ -3610,10 +3620,20 @@
         const spanDays = Math.max(1, Math.round(DateUtil.daysBetween(firstDate, lastDate)) + 1);
         const uniqueDates = new Set(AppState.records.map(r => r.date));
         const fullAdherence = Math.min(100, uniqueDates.size / spanDays * 100);
-        const cutoff30 = new Date(lastDate);
+
+        // 최근 30일 성실도 역시 마지막 기록일이 아닌 오늘을 기준으로 계산합니다.
+        // 그렇지 않으면 수개월 전 기록을 마지막으로 중단한 사용자도 최근 성실도가
+        // 높게 표시되어 현재 기록 상태를 잘못 전달할 수 있습니다.
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const cutoff30 = new Date(today);
         cutoff30.setDate(cutoff30.getDate() - 29);
-        const recent30Records = AppState.records.filter(r => DateUtil.parse(r.date) >= cutoff30);
-        const recentSpan = Math.min(30, spanDays);
+        const recent30Records = AppState.records.filter(r => {
+            const recordDate = DateUtil.parse(r.date);
+            return recordDate >= cutoff30 && recordDate <= today;
+        });
+        const observedSpanThroughToday = Math.max(1, Math.round(DateUtil.daysBetween(firstDate, today)) + 1);
+        const recentSpan = Math.min(30, observedSpanThroughToday);
         const recentAdherence = Math.min(100, new Set(recent30Records.map(r => r.date)).size / recentSpan * 100);
         const gaps = [];
         for (let i = 1; i < AppState.records.length; i++) {
@@ -3631,9 +3651,14 @@
     function calcVolatility() {
         const diffs = [];
         for (let i = 1; i < AppState.records.length; i++) {
+            // 며칠~수개월 떨어진 두 기록의 차이를 하루 변동으로 계산하면 변동성,
+            // 급등락 횟수와 안전 경고가 크게 왜곡됩니다. 실제 연속 날짜만 일간 변화로 사용합니다.
+            if (!isNextCalendarDay(AppState.records[i - 1], AppState.records[i])) continue;
             diffs.push(AppState.records[i].weight - AppState.records[i - 1].weight);
         }
-        if (diffs.length === 0) return { meanAbsDiff: 0, diffStd: 0, spikeCount: 0, largestGain: 0, largestDrop: 0 };
+        if (diffs.length === 0) {
+            return { meanAbsDiff: 0, diffStd: 0, spikeCount: 0, largestGain: 0, largestDrop: 0, status: '데이터 부족' };
+        }
         const absDiffs = diffs.map(v => Math.abs(v));
         const meanAbsDiff = MathUtil.mean(absDiffs);
         const diffStd = MathUtil.stdDev(diffs);
@@ -3674,6 +3699,9 @@
         const total = Array(7).fill(0);
         const loss = Array(7).fill(0);
         for (let i = 1; i < AppState.records.length; i++) {
+            // 요일별 "하루 변화"는 바로 전날 기록이 있을 때만 계산합니다.
+            // 기록 공백 전체의 체중 변화를 다음 기록의 요일 하나에 귀속하지 않습니다.
+            if (!isNextCalendarDay(AppState.records[i - 1], AppState.records[i])) continue;
             const day = DateUtil.parse(AppState.records[i].date).getDay();
             const diff = AppState.records[i].weight - AppState.records[i - 1].weight;
             sum[day] += diff;
@@ -3718,7 +3746,9 @@
     function calcForecastContext(currentWeight, goalWeight) {
         const recent30 = getRecentRecordsByDays(30);
         const recent90 = getRecentRecordsByDays(90);
-        const trend = calcLinearTrend(recent30.length >= 4 ? recent30 : (recent90.length >= 4 ? recent90 : AppState.records));
+        // 현재 목표일 예측에 오래된 전체 기록을 폴백으로 사용하지 않습니다.
+        // 최근 90일 안에 최소 4개 기록이 없으면 현재 추세를 뒷받침할 자료가 부족합니다.
+        const trend = calcLinearTrend(recent30.length >= 4 ? recent30 : (recent90.length >= 4 ? recent90 : null));
         if (!trend || currentWeight <= goalWeight || trend.slopeKgPerDay >= -0.01) {
             return { available: false, trend };
         }
@@ -3764,7 +3794,9 @@
         const forecast = calcForecastContext(current, goalWeight);
         const safeWeeklyLow = current * 0.005;
         const safeWeeklyHigh = current * 0.01;
-        const activeRate = m30 || m14 || m7 || (allTrend ? { weeklyKg: allTrend.weeklyKg, percentWeekly: current ? allTrend.weeklyKg / current * 100 : 0, count: records.length } : null);
+        // "최근 대표 속도"에는 현재 기간 안의 기록만 사용합니다. 전체 과거 추세는
+        // 별도 전체 추세 항목으로 유지하되, 장기간 기록 공백이 있으면 현재 속도로 재사용하지 않습니다.
+        const activeRate = m30 || m14 || m7 || m90 || null;
         const activeWeeklyKg = activeRate ? activeRate.weeklyKg : 0;
         const activeWeeklyLoss = activeWeeklyKg < 0 ? Math.abs(activeWeeklyKg) : 0;
         let speedStatus = '평가 보류';
