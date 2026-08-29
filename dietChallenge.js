@@ -395,6 +395,28 @@
         getDaysInMonth: (year, month) => {
             return new Date(year, month + 1, 0).getDate();
         },
+        addMonthsClamped: (date, months) => {
+            const shiftedDate = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+            const monthOffset = Number(months);
+            if (Number.isNaN(shiftedDate.getTime()) || !Number.isInteger(monthOffset)) return null;
+
+            // Date#setMonth()는 3월 31일에서 한 달을 빼면 2월 말이 아니라
+            // 다시 3월로 넘칠 수 있습니다. 먼저 1일로 이동한 뒤 대상 월의
+            // 말일에 맞춰 원래 일자를 제한해 월간 필터 경계를 보존합니다.
+            const originalDay = shiftedDate.getDate();
+            shiftedDate.setDate(1);
+            shiftedDate.setMonth(shiftedDate.getMonth() + monthOffset);
+            shiftedDate.setDate(Math.min(
+                originalDay,
+                DateUtil.getDaysInMonth(shiftedDate.getFullYear(), shiftedDate.getMonth())
+            ));
+            return shiftedDate;
+        },
+        addYearsClamped: (date, years) => {
+            const yearOffset = Number(years);
+            if (!Number.isInteger(yearOffset)) return null;
+            return DateUtil.addMonthsClamped(date, yearOffset * 12);
+        },
         getWeekNumber: (d) => {
             d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
             d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
@@ -620,6 +642,30 @@
             hasRenderedNonEmptyRecords: false,
             recordsLoadFailed: false
         }
+    };
+
+    // JSON/CSV 복원은 같은 기록 저장소를 갱신합니다. 두 FileReader가 겹치면
+    // 먼저 성공한 복원 결과를 늦게 끝난 작업이 다시 덮어쓸 수 있으므로,
+    // 파일 읽기 시작부터 저장·화면 갱신 완료까지 하나의 작업만 허용합니다.
+    let dietImportOperationInProgress = false;
+    const setDietImportControlsDisabled = (disabled) => {
+        ['btn-import-json', 'btn-import-csv', 'jsonFileInput', 'csvImportInput'].forEach(id => {
+            const element = AppState.getEl(id);
+            if (element) element.disabled = disabled;
+        });
+    };
+    const beginDietImport = () => {
+        if (dietImportOperationInProgress) {
+            showToast('이미 다른 데이터 복원이 진행 중입니다. 현재 작업이 끝난 뒤 다시 시도해주세요.');
+            return false;
+        }
+        dietImportOperationInProgress = true;
+        setDietImportControlsDisabled(true);
+        return true;
+    };
+    const finishDietImport = () => {
+        dietImportOperationInProgress = false;
+        setDietImportControlsDisabled(false);
     };
 
     // JSON boolean/배열/객체가 Number()에서 숫자로 바뀌는 타입 혼동을 막습니다.
@@ -1461,6 +1507,7 @@
     function importJSON() {
         const file = AppState.getEl('jsonFileInput').files[0];
         if (!file) return showToast('JSON 파일을 선택해주세요.');
+        if (!beginDietImport()) return;
         
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -1502,68 +1549,108 @@
                 showToast(`데이터(JSON) 복원 완료: ${AppState.records.length}건`);
             } catch(err) {
                 showToast('JSON 파일 오류: ' + err.message);
+            } finally {
+                finishDietImport();
             }
         };
-        reader.readAsText(file);
+        reader.onerror = function() {
+            console.error('JSON file read failed:', reader.error);
+            showToast('JSON 파일을 읽을 수 없습니다. 파일 상태를 확인해주세요.');
+            finishDietImport();
+        };
+        reader.onabort = function() {
+            showToast('JSON 파일 읽기가 취소되었습니다.');
+            finishDietImport();
+        };
+        try {
+            reader.readAsText(file);
+        } catch (readError) {
+            console.error('JSON file read could not be started:', readError);
+            showToast('JSON 파일을 읽을 수 없습니다. 파일 상태를 확인해주세요.');
+            finishDietImport();
+        }
     }
 
     function importCSV() {
         const file = AppState.getEl('csvImportInput').files[0];
         if (!file) return showToast('CSV 파일을 선택해주세요.');
+        if (!beginDietImport()) return;
 
         const reader = new FileReader();
         reader.onload = function(e) {
-            const content = getFileReaderText(e);
-            if (!content) return showToast('CSV 파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
-            const lines = content.split(/\r?\n/);
-            let count = 0;
-            let rejectedCount = 0;
-            const nextRecords = cloneDietRecords(AppState.records);
-            
-            for(let i=0; i<lines.length; i++) {
-                const line = lines[i].trim();
-                if(!line || line.toLowerCase().startsWith('date')) continue; 
+            try {
+                const content = getFileReaderText(e);
+                if (!content) return showToast('CSV 파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
+                const lines = content.split(/\r?\n/);
+                let count = 0;
+                let rejectedCount = 0;
+                const nextRecords = cloneDietRecords(AppState.records);
                 
-                const matches = parseCsvLineSafely(line);
-                
-                if(matches.length >= 2) {
-                    const d = matches[0].trim().replace(/['"]/g, ''); 
-                    const weightText = String(matches[1] ?? '').trim();
-                    const fatText = String(matches[2] ?? '').trim();
-                    const w = Number(weightText);
-                    const hasFat = fatText !== '';
-                    const fat = hasFat ? Number(fatText) : undefined;
+                for(let i=0; i<lines.length; i++) {
+                    const line = lines[i].trim();
+                    if(!line || line.toLowerCase().startsWith('date')) continue; 
+                    
+                    const matches = parseCsvLineSafely(line);
+                    
+                    if(matches.length >= 2) {
+                        const d = matches[0].trim().replace(/['"]/g, ''); 
+                        const weightText = String(matches[1] ?? '').trim();
+                        const fatText = String(matches[2] ?? '').trim();
+                        const w = Number(weightText);
+                        const hasFat = fatText !== '';
+                        const fat = hasFat ? Number(fatText) : undefined;
 
-                    // parseFloat('77kg')나 잘못된 체지방 문자열을 부분적으로 받아들이면,
-                    // 같은 날짜의 정상 기록을 덮어쓰면서 기존 체지방률만 조용히 삭제될 수 있습니다.
-                    if (!weightText || !Number.isFinite(w) || (hasFat && !Number.isFinite(fat))) {
-                        rejectedCount++;
-                        continue;
-                    }
+                        // parseFloat('77kg')나 잘못된 체지방 문자열을 부분적으로 받아들이면,
+                        // 같은 날짜의 정상 기록을 덮어쓰면서 기존 체지방률만 조용히 삭제될 수 있습니다.
+                        if (!weightText || !Number.isFinite(w) || (hasFat && !Number.isFinite(fat))) {
+                            rejectedCount++;
+                            continue;
+                        }
 
-                    const rec = sanitizeDietRecord({ date: d, weight: w, fat });
-                    if(rec) {
-                        const idx = nextRecords.findIndex(r => r.date === rec.date);
-                        if(idx >= 0) nextRecords[idx] = rec;
-                        else nextRecords.push(rec);
-                        count++;
+                        const rec = sanitizeDietRecord({ date: d, weight: w, fat });
+                        if(rec) {
+                            const idx = nextRecords.findIndex(r => r.date === rec.date);
+                            if(idx >= 0) nextRecords[idx] = rec;
+                            else nextRecords.push(rec);
+                            count++;
+                        } else {
+                            rejectedCount++;
+                        }
                     } else {
                         rejectedCount++;
                     }
-                } else {
-                    rejectedCount++;
                 }
+                const sanitizedRecords = sanitizeDietRecords(nextRecords);
+                if (!persistDietRecordsImmediate(sanitizedRecords)) return;
+                AppState.records = sanitizedRecords;
+                AppState.state.isDirty = true;
+                
+                updateUI();
+                const rejectedMessage = rejectedCount > 0 ? ` (잘못된 행 ${rejectedCount}건은 기존 데이터를 보호하기 위해 건너뜀)` : '';
+                showToast(`${count}건의 데이터(CSV)를 불러왔습니다.${rejectedMessage}`);
+            } catch (importError) {
+                console.error('CSV import failed:', importError);
+                showToast('CSV 파일 오류: ' + importError.message);
+            } finally {
+                finishDietImport();
             }
-            const sanitizedRecords = sanitizeDietRecords(nextRecords);
-            if (!persistDietRecordsImmediate(sanitizedRecords)) return;
-            AppState.records = sanitizedRecords;
-            AppState.state.isDirty = true;
-            
-            updateUI();
-            const rejectedMessage = rejectedCount > 0 ? ` (잘못된 행 ${rejectedCount}건은 기존 데이터를 보호하기 위해 건너뜀)` : '';
-            showToast(`${count}건의 데이터(CSV)를 불러왔습니다.${rejectedMessage}`);
         };
-        reader.readAsText(file);
+        reader.onerror = function() {
+            console.error('CSV file read failed:', reader.error);
+            showToast('CSV 파일을 읽을 수 없습니다. 파일 상태를 확인해주세요.');
+            finishDietImport();
+        };
+        reader.onabort = function() {
+            showToast('CSV 파일 읽기가 취소되었습니다.');
+            finishDietImport();
+        };
+        try {
+            reader.readAsText(file);
+        } catch (readError) {
+            console.error('CSV file read could not be started:', readError);
+            showToast('CSV 파일을 읽을 수 없습니다. 파일 상태를 확인해주세요.');
+            finishDietImport();
+        }
     }
 
 	function exportCSV() {
@@ -1781,7 +1868,7 @@
         }
 
         const thisMonthKey = DateUtil.format(now).slice(0, 7);
-        const lastMonthDate = new Date(); lastMonthDate.setMonth(now.getMonth()-1);
+        const lastMonthDate = DateUtil.addMonthsClamped(now, -1);
         const lastMonthKey = DateUtil.format(lastMonthDate).slice(0, 7);
         const thisMonthRecs = records.filter(r => r.date.startsWith(thisMonthKey));
         const lastMonthRecs = records.filter(r => r.date.startsWith(lastMonthKey));
@@ -3224,8 +3311,8 @@
         const table = AppState.getEl('periodCompareTable');
         if (!table) return;
         const now = new Date();
-        const threeMonthsAgo = new Date(now); threeMonthsAgo.setMonth(now.getMonth() - 3);
-        const oneYearAgo = new Date(now); oneYearAgo.setFullYear(now.getFullYear() - 1);
+        const threeMonthsAgo = DateUtil.addMonthsClamped(now, -3);
+        const oneYearAgo = DateUtil.addYearsClamped(now, -1);
         
         const getStats = (startDate, endDate) => {
             const recs = AppState.records.filter(r => {
@@ -3241,7 +3328,7 @@
         };
 
         const currentStats = getStats(threeMonthsAgo, now);
-        const pastStats = getStats(new Date(oneYearAgo.setMonth(oneYearAgo.getMonth()-3)), new Date(now.getFullYear()-1, now.getMonth(), now.getDate()));
+        const pastStats = getStats(DateUtil.addMonthsClamped(oneYearAgo, -3), oneYearAgo);
 
         let rows = [];
         if (currentStats) {
@@ -4524,13 +4611,13 @@
         const now = new Date(); now.setHours(0,0,0,0);
 
         if(AppState.chartFilterMode === '1M') { 
-            start = new Date(now); start.setMonth(start.getMonth()-1); 
+            start = DateUtil.addMonthsClamped(now, -1);
         } else if(AppState.chartFilterMode === '3M') { 
-            start = new Date(now); start.setMonth(start.getMonth()-3); 
+            start = DateUtil.addMonthsClamped(now, -3);
         } else if(AppState.chartFilterMode === '6M') { 
-            start = new Date(now); start.setMonth(start.getMonth()-6);
+            start = DateUtil.addMonthsClamped(now, -6);
         } else if(AppState.chartFilterMode === '1Y') { 
-            start = new Date(now); start.setFullYear(start.getFullYear()-1);
+            start = DateUtil.addYearsClamped(now, -1);
         } else if(AppState.chartFilterMode === 'CUSTOM' && AppState.customStart) { 
             start = DateUtil.parse(AppState.customStart);
             end = DateUtil.parse(AppState.customEnd); end.setHours(23,59,59,999);
@@ -5691,8 +5778,7 @@
         if(!container || AppState.records.length === 0) return;
         
         const now = new Date();
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(now.getFullYear() - 1);
+        const oneYearAgo = DateUtil.addYearsClamped(now, -1);
         
         const deltaMap = {};
         let maxDelta = 0;
@@ -5969,7 +6055,7 @@
         }
 
         const end = new Date();
-        const start = new Date(); start.setFullYear(start.getFullYear()-1);
+        const start = DateUtil.addYearsClamped(end, -1);
         
         const fragment = document.createDocumentFragment();
         const template = DomUtil.getTemplate('template-heatmap-cell');
@@ -6543,7 +6629,7 @@
             if(s.max - s.current >= 10) flags.reborn = true;
 
             if(AppState.records.length >= 90) {
-                const threeMonthsAgo = new Date(); threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
+                const threeMonthsAgo = DateUtil.addMonthsClamped(new Date(), -3);
                 const recs = AppState.records.filter(r => DateUtil.parse(r.date) >= threeMonthsAgo);
                 if(recs.length > 0) {
                     const loss = MathUtil.diff(recs[0].weight, s.current);
@@ -6553,7 +6639,7 @@
             }
 
             if(AppState.records.length >= 30) {
-                const oneMonthAgo = new Date(); oneMonthAgo.setMonth(oneMonthAgo.getMonth()-1);
+                const oneMonthAgo = DateUtil.addMonthsClamped(new Date(), -1);
                 const rec = AppState.records.find(r => DateUtil.parse(r.date) >= oneMonthAgo);
                 if(rec && (rec.weight - s.current >= 4)) flags.weightExpert = true;
             }

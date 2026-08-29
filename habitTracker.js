@@ -29,6 +29,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return element && typeof element.closest === 'function' ? element.closest(selector) : null;
     };
 
+    const getPreviousCalendarYearRangeStart = (endDate) => {
+        const sourceDate = endDate instanceof Date ? new Date(endDate.getTime()) : new Date(endDate);
+        if (Number.isNaN(sourceDate.getTime())) return null;
+
+        // 2월 29일에 setFullYear()를 직접 호출하면 3월로 넘친 뒤 일자를 한 번 더
+        // 더하는 과정에서 연간 통계 시작일이 최대 한 달 가까이 밀릴 수 있습니다.
+        const sourceMonth = sourceDate.getMonth();
+        const sourceDay = sourceDate.getDate();
+        sourceDate.setDate(1);
+        sourceDate.setFullYear(sourceDate.getFullYear() - 1);
+        sourceDate.setMonth(sourceMonth);
+        const lastDayOfTargetMonth = new Date(
+            sourceDate.getFullYear(),
+            sourceMonth + 1,
+            0
+        ).getDate();
+        sourceDate.setDate(Math.min(sourceDay, lastDayOfTargetMonth));
+        sourceDate.setDate(sourceDate.getDate() + 1);
+        return sourceDate;
+    };
+
     const app = {
         state: {
             // --- MODIFIED: 데이터 버전 관리 기능 추가 ---
@@ -1131,8 +1152,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     startDate.setDate(today.getDate() - 29);
                     break;
                 case 'yearly':
-                    startDate.setFullYear(today.getFullYear() - 1);
-                    startDate.setDate(today.getDate() + 1);
+                    startDate = getPreviousCalendarYearRangeStart(today);
                     break;
                 case 'weekly':
                 default:
@@ -2032,9 +2052,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const endDate = new Date();
             endDate.setHours(0, 0, 0, 0);
 
-            const startDate = new Date(endDate);
-            startDate.setFullYear(endDate.getFullYear() - 1);
-            startDate.setDate(startDate.getDate() + 1);
+            const startDate = getPreviousCalendarYearRangeStart(endDate);
 
             // 표시 구간의 첫 날짜가 속한 일요일을 1열의 기준점으로 삼습니다.
             // 달력 연도가 바뀌어도 열 번호가 0으로 되돌아가지 않아 모든 날짜가
