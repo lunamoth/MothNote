@@ -33,6 +33,52 @@ export const confirmNavigation = async () => {
     return await saveCurrentNoteIfChanged();
 };
 
+// 저장/이름 변경을 기다리는 사이 현재 목록이 바뀔 수 있으므로,
+// 실제로 현재 화면에 속한 항목인지 마지막 순간에 다시 확인합니다.
+// 휴지통은 노트와 폴더를 같은 목록에 표시하므로 findNote()만으로 검사하지 않습니다.
+const isSelectableItemInCurrentView = (itemId) => {
+    if (itemId === null || itemId === undefined) return true;
+
+    const normalizedId = String(itemId);
+    if (state.dateFilter) {
+        const entry = state.noteMap.get(normalizedId);
+        return Boolean(entry?.note && toYYYYMMDD(entry.note.createdAt) === toYYYYMMDD(state.dateFilter));
+    }
+
+    const { item: currentFolder } = findFolder(state.activeFolderId);
+    return Array.isArray(currentFolder?.notes)
+        && currentFolder.notes.some(item => String(item?.id ?? '') === normalizedId);
+};
+
+const fallbackToAllNotesForMissingFolder = (missingFolderId) => {
+    console.warn('Requested folder no longer exists. Falling back to All Notes:', missingFolderId);
+
+    const allNotes = Array.from(state.noteMap.values()).map(entry => entry.note);
+    const rememberedNoteId = state.lastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
+    const fallbackNoteId = rememberedNoteId && allNotes.some(note => note.id === rememberedNoteId)
+        ? rememberedNoteId
+        : sortNotes(allNotes, state.noteSortOrder)[0]?.id ?? null;
+    const nextLastActiveNotePerFolder = { ...state.lastActiveNotePerFolder };
+    if (fallbackNoteId) {
+        nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id] = fallbackNoteId;
+    } else {
+        delete nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
+    }
+
+    setState({
+        activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
+        activeNoteId: fallbackNoteId,
+        lastActiveNotePerFolder: nextLastActiveNotePerFolder,
+        dateFilter: null,
+        preSearchActiveNoteId: null,
+        searchTerm: ''
+    });
+    if (searchInput) searchInput.value = '';
+    saveSession();
+    showToast('선택한 폴더를 찾을 수 없어 모든 노트 보기로 이동했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+    return false;
+};
+
 export const changeActiveNote = async (newNoteId) => {
     const requestVersion = ++navigationRequestVersion;
     const isLatestRequest = () => requestVersion === navigationRequestVersion;
@@ -46,10 +92,23 @@ export const changeActiveNote = async (newNoteId) => {
         return false; // 이름 변경 실패 시 작업 중단하고 실패를 반환
     }
 
+    // 대상이 이미 사라졌다면 오래된 DOM 이벤트가 세션에 잘못된 ID를 남기지 않게 합니다.
+    if (!isSelectableItemInCurrentView(newNoteId)) {
+        showToast('선택한 항목이 더 이상 현재 목록에 없어 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+
     if (state.activeNoteId === newNoteId) return true;
 
     const canNavigate = await confirmNavigation();
     if (!isLatestRequest() || !canNavigate) return false;
+
+    // confirmNavigation()의 저장 대기 중 삭제/복원/가져오기 등으로 목록이 교체될 수 있습니다.
+    // 대기 전 검증 결과를 신뢰하지 말고 최신 상태에서 한 번 더 확인합니다.
+    if (!isSelectableItemInCurrentView(newNoteId)) {
+        showToast('선택한 항목이 더 이상 현재 목록에 없어 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
 
     if (newNoteId && state.activeFolderId) {
         setState({
@@ -78,7 +137,7 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
         return false; // 이름 변경 실패 시 작업 중단
     }
 
-    const { item: folder } = findFolder(newFolderId);
+    let { item: folder } = findFolder(newFolderId);
     if (!folder) {
         // [MAJOR BUG FIX] 오래된 DOM 이벤트, 손상된 세션, 가져오기 직후 상태 불일치 등으로
         // 존재하지 않는 폴더 ID가 들어오면 잘못된 activeFolderId를 저장하지 않고 안전한 기본 보기로 복귀합니다.
@@ -87,32 +146,7 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
             if (!isLatestRequest() || !canNavigate) return false;
         }
         if (!isLatestRequest()) return false;
-        console.warn('Requested folder does not exist. Falling back to All Notes:', newFolderId);
-
-        const allNotes = Array.from(state.noteMap.values()).map(entry => entry.note);
-        const rememberedNoteId = state.lastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
-        const fallbackNoteId = rememberedNoteId && allNotes.some(note => note.id === rememberedNoteId)
-            ? rememberedNoteId
-            : sortNotes(allNotes, state.noteSortOrder)[0]?.id ?? null;
-        const nextLastActiveNotePerFolder = { ...state.lastActiveNotePerFolder };
-        if (fallbackNoteId) {
-            nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id] = fallbackNoteId;
-        } else {
-            delete nextLastActiveNotePerFolder[CONSTANTS.VIRTUAL_FOLDERS.ALL.id];
-        }
-
-        setState({
-            activeFolderId: CONSTANTS.VIRTUAL_FOLDERS.ALL.id,
-            activeNoteId: fallbackNoteId,
-            lastActiveNotePerFolder: nextLastActiveNotePerFolder,
-            dateFilter: null,
-            preSearchActiveNoteId: null,
-            searchTerm: ''
-        });
-        if (searchInput) searchInput.value = '';
-        saveSession();
-        showToast('선택한 폴더를 찾을 수 없어 모든 노트 보기로 이동했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
-        return false;
+        return fallbackToAllNotesForMissingFolder(newFolderId);
     }
 
     if (state.activeFolderId === newFolderId && !state.dateFilter) {
@@ -128,6 +162,13 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
         if (!isLatestRequest() || !canNavigate) return false;
     }
     if (!isLatestRequest()) return false;
+
+    // 저장을 기다리는 동안 대상 폴더가 삭제·복원·가져오기 등으로 교체될 수 있습니다.
+    // 이전 객체 참조를 사용하면 사라진 폴더 ID를 다시 활성 상태와 세션에 기록할 수 있으므로 재조회합니다.
+    ({ item: folder } = findFolder(newFolderId));
+    if (!folder) {
+        return fallbackToAllNotesForMissingFolder(newFolderId);
+    }
     
     const notesInFolder = Array.isArray(folder.notes) ? folder.notes : [];
     

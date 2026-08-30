@@ -1787,18 +1787,33 @@ export const handleExport = async (settings) => {
         }
         const exportState = exportVerification.sanitizedData;
 
+        // 핵심 노트 데이터는 chrome.storage.local에 있으므로, 부가 localStorage 한 항목의
+        // 읽기 실패가 전체 백업을 막지 않게 각각 독립적으로 읽습니다.
+        // 읽기 실패와 실제 값 null을 구분해, 실패한 부가 항목은 백업에서 생략합니다.
+        const readOptionalLocalStorageForExport = (key, label) => {
+            try {
+                return { ok: true, value: localStorage.getItem(key) };
+            } catch (readError) {
+                console.warn(`${label} 데이터를 읽지 못해 해당 항목을 제외하고 핵심 백업을 계속합니다.`, readError);
+                return { ok: false, value: null };
+            }
+        };
+
         let settingsToExport = sanitizeSettings(settings);
-        const storedSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-        if (storedSettings) {
-            try { settingsToExport = sanitizeSettings(JSON.parse(storedSettings)); }
+        const storedSettingsResult = readOptionalLocalStorageForExport(CONSTANTS.LS_KEY_SETTINGS, '설정');
+        if (storedSettingsResult.ok && storedSettingsResult.value) {
+            try { settingsToExport = sanitizeSettings(JSON.parse(storedSettingsResult.value)); }
             catch (settingsError) { console.warn('저장된 설정을 읽지 못해 현재 설정을 백업합니다.', settingsError); }
         }
 
         // [기능 추가] localStorage에서 습관 트래커 데이터 가져오기
-        const habitTrackerData = localStorage.getItem(HABIT_TRACKER_DATA_KEY);
+        const habitTrackerResult = readOptionalLocalStorageForExport(HABIT_TRACKER_DATA_KEY, '습관 트래커');
+        const habitTrackerData = habitTrackerResult.value;
         // [기능 추가] localStorage에서 다이어트 챌린지 데이터 가져오기
-        const dietChallengeData = localStorage.getItem(DIET_CHALLENGE_DATA_KEY);
-        const dietChallengeSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
+        const dietChallengeResult = readOptionalLocalStorageForExport(DIET_CHALLENGE_DATA_KEY, '다이어트 챌린지');
+        const dietChallengeSettingsResult = readOptionalLocalStorageForExport(DIET_CHALLENGE_SETTINGS_KEY, '다이어트 챌린지 설정');
+        const dietChallengeData = dietChallengeResult.value;
+        const dietChallengeSettings = dietChallengeSettingsResult.value;
         let habitTrackerDataForExport = null;
         if (habitTrackerData) {
             try {
@@ -1852,11 +1867,11 @@ export const handleExport = async (settings) => {
             favorites: Array.isArray(exportState.favorites) ? exportState.favorites : [],
             lastActiveNotePerFolder: lastActiveNotePerFolderForExport,
             lastSavedTimestamp: exportState.lastSavedTimestamp || Date.now(),
-            // [기능 추가] 습관 트래커 데이터가 있으면 포함시킵니다.
-            habitTrackerData: habitTrackerDataForExport,
-            // [기능 추가] 다이어트 챌린지 데이터가 있으면 포함시킵니다.
-            dietChallengeData: dietChallengeData, // 문자열 그대로 저장
-            dietChallengeSettings: dietChallengeSettings // 문자열 그대로 저장
+            // localStorage 읽기 자체가 실패한 항목은 null로 가장하지 않고 키를 생략합니다.
+            // 그래야 이 백업을 다시 가져올 때 정상적인 기존 부가 데이터를 잘못 지우지 않습니다.
+            ...(habitTrackerResult.ok ? { habitTrackerData: habitTrackerDataForExport } : {}),
+            ...(dietChallengeResult.ok ? { dietChallengeData: dietChallengeData } : {}),
+            ...(dietChallengeSettingsResult.ok ? { dietChallengeSettings: dietChallengeSettings } : {})
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
