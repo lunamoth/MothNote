@@ -616,6 +616,7 @@
     const AppState = {
         STORAGE_KEY: 'diet_pro_records',
         SETTINGS_KEY: 'diet_pro_settings',
+        INLINE_EDIT_DRAFT_KEY: 'diet_pro_inline_edit_draft',
         FILTER_KEY: 'diet_pro_filter_mode',
         CUSTOM_FILTER_START_KEY: 'diet_pro_filter_custom_start',
         CUSTOM_FILTER_END_KEY: 'diet_pro_filter_custom_end',
@@ -635,6 +636,7 @@
         },
         state: {
             editingDate: null,
+            inlineEditDraft: null,
             statsCache: null,
             isDirty: true,
             calendarViewDate: new Date(),
@@ -1127,6 +1129,7 @@
         AppState.records = persistedDietState.records;
         AppState.settings = persistedDietState.settings;
         AppState.state.recordsLoadFailed = persistedDietState.recordsLoadFailed;
+        restoreInlineEditDraftFromSession();
 
         try {
             const persistedFilterMode = sanitizeChartFilterMode(localStorage.getItem(AppState.FILTER_KEY));
@@ -1203,6 +1206,16 @@
 
         const histList = AppState.getEl('historyList');
         if (histList) {
+            histList.addEventListener('input', (e) => {
+                const input = getClosestElement(e.target, 'input[data-inline-field][data-date]');
+                const draft = AppState.state.inlineEditDraft;
+                if (!input || !draft || input.dataset.date !== draft.date) return;
+
+                if (input.dataset.inlineField === 'weight') draft.weight = input.value;
+                if (input.dataset.inlineField === 'fat') draft.fat = input.value;
+                persistInlineEditDraftToSession();
+            });
+
             histList.addEventListener('click', (e) => {
                 const btn = getClosestElement(e.target, 'button');
                 if (!btn) return;
@@ -1697,6 +1710,10 @@
 
     // --- 4. 메인 렌더링 함수 ---
     function updateUI() {
+        // 테마/필터/설정 변경도 전체 표를 다시 그립니다. 렌더링 전에 현재 입력값을
+        // 메모리 초안으로 옮겨, 저장 버튼을 누르기 전의 인라인 편집이 사라지지 않게 합니다.
+        captureInlineEditDraftFromDom();
+
         // 이미 데이터를 렌더링한 화면에서 마지막 기록을 삭제하거나,
         // 전체 초기화·빈 백업 복원을 하면 여러 차트/통계 함수의 조기 return 때문에
         // 삭제된 체중·체지방 값이 DOM과 Chart 인스턴스에 남을 수 있습니다.
@@ -6436,6 +6453,150 @@
         AppState.getEl('milestoneTableBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="3">아직 기록된 마일스톤이 없습니다.</td></tr>';
     }
 
+    let inlineEditDraftStorageWarningShown = false;
+
+    function persistInlineEditDraftToSession() {
+        if (typeof sessionStorage === 'undefined') return;
+
+        try {
+            const draft = AppState.state.inlineEditDraft;
+            if (draft) sessionStorage.setItem(AppState.INLINE_EDIT_DRAFT_KEY, JSON.stringify(draft));
+            else sessionStorage.removeItem(AppState.INLINE_EDIT_DRAFT_KEY);
+        } catch (error) {
+            if (!inlineEditDraftStorageWarningShown) {
+                console.warn('Diet inline edit draft could not be stored for this session.', error);
+                inlineEditDraftStorageWarningShown = true;
+            }
+        }
+    }
+
+    function setInlineEditDraft(draft) {
+        AppState.state.inlineEditDraft = draft;
+        persistInlineEditDraftToSession();
+    }
+
+    function clearInlineEditDraft() {
+        setInlineEditDraft(null);
+    }
+
+    function restoreInlineEditDraftFromSession() {
+        // 체중 기록 원본을 읽지 못한 보호 상태에서는, 원본이 없는 것으로 오인해
+        // 세션 초안까지 삭제하지 않습니다.
+        if (AppState.state.recordsLoadFailed || typeof sessionStorage === 'undefined') return;
+
+        try {
+            const storedDraft = sessionStorage.getItem(AppState.INLINE_EDIT_DRAFT_KEY);
+            if (!storedDraft) return;
+
+            const parsedDraft = JSON.parse(storedDraft);
+            const date = String(parsedDraft?.date ?? '');
+            const weight = parsedDraft?.weight;
+            const fat = parsedDraft?.fat;
+            const sourceWeight = Number(parsedDraft?.sourceWeight);
+            const hasSourceFat = parsedDraft?.sourceFat !== null;
+            const sourceFat = hasSourceFat ? Number(parsedDraft?.sourceFat) : null;
+            const hasScalarDraftValues = (typeof weight === 'string' || typeof weight === 'number')
+                && (typeof fat === 'string' || typeof fat === 'number');
+
+            if (!DateUtil.isValidDateString(date)
+                || !hasScalarDraftValues
+                || String(weight).length > 64
+                || String(fat).length > 64
+                || !Number.isFinite(sourceWeight)
+                || (hasSourceFat && !Number.isFinite(sourceFat))) {
+                throw new Error('Invalid inline edit draft structure.');
+            }
+
+            const normalizedDraft = {
+                date,
+                weight: String(weight),
+                fat: String(fat),
+                sourceWeight,
+                sourceFat
+            };
+            const sourceRecord = AppState.records.find(record => record.date === date);
+            if (!isInlineEditSourceUnchanged(normalizedDraft, sourceRecord)) {
+                clearInlineEditDraft();
+                return;
+            }
+
+            AppState.state.inlineEditDraft = normalizedDraft;
+        } catch (error) {
+            console.warn('Invalid diet inline edit draft was discarded.', error);
+            clearInlineEditDraft();
+        }
+    }
+
+    function captureInlineEditDraftFromDom() {
+        const draft = AppState.state.inlineEditDraft;
+        if (!draft || !DateUtil.isValidDateString(draft.date)) return;
+
+        const weightInput = document.getElementById(`inline-weight-${draft.date}`);
+        const fatInput = document.getElementById(`inline-fat-${draft.date}`);
+        if (weightInput) draft.weight = weightInput.value;
+        if (fatInput) draft.fat = fatInput.value;
+        if (weightInput || fatInput) persistInlineEditDraftToSession();
+    }
+
+    function isInlineEditSourceUnchanged(draft, record) {
+        if (!draft || !record) return false;
+        const recordFat = Object.prototype.hasOwnProperty.call(record, 'fat') ? record.fat : null;
+        return record.weight === draft.sourceWeight && recordFat === draft.sourceFat;
+    }
+
+    function applyInlineEditDraftToRow({ focusField = null } = {}) {
+        const draft = AppState.state.inlineEditDraft;
+        if (!draft || !DateUtil.isValidDateString(draft.date)) return false;
+
+        const record = AppState.records.find(item => item.date === draft.date);
+        if (!isInlineEditSourceUnchanged(draft, record)) {
+            clearInlineEditDraft();
+            if (record) showToast('원본 기록이 변경되어 오래된 인라인 편집을 취소했습니다.');
+            return false;
+        }
+
+        const safeDateSelector = escapeCssAttributeValue(draft.date);
+        const btn = document.querySelector(`button[data-date="${safeDateSelector}"][data-action="edit"]`);
+        const tr = btn?.closest('tr');
+        if (!tr || tr.cells.length < 5) return false;
+
+        const createInput = (field, value, step) => {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'inline-input';
+            input.id = `inline-${field}-${draft.date}`;
+            input.dataset.inlineField = field;
+            input.dataset.date = draft.date;
+            input.step = step;
+            input.value = value;
+            return input;
+        };
+
+        const weightInput = createInput('weight', draft.weight, '0.1');
+        const fatInput = createInput('fat', draft.fat, '0.1');
+        tr.cells[1].replaceChildren(weightInput);
+        tr.cells[2].replaceChildren(fatInput);
+        tr.cells[3].textContent = '-';
+
+        const saveButton = document.createElement('button');
+        saveButton.dataset.action = 'save-inline';
+        saveButton.dataset.date = draft.date;
+        saveButton.className = 'inline-btn';
+        saveButton.title = '저장';
+        saveButton.textContent = '💾';
+
+        const cancelButton = document.createElement('button');
+        cancelButton.dataset.action = 'cancel-inline';
+        cancelButton.className = 'inline-btn';
+        cancelButton.title = '취소';
+        cancelButton.textContent = '❌';
+        tr.cells[4].replaceChildren(saveButton, cancelButton);
+
+        if (focusField === 'weight') weightInput.focus();
+        if (focusField === 'fat') fatInput.focus();
+        return true;
+    }
+
     function renderHistoryTable() {
         const container = AppState.getEl('historyList');
         const template = DomUtil.getTemplate('template-history-row');
@@ -6469,6 +6630,7 @@
             fragment.appendChild(clone);
         });
         DomUtil.clearAndAppend(container, fragment);
+        applyInlineEditDraftToRow();
     }
 
 	function renderBadges(s) {
@@ -7013,31 +7175,43 @@
         
         enableInlineEdit: function(date) {
             if (!DateUtil.isValidDateString(date)) return;
-            const safeDateSelector = escapeCssAttributeValue(date);
-            const btn = document.querySelector(`button[data-date="${safeDateSelector}"][data-action="edit"]`);
-            if(!btn) return;
-            const tr = btn.closest('tr');
-            const record = AppState.records.find(r => r.date === date);
-            if(!record || !tr || tr.cells.length < 5) return;
+            captureInlineEditDraftFromDom();
 
-            tr.cells[1].innerHTML = `<input type="number" class="inline-input" id="inline-weight-${date}" value="${record.weight}" step="0.1">`;
-            tr.cells[2].innerHTML = `<input type="number" class="inline-input" id="inline-fat-${date}" value="${record.fat || ''}" step="0.1">`;
-            tr.cells[3].innerText = '-';
-            tr.cells[4].innerHTML = `
-                <button data-action="save-inline" data-date="${date}" class="inline-btn" title="저장">💾</button>
-                <button data-action="cancel-inline" class="inline-btn" title="취소">❌</button>
-            `;
+            const currentDraft = AppState.state.inlineEditDraft;
+            if (currentDraft && currentDraft.date !== date) {
+                const activeInput = document.getElementById(`inline-weight-${currentDraft.date}`);
+                if (activeInput) activeInput.focus();
+                showToast('편집 중인 기록을 먼저 저장하거나 취소해주세요.');
+                return;
+            }
+
+            const record = AppState.records.find(r => r.date === date);
+            if(!record) return;
+
+            if (!currentDraft) {
+                setInlineEditDraft({
+                    date,
+                    weight: String(record.weight),
+                    fat: Object.prototype.hasOwnProperty.call(record, 'fat') ? String(record.fat) : '',
+                    sourceWeight: record.weight,
+                    sourceFat: Object.prototype.hasOwnProperty.call(record, 'fat') ? record.fat : null
+                });
+            }
+
+            applyInlineEditDraftToRow({ focusField: 'weight' });
         },
 
         saveInlineEdit: function(date) {
             if (!DateUtil.isValidDateString(date)) return showToast('잘못된 기록 날짜입니다.');
+            captureInlineEditDraftFromDom();
+            const draft = AppState.state.inlineEditDraft;
+            if (!draft || draft.date !== date) return showToast('저장할 인라인 편집 내용을 찾지 못했습니다.');
+
             const wInput = document.getElementById(`inline-weight-${date}`);
             const fInput = document.getElementById(`inline-fat-${date}`);
-            
-            if(!wInput) return;
-            
-            const weightText = String(wInput.value ?? '').trim();
-            const fatText = String(fInput?.value ?? '').trim();
+
+            const weightText = String(wInput?.value ?? draft.weight ?? '').trim();
+            const fatText = String(fInput?.value ?? draft.fat ?? '').trim();
             const newWeight = Number(weightText);
             const hasFatInput = fatText !== '';
             const newFat = hasFatInput ? Number(fatText) : null;
@@ -7051,6 +7225,12 @@
 
             const recordIndex = AppState.records.findIndex(r => r.date === date);
             if(recordIndex >= 0) {
+                if (!isInlineEditSourceUnchanged(draft, AppState.records[recordIndex])) {
+                    clearInlineEditDraft();
+                    updateUI();
+                    return showToast('원본 기록이 변경되어 오래된 인라인 편집을 저장하지 않았습니다.');
+                }
+
                 const nextRecords = cloneDietRecords(AppState.records);
                 nextRecords[recordIndex].weight = MathUtil.round(newWeight);
                 if(hasFatInput) nextRecords[recordIndex].fat = MathUtil.round(newFat);
@@ -7061,12 +7241,18 @@
 
                 AppState.records = sanitizeDietRecords(nextRecords);
                 AppState.state.isDirty = true;
+                clearInlineEditDraft();
                 updateUI();
                 showToast('수정되었습니다.');
+            } else {
+                clearInlineEditDraft();
+                updateUI();
+                showToast('원본 기록이 삭제되어 인라인 편집을 저장하지 않았습니다.');
             }
         },
 
         cancelInlineEdit: function() {
+            clearInlineEditDraft();
             updateUI(); 
         }
     };
