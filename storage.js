@@ -91,6 +91,11 @@ const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 
 // 각자의 롤백 백업과 재시작 타이머를 서로 덮어쓸 수 있으므로 single-flight로 제한합니다.
 let importOperationInProgress = false;
 
+// 가져오기 롤백 백업은 정상 appState뿐 아니라, 사용자가 정상 백업으로 복구하려는
+// 손상 원본도 바이트 의미상 최대한 그대로 보존해야 합니다. 새 형식은 동일 스냅샷의
+// JSON 직렬화본을 함께 기록해 내부 백업의 일관성을 확인한 뒤 원형 그대로 복원합니다.
+const IMPORT_BACKUP_FORMAT_VERSION = 2;
+
 // [CRITICAL FIX] 실제 데이터 ID가 가상 폴더 ID와 충돌하면 해당 항목을 선택/삭제/복원할 수 없게 됩니다.
 // 로드/가져오기 시 폴더·노트 ID 형식과 예약 ID를 엄격히 검증해 앱 내부 참조 무결성을 보장합니다.
 const RESERVED_ITEM_IDS = new Set(Object.values(CONSTANTS.VIRTUAL_FOLDERS).map(folder => folder.id));
@@ -2431,6 +2436,12 @@ const restoreImportBackupPayload = async (backupPayload) => {
         Object.prototype.hasOwnProperty.call(backupPayload, propertyName);
     const hasHadAppStateField = hasBackupField('hadAppState');
     const hasAppStateField = hasBackupField('appState');
+    const hasBackupFormatVersion = hasBackupField('backupFormatVersion');
+    const isRawSnapshotBackup = backupPayload.backupFormatVersion === IMPORT_BACKUP_FORMAT_VERSION;
+
+    if (hasBackupFormatVersion && !isRawSnapshotBackup) {
+        throw new Error('가져오기 백업 형식 버전이 올바르지 않습니다.');
+    }
 
     // [CRITICAL BUG FIX] 불완전하거나 손상된 래퍼를 정상 백업으로 오인하면 appState를
     // undefined로 덮어쓰거나 삭제한 뒤 복구본까지 정리할 수 있습니다. 실제 복원에
@@ -2453,7 +2464,40 @@ const restoreImportBackupPayload = async (backupPayload) => {
     if (!hadAppState && hasAppStateField && backupPayload.appState != null) {
         throw new Error('가져오기 백업의 주 데이터 상태가 서로 일치하지 않습니다.');
     }
-    if (hadAppState) {
+    let appStateToRestore = backupPayload.appState;
+    if (isRawSnapshotBackup) {
+        const snapshotJson = backupPayload.appStateSnapshotJson;
+
+        if (hadAppState) {
+            if (typeof snapshotJson !== 'string' || snapshotJson.length === 0) {
+                throw new Error('가져오기 백업의 원본 주 데이터 스냅샷이 없습니다.');
+            }
+
+            try {
+                appStateToRestore = JSON.parse(snapshotJson);
+            } catch (error) {
+                throw new Error('가져오기 백업의 원본 주 데이터 스냅샷을 해석할 수 없습니다.');
+            }
+
+            // 같은 백업에 함께 저장된 객체와 직렬화본이 다르면 일부만 손상된
+            // 백업일 수 있으므로 현재 데이터를 덮어쓰지 않습니다.
+            let storedObjectJson;
+            try {
+                storedObjectJson = JSON.stringify(backupPayload.appState);
+            } catch (error) {
+                throw new Error('가져오기 백업의 주 데이터 일관성을 확인할 수 없습니다.');
+            }
+            if (appStateToRestore === null
+                || JSON.stringify(appStateToRestore) !== snapshotJson
+                || storedObjectJson !== snapshotJson) {
+                throw new Error('가져오기 백업의 주 데이터 스냅샷이 서로 일치하지 않습니다.');
+            }
+        } else if (snapshotJson !== null || backupPayload.appState !== null) {
+            throw new Error('가져오기 백업의 빈 주 데이터 상태가 서로 일치하지 않습니다.');
+        }
+    } else if (hadAppState) {
+        // 구버전 래퍼는 원본 스냅샷을 교차 검증할 수 없으므로 기존과 같이
+        // 정상 appState 구조만 복원 대상으로 인정합니다.
         assertRestorableAppStateSnapshot(backupPayload.appState);
     }
 
@@ -2477,8 +2521,8 @@ const restoreImportBackupPayload = async (backupPayload) => {
 
     if (hadAppState) {
         // 실패한 가져오기의 롤백은 직전 값을 바이트 의미상 그대로 되돌립니다.
-        // 정제는 다음 정상 로드에서 수행하며, 복구 불가능한 최상위 값은 덮어쓰지 않고 중단합니다.
-        await storageSet({ appState: backupPayload.appState });
+        // 새 백업 형식은 손상 원본도 안전하게 교차 검증했으므로, 정제하지 않고 그대로 복원합니다.
+        await storageSet({ appState: appStateToRestore });
     } else {
         await storageRemove('appState');
     }
@@ -2820,9 +2864,17 @@ export const setupImportHandler = () => {
                     const currentDataResult = await storageGet('appState');
                     const hasCurrentAppState = Object.prototype.hasOwnProperty.call(currentDataResult, 'appState')
                         && currentDataResult.appState != null;
+                    const appStateSnapshotJson = hasCurrentAppState
+                        ? JSON.stringify(currentDataResult.appState)
+                        : null;
+                    if (hasCurrentAppState && typeof appStateSnapshotJson !== 'string') {
+                        throw new Error('현재 주 데이터를 안전한 롤백 스냅샷으로 직렬화할 수 없습니다.');
+                    }
                     const backupPayload = {
+                        backupFormatVersion: IMPORT_BACKUP_FORMAT_VERSION,
                         hadAppState: hasCurrentAppState,
                         appState: hasCurrentAppState ? currentDataResult.appState : null,
+                        appStateSnapshotJson,
                         session: localStorage.getItem(CONSTANTS.LS_KEY),
                         settings: localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS),
                         habitTrackerData: localStorage.getItem(HABIT_TRACKER_DATA_KEY),

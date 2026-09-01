@@ -1541,8 +1541,13 @@
                     : { ok: true, settings: AppState.settings, error: '' };
                 if (!settingsImportResult.ok) throw new Error(settingsImportResult.error);
 
-                if (data.records.length === 0 && AppState.records.length > 0) {
-                    const shouldReplaceWithEmpty = confirm(`가져올 백업에 체중 기록이 없습니다. 계속하면 현재 기록 ${AppState.records.length}건이 모두 삭제됩니다. 빈 백업으로 복원하시겠습니까?`);
+                const hasCurrentOrProtectedDietRecords = AppState.records.length > 0
+                    || AppState.state.recordsLoadFailed;
+                if (data.records.length === 0 && hasCurrentOrProtectedDietRecords) {
+                    const currentRecordDescription = AppState.state.recordsLoadFailed
+                        ? '현재 저장된 기록을 안전하게 읽지 못한 상태이며, 계속하면 복구 가능한 손상 원본까지 빈 기록으로 교체됩니다.'
+                        : `현재 기록 ${AppState.records.length}건이 모두 삭제됩니다.`;
+                    const shouldReplaceWithEmpty = confirm(`가져올 백업에 체중 기록이 없습니다. ${currentRecordDescription} 빈 백업으로 복원하시겠습니까?`);
                     if (!shouldReplaceWithEmpty) {
                         showToast('빈 백업 복원을 취소했습니다. 기존 데이터를 유지합니다.');
                         return;
