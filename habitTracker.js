@@ -336,6 +336,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const safeDatePattern = /^\d{4}-\d{2}-\d{2}$/;
             const validViews = new Set(['calendar', 'today', 'stats', 'timeline', 'review', 'archive']);
             const validSorts = new Set(['order', 'name_asc', 'name_desc', 'created_at', 'streak', 'completion_rate']);
+            const hasOwn = (target, key) => Object.prototype.hasOwnProperty.call(target, key);
+            const isPlainStateObject = value => Boolean(value)
+                && typeof value === 'object'
+                && !Array.isArray(value);
+            const readOptionalStateObject = (propertyName) => {
+                if (!hasOwn(rawState, propertyName)) return {};
+                if (!isPlainStateObject(rawState[propertyName])) {
+                    reportStructuralCorruption();
+                    return {};
+                }
+                return rawState[propertyName];
+            };
+            const parseBooleanScalar = value => {
+                if (typeof value === 'boolean') return value;
+                if (value === 1 || value === '1') return true;
+                if (value === 0 || value === '0') return false;
+                if (typeof value !== 'string') return null;
+
+                const normalized = value.trim().toLowerCase();
+                if (normalized === 'true') return true;
+                if (normalized === 'false') return false;
+                return null;
+            };
 
             const safeInteger = (value, fallback) => {
                 const num = Number(value);
@@ -444,6 +467,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         // 훼손하지 않고, 손상 데이터 보호 모드로 전환합니다.
                         reportStructuralCorruption();
                     }
+                    const isArchived = hasOwn(habit, 'isArchived')
+                        ? parseBooleanScalar(habit.isArchived)
+                        : false;
+                    if (isArchived === null) {
+                        // Boolean("false")가 true가 되어 활성 습관을 보관함으로 숨기는
+                        // 조용한 의미 반전을 막고, 해석 불가능한 원본은 보호합니다.
+                        reportStructuralCorruption();
+                    }
                     const earliestLogTimestamp = Object.keys(normalizedLogs)
                         .sort()
                         .map(getValidLocalDateTimestamp)
@@ -456,7 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         type: 'check',
                         goal: 1,
                         frequency: normalizeFrequency(habit.frequency),
-                        isArchived: Boolean(habit.isArchived),
+                        isArchived: isArchived ?? false,
                         order: Number.isFinite(Number(habit.order)) ? Number(habit.order) : index,
                         logs: normalizedLogs,
                         createdAt: hasValidCreatedAt ? rawCreatedAt : (earliestLogTimestamp ?? now + index)
@@ -465,12 +496,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 .filter(Boolean)
                 .sort((a, b) => a.order - b.order);
 
-            const rawFilters = rawState.filters && typeof rawState.filters === 'object' ? rawState.filters : {};
-            const rawSettings = rawState.settings && typeof rawState.settings === 'object' ? rawState.settings : {};
-            const rawAchievements = rawState.achievements && typeof rawState.achievements === 'object' ? rawState.achievements : {};
-            const rawVisited = rawState.visitedViews && typeof rawState.visitedViews === 'object' ? rawState.visitedViews : {};
+            // 보조 컨테이너가 배열/null/문자열인데도 빈 객체로 조용히 바꾸면, 다음
+            // 일반 저장이 원본 업적·방문 기록·필터를 영구적으로 덮어쓸 수 있습니다.
+            const rawFilters = readOptionalStateObject('filters');
+            const rawSettings = readOptionalStateObject('settings');
+            const rawAchievements = readOptionalStateObject('achievements');
+            const rawVisited = readOptionalStateObject('visitedViews');
             const currentDate = rawState.currentDate instanceof Date ? rawState.currentDate : new Date();
             currentDate.setHours(0, 0, 0, 0);
+
+            const showArchived = hasOwn(rawFilters, 'showArchived')
+                ? parseBooleanScalar(rawFilters.showArchived)
+                : false;
+            if (showArchived === null) reportStructuralCorruption();
+
+            const normalizedVisitedViews = {};
+            Object.entries(rawVisited).forEach(([key, value]) => {
+                if (!validViews.has(key)) return;
+                const visited = parseBooleanScalar(value);
+                if (visited === null) {
+                    reportStructuralCorruption();
+                    return;
+                }
+                if (visited) normalizedVisitedViews[key] = true;
+            });
 
             return {
                 habits: sanitizedHabits,
@@ -481,12 +530,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     .filter(([key, value]) => achievementList[key] && value && typeof value === 'object')
                     .map(([key, value]) => [key, { unlockedAt: String(value.unlockedAt ?? '') }])),
                 reviewPeriod: rawState.reviewPeriod === 'monthly' ? 'monthly' : 'weekly',
-                visitedViews: Object.fromEntries(Object.entries(rawVisited)
-                    .filter(([key, value]) => validViews.has(key) && Boolean(value))
-                    .map(([key]) => [key, true])),
+                visitedViews: normalizedVisitedViews,
                 filters: {
                     search: String(rawFilters.search ?? '').slice(0, 120),
-                    showArchived: Boolean(rawFilters.showArchived),
+                    showArchived: showArchived ?? false,
                     sortBy: validSorts.has(rawFilters.sortBy) ? rawFilters.sortBy : 'order'
                 },
                 reportPeriod: ['weekly', 'monthly', 'yearly', 'this_week', 'this_month'].includes(rawState.reportPeriod) ? rawState.reportPeriod : 'weekly',

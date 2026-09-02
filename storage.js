@@ -1960,6 +1960,20 @@ const parseFiniteImportNumber = value => {
     return Number.isFinite(number) ? number : null;
 };
 
+// Boolean("false")와 Boolean("0")은 true입니다. 구버전/외부 JSON이
+// 문자열 불리언을 사용하더라도 의미를 뒤집지 않도록 명시적인 표현만 허용합니다.
+const parseImportBoolean = value => {
+    if (typeof value === 'boolean') return value;
+    if (value === 1 || value === '1') return true;
+    if (value === 0 || value === '0') return false;
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+    return null;
+};
+
 const parseIntegratedImportValue = (value, label) => {
     if (value === null) return null;
     if (typeof value !== 'string') return value;
@@ -2076,6 +2090,60 @@ const normalizeHabitTrackerImportValue = value => {
     }
 
     sanitizeObjectForPrototypePollution(parsed);
+    const optionalObjectFields = [
+        ['settings', '설정'],
+        ['achievements', '업적'],
+        ['visitedViews', '방문 기록'],
+        ['filters', '필터']
+    ];
+    for (const [propertyName, label] of optionalObjectFields) {
+        if (Object.prototype.hasOwnProperty.call(parsed, propertyName)
+            && !isPlainImportObject(parsed[propertyName])) {
+            throw new Error(`습관 트래커의 ${label} 데이터 구조가 올바르지 않습니다.`);
+        }
+    }
+
+    if (parsed.settings
+        && Object.prototype.hasOwnProperty.call(parsed.settings, 'theme')
+        && !['light', 'dark'].includes(parsed.settings.theme)) {
+        throw new Error('습관 트래커의 테마 설정 값이 올바르지 않습니다.');
+    }
+
+    if (parsed.filters) {
+        if (Object.prototype.hasOwnProperty.call(parsed.filters, 'search')
+            && typeof parsed.filters.search !== 'string') {
+            throw new Error('습관 트래커의 검색 필터 값이 올바르지 않습니다.');
+        }
+        if (Object.prototype.hasOwnProperty.call(parsed.filters, 'showArchived')) {
+            const showArchived = parseImportBoolean(parsed.filters.showArchived);
+            if (showArchived === null) {
+                throw new Error('습관 트래커의 보관 필터 값이 올바르지 않습니다.');
+            }
+            parsed.filters.showArchived = showArchived;
+        }
+    }
+
+    if (parsed.visitedViews) {
+        for (const [viewName, rawVisited] of Object.entries(parsed.visitedViews)) {
+            const visited = parseImportBoolean(rawVisited);
+            if (visited === null) {
+                throw new Error(`습관 트래커의 ${viewName} 방문 기록 값이 올바르지 않습니다.`);
+            }
+            parsed.visitedViews[viewName] = visited;
+        }
+    }
+
+    if (parsed.achievements) {
+        const hasInvalidAchievement = Object.values(parsed.achievements).some(achievement => (
+            !isPlainImportObject(achievement)
+            || (Object.prototype.hasOwnProperty.call(achievement, 'unlockedAt')
+                && typeof achievement.unlockedAt !== 'string')
+        ));
+        if (hasInvalidAchievement) {
+            throw new Error('습관 트래커의 업적 데이터 구조가 올바르지 않습니다.');
+        }
+    }
+
     const validFrequencyTypes = new Set(['daily', 'weekdays', 'weekends', 'specific_days']);
     const isValidHabitLogDate = dateText => {
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText ?? ''));
@@ -2120,12 +2188,20 @@ const normalizeHabitTrackerImportValue = value => {
         // 기존 습관 데이터를 덮어쓰기 전에 가져오기 경계에서 거부합니다.
         || (Object.prototype.hasOwnProperty.call(habit, 'name')
             && (habit.name === null || typeof habit.name === 'object'))
+        || (Object.prototype.hasOwnProperty.call(habit, 'isArchived')
+            && parseImportBoolean(habit.isArchived) === null)
         || ('logs' in habit && hasInvalidLogs(habit.logs))
         || ('frequency' in habit && hasInvalidFrequency(habit.frequency))
     ));
     if (hasInvalidHabit) {
         throw new Error('습관 트래커 백업에 손상된 습관 항목이 있습니다. 기존 데이터를 보호하기 위해 가져오기를 중단했습니다.');
     }
+
+    parsed.habits.forEach(habit => {
+        if (Object.prototype.hasOwnProperty.call(habit, 'isArchived')) {
+            habit.isArchived = parseImportBoolean(habit.isArchived);
+        }
+    });
 
     return JSON.stringify(parsed);
 };
