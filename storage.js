@@ -1193,10 +1193,25 @@ export const loadData = async () => {
         let finalState = { ...state };
         
         if (authoritativeData && authoritativeData.folders) { // 데이터가 있는 경우
-            Object.assign(finalState, authoritativeData);
-            finalState.trash = finalState.trash || [];
+            // [MAJOR BUG FIX] appState는 사용자 데이터만 제공해야 하며, noteMap/isDirty 같은
+            // 런타임 상태를 덮어쓸 수 없습니다. 구버전 저장본이나 손상 데이터에 noteMap: {}
+            // 같은 키가 섞여 있으면 buildNoteMap()의 Map 인스턴스가 일반 객체로 바뀌어
+            // 앱 초기화 전체가 중단됩니다. 검증된 영속 필드만 명시적으로 투영합니다.
+            finalState.folders = authoritativeData.folders;
+            finalState.trash = authoritativeData.trash || [];
             finalState.favorites = new Set(authoritativeData.favorites || []);
+            finalState.lastSavedTimestamp = authoritativeData.lastSavedTimestamp ?? null;
             const persistedLastActiveNotePerFolder = authoritativeData.lastActiveNotePerFolder || {};
+            finalState.lastActiveNotePerFolder = persistedLastActiveNotePerFolder;
+
+            // 일부 구버전 appState가 세션 선택을 함께 저장한 경우에만 호환용으로 복원합니다.
+            // 그 밖의 임의 키는 런타임 상태에 절대 병합하지 않습니다.
+            if (authoritativeData.activeFolderId !== undefined) {
+                finalState.activeFolderId = authoritativeData.activeFolderId;
+            }
+            if (authoritativeData.activeNoteId !== undefined) {
+                finalState.activeNoteId = authoritativeData.activeNoteId;
+            }
 
             let lastSession = null;
             try {

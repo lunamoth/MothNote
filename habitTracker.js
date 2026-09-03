@@ -50,6 +50,38 @@ document.addEventListener('DOMContentLoaded', () => {
         return sourceDate;
     };
 
+    // [MAJOR BUG FIX] Number.MAX_SAFE_INTEGER는 1을 더해도 같은 값으로 반올림될 수 있습니다.
+    // 손상/외부 백업에 최대 안전 정수 ID가 중복되면 단순 증가 루프가 끝나지 않으므로,
+    // 충돌 시 안전한 대체 시작점으로 이동하고 Set 크기에 비례한 횟수 안에서만 탐색합니다.
+    const allocateUniqueHabitId = (preferredValue, usedIds, fallbackSeed = Date.now()) => {
+        const preferredId = Number(preferredValue);
+        if (Number.isSafeInteger(preferredId)
+            && preferredId > 0
+            && !usedIds.has(String(preferredId))) {
+            usedIds.add(String(preferredId));
+            return preferredId;
+        }
+
+        const numericFallback = Number(fallbackSeed);
+        let candidate = Number.isSafeInteger(numericFallback) && numericFallback > 0
+            ? numericFallback
+            : Date.now();
+        if (!Number.isSafeInteger(candidate) || candidate <= 0) candidate = 1;
+
+        // 사용 중인 ID가 N개라면 서로 다른 N+1개 후보 중 적어도 하나는 비어 있습니다.
+        const maxAttempts = usedIds.size + 1;
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            const key = String(candidate);
+            if (!usedIds.has(key)) {
+                usedIds.add(key);
+                return candidate;
+            }
+            candidate = candidate >= Number.MAX_SAFE_INTEGER ? 1 : candidate + 1;
+        }
+
+        throw new Error('고유한 습관 ID를 할당할 수 없습니다.');
+    };
+
     const app = {
         state: {
             // --- MODIFIED: 데이터 버전 관리 기능 추가 ---
@@ -360,10 +392,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return null;
             };
 
-            const safeInteger = (value, fallback) => {
-                const num = Number(value);
-                return Number.isSafeInteger(num) && num > 0 ? num : fallback;
-            };
             const parseFiniteNumericScalar = value => {
                 if (typeof value !== 'number' && typeof value !== 'string') return null;
                 if (typeof value === 'string' && value.trim() === '') return null;
@@ -371,10 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return Number.isFinite(number) ? number : null;
             };
             const makeId = (value, index) => {
-                let id = safeInteger(value, now + index + 1);
-                while (usedIds.has(String(id))) id += 1;
-                usedIds.add(String(id));
-                return id;
+                return allocateUniqueHabitId(value, usedIds, now + index + 1);
             };
             const normalizeFrequency = (frequency) => {
                 const validTypes = new Set(['daily', 'weekdays', 'weekends', 'specific_days']);
@@ -1670,9 +1695,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (index > -1) this.state.habits[index] = { ...this.state.habits[index], ...habitData };
             } else {
                 const createdAt = Date.now();
-                let habitId = createdAt;
                 const usedHabitIds = new Set(this.state.habits.map(habit => String(habit.id)));
-                while (usedHabitIds.has(String(habitId))) habitId += 1;
+                const habitId = allocateUniqueHabitId(createdAt, usedHabitIds, createdAt);
                 const maxOrder = this.state.habits.reduce((max, h) => Math.max(max, h.order || 0), 0);
                 this.state.habits.push({ ...habitData, id: habitId, logs: {}, isArchived: false, order: maxOrder + 1, createdAt });
                 shouldCheckHabitAchievements = true;
