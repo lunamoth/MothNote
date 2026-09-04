@@ -307,8 +307,19 @@ function getNativeSanitizer(profileName) {
 }
 
 function replaceChildrenSafely(target, nodes) {
-    if (typeof target.replaceChildren === 'function') {
-        target.replaceChildren(...nodes);
+    const ownerDocument = target.ownerDocument;
+    if (ownerDocument && typeof ownerDocument.createDocumentFragment === 'function') {
+        // replaceChildren(...nodes)는 큰 노트가 많은 최상위 노드를 만들 때
+        // JavaScript 엔진의 함수 인수 한도를 넘어 RangeError를 발생시킵니다.
+        // 노드를 문서 조각에 순차적으로 모은 뒤 단일 인수로 교체합니다.
+        const fragment = ownerDocument.createDocumentFragment();
+        for (const node of nodes) fragment.appendChild(node);
+        if (typeof target.replaceChildren === 'function') {
+            target.replaceChildren(fragment);
+        } else {
+            while (target.firstChild) target.removeChild(target.firstChild);
+            target.appendChild(fragment);
+        }
         return;
     }
     while (target.firstChild) target.removeChild(target.firstChild);

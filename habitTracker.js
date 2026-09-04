@@ -2292,11 +2292,20 @@ document.addEventListener('DOMContentLoaded', () => {
             firstLogDate.setHours(0,0,0,0);
 
             if (habits.length > 0) {
-                const allLogDates = habits.flatMap(h => Object.keys(h.logs)
-                    .map(d => this.parseDateString(d))
-                    .filter(d => !Number.isNaN(d.getTime()) && this.isHabitWithinTrackingRange(h, d)));
-                if (allLogDates.length > 0) {
-                    firstLogDate = new Date(Math.min(...allLogDates));
+                // 전체 로그를 Math.min()의 인수로 전개하면 대용량 백업에서 엔진의
+                // 인수 한도를 넘어 통계 화면 전체가 RangeError로 중단됩니다.
+                // 중간 Date 배열도 만들지 않고 가장 이른 시각만 누적합니다.
+                let earliestLogTimestamp = Infinity;
+                habits.forEach(habit => {
+                    Object.keys(habit.logs).forEach(dateString => {
+                        const logDate = this.parseDateString(dateString);
+                        if (!Number.isNaN(logDate.getTime()) && this.isHabitWithinTrackingRange(habit, logDate)) {
+                            earliestLogTimestamp = Math.min(earliestLogTimestamp, logDate.getTime());
+                        }
+                    });
+                });
+                if (Number.isFinite(earliestLogTimestamp)) {
+                    firstLogDate = new Date(earliestLogTimestamp);
                 }
             }
             

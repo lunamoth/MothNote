@@ -495,6 +495,19 @@
         diff: (a, b) => MathUtil.round(a - b),
         add: (a, b) => MathUtil.round(a + b),
         clamp: (num, min, max) => Math.min(Math.max(num, min), max),
+        // Math.min(...values)/Math.max(...values)는 기록 수가 엔진의 인수 한도를
+        // 넘으면 RangeError를 발생시킵니다. 저장 가능한 대용량 백업도 안전하게
+        // 처리할 수 있도록 인수 전개 없이 한 번씩 순회합니다.
+        min: (values) => {
+            let result = Infinity;
+            for (const value of values) result = Math.min(result, value);
+            return result;
+        },
+        max: (values) => {
+            let result = -Infinity;
+            for (const value of values) result = Math.max(result, value);
+            return result;
+        },
         stdDev: (arr) => {
             if (arr.length === 0) return 0;
             const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -1801,8 +1814,8 @@
         
         const weights = records.map(r => r.weight);
         const current = weights[weights.length - 1];
-        const min = Math.min(...weights);
-        const max = Math.max(...weights);
+        const min = MathUtil.min(weights);
+        const max = MathUtil.max(weights);
         const lastRec = records[records.length - 1];
         
         let maxStreak = 0, curStreak = 0;
@@ -2496,8 +2509,8 @@
             dayCounts[d]++;
         }
         const dayAvgs = dayDeltas.map((sum, i) => dayCounts[i] ? sum/dayCounts[i] : 0);
-        const bestDayIdx = dayAvgs.indexOf(Math.min(...dayAvgs));
-        const worstDayIdx = dayAvgs.indexOf(Math.max(...dayAvgs));
+        const bestDayIdx = dayAvgs.indexOf(MathUtil.min(dayAvgs));
+        const worstDayIdx = dayAvgs.indexOf(MathUtil.max(dayAvgs));
         // const dayNames = ['일','월','화','수','목','금','토']; // 위에서 이미 선언됨
         
         htmlLines.push(`<li class="insight-item"><span class="insight-label">🧐 요일 승률:</span> 
@@ -2936,8 +2949,8 @@
         // 38. 요요 경고 (Rebound Warning) 
         if (AppState.records.length > 30) {
             const periodRecs = AppState.records.slice(-30);
-            const pMax = Math.max(...periodRecs.map(r => r.weight));
-            const pMin = Math.min(...periodRecs.map(r => r.weight));
+            const pMax = MathUtil.max(periodRecs.map(r => r.weight));
+            const pMin = MathUtil.min(periodRecs.map(r => r.weight));
             const totalDrop = pMax - pMin;
             
             const regained = s.current - pMin;
@@ -3311,8 +3324,8 @@
         }
         
         const weights = recent.map(r => r.weight);
-        const max = Math.max(...weights);
-        const min = Math.min(...weights);
+        const max = MathUtil.max(weights);
+        const min = MathUtil.min(weights);
         const diff = MathUtil.diff(max, min);
         
         let msg = "";
@@ -3748,7 +3761,7 @@
         for (let i = 1; i < AppState.records.length; i++) {
             gaps.push(DateUtil.daysBetween(DateUtil.parse(AppState.records[i - 1].date), DateUtil.parse(AppState.records[i].date)));
         }
-        const maxGap = gaps.length ? Math.max(...gaps) : 0;
+        const maxGap = gaps.length ? MathUtil.max(gaps) : 0;
         const avgGap = gaps.length ? MathUtil.mean(gaps) : 0;
         let quality = '보통';
         if (recentAdherence >= 80) quality = '매우 좋음';
@@ -4802,7 +4815,7 @@
                     time: { unit: 'day', displayFormats: { day: 'MM/dd' } }
                 },
                 y: {
-                    max: points.length > 0 ? Math.ceil(Math.max(...points.map(p => p.y), AppState.settings.startWeight)) + 1 : AppState.settings.startWeight + 1,
+                    max: points.length > 0 ? Math.ceil(Math.max(MathUtil.max(points.map(p => p.y)), AppState.settings.startWeight)) + 1 : AppState.settings.startWeight + 1,
                     suggestedMin: AppState.settings.goal1 - 2
                 }
             },
@@ -5002,8 +5015,8 @@
     function updateHistogram(colors) {
         if(AppState.records.length === 0) return;
         const weights = AppState.records.map(r => r.weight);
-        const min = Math.floor(Math.min(...weights));
-        const max = Math.ceil(Math.max(...weights));
+        const min = Math.floor(MathUtil.min(weights));
+        const max = Math.ceil(MathUtil.max(weights));
         
         const labels = [];
         const data = [];
@@ -5288,8 +5301,8 @@
 
         labels.forEach(m => {
             const arr = months[m];
-            const min = Math.min(...arr);
-            const max = Math.max(...arr);
+            const min = MathUtil.min(arr);
+            const max = MathUtil.max(arr);
             arr.sort((a,b)=>a-b);
             const median = arr[Math.floor(arr.length/2)];
             
@@ -5475,9 +5488,10 @@
         }
 
         const avgLoss = lossSum.map((s,i) => count[i] ? s/count[i] : 0);
-        const maxLoss = Math.max(...avgLoss.map(Math.abs));
+        const maxLoss = MathUtil.max(avgLoss.map(Math.abs));
         const normAvgLoss = avgLoss.map(v => v > 0 ? (v/maxLoss)*100 : 0); // Only show positive loss strength
-        const freq = count.map(c => (c / Math.max(...count)) * 100);
+        const maxCount = MathUtil.max(count);
+        const freq = count.map(c => (c / maxCount) * 100);
         const overeat = gainCount.map((c, i) => count[i] ? (c / count[i]) * 100 : 0);
 
         const ctx = document.getElementById('radarChart').getContext('2d');
@@ -5538,8 +5552,8 @@
 
         Object.keys(weeks).sort().forEach(k => {
             const wData = weeks[k];
-            const min = Math.min(...wData);
-            const max = Math.max(...wData);
+            const min = MathUtil.min(wData);
+            const max = MathUtil.max(wData);
             const open = wData[0];
             const close = wData[wData.length-1];
             
@@ -6882,7 +6896,7 @@
             if(AppState.records.length >= 14) {
                  const recs14 = AppState.records.slice(-14);
                  const w14 = recs14.map(r => r.weight);
-                 if(isConsecutiveDailyRecordRange(recs14) && Math.max(...w14) - Math.min(...w14) <= 0.6) flags.parking = true;
+                 if(isConsecutiveDailyRecordRange(recs14) && MathUtil.max(w14) - MathUtil.min(w14) <= 0.6) flags.parking = true;
             }
 
             flags.whoosh = hasConsecutivePlateauBreak(AppState.records, 4, 0.8);
@@ -6982,8 +6996,8 @@
                 for(let i=9; i<AppState.records.length; i++) {
                     const recordSlice = AppState.records.slice(i-9, i+1);
                     const weightSlice = recordSlice.map(r=>r.weight);
-                    const maxS = Math.max(...weightSlice);
-                    const minS = Math.min(...weightSlice);
+                    const maxS = MathUtil.max(weightSlice);
+                    const minS = MathUtil.min(weightSlice);
                     if(isConsecutiveDailyRecordRange(recordSlice) && maxS - minS <= 0.4) { flags.maintainerQual = true; break; }
                 }
             }
