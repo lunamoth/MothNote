@@ -1490,11 +1490,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const todayCompletionRate = totalHabitsForToday > 0 ? Math.round((completedHabitsForToday / totalHabitsForToday) * 100) : 0;
             const totalActiveHabits = this.state.habits.filter(h => !h.isArchived).length;
+            const longestStreak = habits.reduce(
+                (longest, habit) => Math.max(longest, this.calculateHabitStats(habit).longestStreak),
+                0
+            );
             return `
                 <div class="stats-dashboard">
                     <div class="dashboard-card"><div class="dashboard-card-title">오늘 달성률</div><div class="dashboard-card-value">${todayCompletionRate}%</div></div>
                     <div class="dashboard-card"><div class="dashboard-card-title">총 활성 습관</div><div class="dashboard-card-value">${totalActiveHabits}</div></div>
-                    <div class="dashboard-card"><div class="dashboard-card-title">최고 연속 기록</div><div class="dashboard-card-value">${Math.max(0, ...habits.map(h => this.calculateHabitStats(h).longestStreak))}일</div></div>
+                    <div class="dashboard-card"><div class="dashboard-card-title">최고 연속 기록</div><div class="dashboard-card-value">${longestStreak}일</div></div>
                     <div class="dashboard-card" style="grid-column: 1 / -1;"><div class="dashboard-card-title">월별 전체 달성률</div><div class="chart-container" style="height: 250px;"><canvas id="main-stats-chart"></canvas></div></div>
                     <div class="dashboard-card" style="grid-column: 1 / -1;"><div class="dashboard-card-title">요일별 성공/실패 분석</div><div class="chart-container" style="height: 250px;"><canvas id="day-of-week-chart"></canvas></div></div>
                     <div class="dashboard-card" style="grid-column: 1 / -1;">
@@ -1912,16 +1916,14 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         getMissedCount(habit, startDate = null, endDate = null) {
-            let missed = 0;
-            const sortedDates = Object.keys(habit.logs)
+            const validLogDates = Object.keys(habit.logs)
                 .filter(dateStr => {
                     const parsedDate = this.parseDateString(dateStr);
                     return !Number.isNaN(parsedDate.getTime())
                         && this.getDateString(parsedDate) === dateStr
                         && this.isHabitWithinTrackingRange(habit, parsedDate);
-                })
-                .sort();
-            if (sortedDates.length === 0 && !startDate) return 0;
+                });
+            if (validLogDates.length === 0 && !startDate) return 0;
 
             let firstDate = startDate
                 ? this.normalizeLocalDate(startDate)
@@ -1935,12 +1937,21 @@ document.addEventListener('DOMContentLoaded', () => {
             if (lastDate > today) lastDate = new Date(today);
             if (firstDate > lastDate) return 0;
 
-            for(let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
-                if (this.isHabitCountableOnDate(habit, d) && !this.isHabitCompletedOn(habit, this.getDateString(d))) {
-                    missed++;
+            // 생성일부터 오늘까지 하루씩 순회하면 오래된/외부 백업 한 건만으로도
+            // 통계 화면이 수 초~수십 초 멈출 수 있습니다. 주 단위 몫과 나머지로
+            // 예정 횟수를 계산하고, 실제 완료 로그만 순회해 같은 결과를 구합니다.
+            const possible = this.getHabitOpportunityCountsByWeekday(habit, firstDate, lastDate)
+                .reduce((total, count) => total + count, 0);
+            let completed = 0;
+            for (const dateStr of validLogDates) {
+                const logDate = this.parseDateString(dateStr);
+                if (logDate < firstDate || logDate > lastDate) continue;
+                if (this.isHabitCountableOnDate(habit, logDate)
+                    && this.isHabitCompletedOn(habit, dateStr)) {
+                    completed++;
                 }
             }
-            return missed;
+            return Math.max(0, possible - completed);
         },
         
         // ----- UTILITY & HELPERS (LOCAL TIME BASED) -----
@@ -2117,6 +2128,38 @@ document.addEventListener('DOMContentLoaded', () => {
             const startUtc = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
             const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
             return Math.round((endUtc - startUtc) / 86400000);
+        },
+
+        getHabitOpportunityCountsByWeekday(habit, startDate, endDate) {
+            const counts = Array(7).fill(0);
+            let firstDate = this.normalizeLocalDate(startDate);
+            let lastDate = this.normalizeLocalDate(endDate);
+            const createdDate = this.getHabitCreatedLocalDate(habit);
+            const today = this.normalizeLocalDate(new Date());
+
+            if (!firstDate || !lastDate || !createdDate || !today) return counts;
+            if (firstDate < createdDate) firstDate = new Date(createdDate);
+            if (lastDate > today) lastDate = new Date(today);
+            if (firstDate > lastDate) return counts;
+
+            const totalDays = this.getCalendarDayOffset(firstDate, lastDate) + 1;
+            if (!Number.isSafeInteger(totalDays) || totalDays <= 0) return counts;
+
+            const scheduledDays = new Set(Array.isArray(habit?.frequency?.days)
+                ? habit.frequency.days
+                : [0,1,2,3,4,5,6]);
+            const fullWeeks = Math.floor(totalDays / 7);
+            for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+                if (scheduledDays.has(dayOfWeek)) counts[dayOfWeek] = fullWeeks;
+            }
+
+            const remainingDays = totalDays % 7;
+            const firstDayOfWeek = firstDate.getDay();
+            for (let offset = 0; offset < remainingDays; offset++) {
+                const dayOfWeek = (firstDayOfWeek + offset) % 7;
+                if (scheduledDays.has(dayOfWeek)) counts[dayOfWeek]++;
+            }
+            return counts;
         },
 
         getHeatmapDateRange() {
@@ -2311,18 +2354,31 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const today = new Date();
             today.setHours(0,0,0,0);
-            for (let d = new Date(firstLogDate); d <= today; d.setDate(d.getDate() + 1)) {
-                const dayOfWeek = d.getDay();
-                const dateStr = this.getDateString(d);
-                habits.forEach(habit => {
-                    if (this.isHabitCountableOnDate(habit, d)) {
-                        possible[dayOfWeek]++;
-                        if (this.isHabitCompletedOn(habit, dateStr)) {
-                            completed[dayOfWeek]++;
-                        }
-                    }
+            habits.forEach(habit => {
+                const opportunityCounts = this.getHabitOpportunityCountsByWeekday(
+                    habit,
+                    firstLogDate,
+                    today
+                );
+                opportunityCounts.forEach((count, dayOfWeek) => {
+                    possible[dayOfWeek] += count;
                 });
-            }
+
+                // 가능한 날짜 전체가 아니라 실제 로그만 순회합니다. 따라서 실행 시간은
+                // 백업의 달력 범위가 아닌 습관 수와 기록 수에 비례합니다.
+                Object.keys(habit.logs).forEach(dateString => {
+                    const logDate = this.parseDateString(dateString);
+                    if (Number.isNaN(logDate.getTime())
+                        || this.getDateString(logDate) !== dateString
+                        || logDate < firstLogDate
+                        || logDate > today
+                        || !this.isHabitCountableOnDate(habit, logDate)
+                        || !this.isHabitCompletedOn(habit, dateString)) {
+                        return;
+                    }
+                    completed[logDate.getDay()]++;
+                });
+            });
             
             const missed = possible.map((p, i) => p - completed[i]);
             

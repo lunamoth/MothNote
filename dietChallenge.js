@@ -3785,8 +3785,10 @@
         const meanAbsDiff = MathUtil.mean(absDiffs);
         const diffStd = MathUtil.stdDev(diffs);
         const spikeCount = diffs.filter(v => Math.abs(v) >= 0.7).length;
-        const largestGain = Math.max(0, ...diffs);
-        const largestDrop = Math.min(0, ...diffs);
+        // 대용량 백업의 전체 차이 배열을 함수 인수로 전개하면 브라우저의
+        // 인수 한도를 넘어 분석 화면이 RangeError로 중단됩니다.
+        const largestGain = Math.max(0, MathUtil.max(diffs));
+        const largestDrop = Math.min(0, MathUtil.min(diffs));
         let status = '안정적';
         if (meanAbsDiff >= 0.6 || diffStd >= 0.7) status = '변동 큼';
         else if (meanAbsDiff >= 0.35 || diffStd >= 0.45) status = '중간 변동';
