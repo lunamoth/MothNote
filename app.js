@@ -592,7 +592,10 @@ const setupSettingsModal = () => {
 
     if (settingsWeatherCitySearchBtn) settingsWeatherCitySearchBtn.addEventListener('click', handleWeatherCitySearch);
     if (settingsWeatherCitySearch) {
-        settingsWeatherCitySearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleWeatherCitySearch(); } });
+        settingsWeatherCitySearch.addEventListener('keydown', (e) => {
+            if (e.isComposing || e.keyCode === 229) return;
+            if (e.key === 'Enter') { e.preventDefault(); handleWeatherCitySearch(); }
+        });
     }
     // settingsWeatherCityResults는 동적으로 내용이 채워지므로, 전역 클릭 이벤트는 null 체크 없이 유지합니다.
     document.addEventListener('click', (e) => { if (settingsWeatherCityResults && settingsWeatherCitySearch && !settingsWeatherCitySearch.contains(e.target) && !settingsWeatherCityResults.contains(e.target)) { settingsWeatherCityResults.style.display = 'none'; } });
@@ -1639,13 +1642,36 @@ const _navigateList = async (type, direction) => {
         setTimeout(() => { isListNavigating = false; }, 50);
     }
 };
-const handleListKeyDown = async (e, type) => { if (state.renamingItemId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); return; } if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1); } else if (e.key === 'Enter') { e.preventDefault(); if (type === CONSTANTS.ITEM_TYPE.FOLDER) { const firstNote = noteList?.querySelector('.item-list-entry'); if (firstNote) firstNote.focus(); else searchInput?.focus(); } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) { noteTitleInput?.focus(); } } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) { if (state.activeNoteId && noteContentTextarea) { e.preventDefault(); noteContentTextarea.focus(); } } };
+const handleListKeyDown = async (e, type) => {
+    // 이름 입력 요소에서 버블링된 조합 키도 목록 이동으로 처리하지 않습니다.
+    if (e.isComposing || e.keyCode === 229) return;
+    if (state.renamingItemId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); return; }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        await _navigateList(type, e.key === 'ArrowUp' ? -1 : 1);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (type === CONSTANTS.ITEM_TYPE.FOLDER) {
+            const firstNote = noteList?.querySelector('.item-list-entry');
+            if (firstNote) firstNote.focus();
+            else searchInput?.focus();
+        } else if (type === CONSTANTS.ITEM_TYPE.NOTE && state.activeNoteId) {
+            noteTitleInput?.focus();
+        }
+    } else if (e.key === 'Tab' && !e.shiftKey && type === CONSTANTS.ITEM_TYPE.NOTE) {
+        if (state.activeNoteId && noteContentTextarea) {
+            e.preventDefault();
+            noteContentTextarea.focus();
+        }
+    }
+};
 const handleGlobalKeyDown = async (e) => {
     if (window.isImporting) {
         e.preventDefault();
         return;
     }
 
+    if (e.isComposing || e.keyCode === 229) return;
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
 
@@ -1794,6 +1820,7 @@ const setupEventListeners = () => {
         // [BUG FIX] blur 이벤트 핸들러를 async로 만들고 saveCurrentNoteIfChanged를 await 합니다.
         noteTitleInput.addEventListener('blur', async () => await saveCurrentNoteIfChanged());
         noteTitleInput.addEventListener('keydown', async (e) => {
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === 'Enter' || e.key === 'Tab') {
                 e.preventDefault();
                 const saved = await saveCurrentNoteIfChanged();

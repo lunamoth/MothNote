@@ -1847,6 +1847,8 @@ export const startRename = async (liElement, type) => {
             };
             const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
             const onKeydown = (event) => {
+                // 조합 확정/취소 키가 이름 전체의 저장/취소로 처리되지 않게 합니다.
+                if (event.isComposing || event.keyCode === 229) return;
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     void _handleRenameEnd(id, type, nameSpan, true);
@@ -1870,9 +1872,13 @@ export const startRename = async (liElement, type) => {
 };
 
 const handleTextareaKeyDown = (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Tab') {
-        e.preventDefault();
         const textarea = e.target;
+        // 스크립트의 value 대입은 readOnly를 우회합니다. 휴지통 본문을 변경하면
+        // 저장할 수 없는 dirty 상태가 되어 탐색까지 막히므로 편집 가능 여부를 먼저 확인합니다.
+        if (textarea.readOnly || textarea.disabled) return;
+        e.preventDefault();
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
         const text = textarea.value;

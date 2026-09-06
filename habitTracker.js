@@ -256,6 +256,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             document.addEventListener('keydown', (e) => {
+                // 조합 취소 Escape가 작성 중인 습관 창 전체를 닫지 않게 합니다.
+                if (e.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Escape') {
                     const visibleModal = document.querySelector('.modal.visible');
                     if (visibleModal) {
@@ -811,6 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (this.state.currentView !== 'archive' && this.state.currentView !== 'review') {
                 const searchInput = document.getElementById('search-filter');
                 searchInput.addEventListener('keydown', (e) => {
+                    if (e.isComposing || e.keyCode === 229) return;
                     if (e.key === 'Enter') {
                         const search = String(e.target.value ?? '').slice(0, 120);
                         if (this.updateFilterPreference('search', search)) this.render();
@@ -2655,6 +2658,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const lastElement = focusableElements[focusableElements.length - 1];
 
             const handleKeyDown = (e) => {
+                if (e.isComposing || e.keyCode === 229) return;
                 if (e.key !== 'Tab') return;
 
                 if (e.shiftKey) { 

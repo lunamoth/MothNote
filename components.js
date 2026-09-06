@@ -188,6 +188,8 @@ const _showSingleModal = ({ type, title, message = '', placeholder = '', initial
         };
 
         const handleKeydown = (event) => {
+            // IME의 글자 확정 Enter로 입력창 전체가 제출되지 않게 합니다.
+            if (event.isComposing || event.keyCode === 229) return;
             if (event.key === 'Enter') {
                 event.preventDefault();
                 handleConfirmClick(event);
