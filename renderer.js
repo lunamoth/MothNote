@@ -610,7 +610,20 @@ export const renderEditor = async () => {
 
         // marked 로드에 성공한 경우에만 파싱을 실행합니다.
         if (marked) {
-            setSanitizedHtml(noteContentView, marked.parse(editorContentForActiveNote));
+            try {
+                setSanitizedHtml(noteContentView, marked.parse(editorContentForActiveNote));
+            } catch (error) {
+                // 깊게 중첩된 Markdown은 파서에서 예외를 발생시킬 수 있습니다.
+                // 이전 노트의 미리보기를 남기거나 통계 갱신까지 중단하지 않고,
+                // 현재 본문을 textContent로 표시해 원문의 HTML이 실행되지 않게 합니다.
+                console.error('Markdown preview failed. Displaying the current note as plain text.', error);
+                const errorMessage = document.createElement('p');
+                errorMessage.className = 'markdown-preview-error';
+                errorMessage.textContent = '미리보기를 표시하지 못해 원문을 표시합니다. 편집 모드에서 내용을 수정할 수 있습니다.';
+                const plainTextContent = document.createElement('pre');
+                plainTextContent.textContent = editorContentForActiveNote;
+                noteContentView.replaceChildren(errorMessage, plainTextContent);
+            }
         } else {
             // 실패 시 사용자에게 알림 (getMarkedParser 내부에서 처리)
             noteContentView.replaceChildren();
