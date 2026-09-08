@@ -1639,7 +1639,10 @@
                         }
 
                         const rec = sanitizeDietRecord({ date: d, weight: w, fat });
-                        if(rec) {
+                        // 정제기는 범위 밖 체지방률을 생략한 기록을 반환할 수 있습니다.
+                        // CSV에 값이 있었는데 정제 후 사라졌다면 행 전체를 건너뛰어,
+                        // 같은 날짜의 정상 체중·체지방률을 부분 데이터로 덮어쓰지 않습니다.
+                        if(rec && (!hasFat || Object.prototype.hasOwnProperty.call(rec, 'fat'))) {
                             const idx = nextRecords.findIndex(r => r.date === rec.date);
                             if(idx >= 0) nextRecords[idx] = rec;
                             else nextRecords.push(rec);
@@ -1767,6 +1770,11 @@
         renderWeekdayProbTable();
 
         const colors = DomUtil.getChartColors();
+        // 각 차트는 필요한 기록 수가 부족하면 아래 갱신 함수에서 조기 반환합니다.
+        // 전체 렌더는 원래도 차트를 다시 생성하므로, 기존 인스턴스를 먼저 모두
+        // 정리해 삭제·복원·체지방 수정 후 더 이상 계산할 수 없는 과거 차트도 지웁니다.
+        Object.values(AppState.charts).forEach(chart => chart.destroy());
+        AppState.charts = {};
         updateMainChart(colors);
         updateDayOfWeekChart(colors);
         updateHistogram(colors);
@@ -3402,7 +3410,21 @@
     }
     
     function renderExtendedStats() {
-        if(AppState.records.length < 2) return;
+        if(AppState.records.length < 2) {
+            const tables = {
+                dailyWinRateTable: 2,
+                zoneDurationTable: 2,
+                streakDetailTable: 2,
+                bestWorstMonthTable: 3,
+                wallTableBody: 3,
+                monthlyFatLossTableBody: 3
+            };
+            Object.entries(tables).forEach(([id, columns]) => {
+                const table = AppState.getEl(id);
+                if (table) table.innerHTML = `<tr><td colspan="${columns}">데이터 부족</td></tr>`;
+            });
+            return;
+        }
 
         const winStats = [0,0,0,0,0,0,0]; 
         const totalStats = [0,0,0,0,0,0,0]; 
@@ -4898,7 +4920,7 @@
 
         const hMeter = AppState.settings.height / 100;
         const bmi = Math.round((lastRec.weight / (hMeter * hMeter)) * 100) / 100;
-        const fat = lastRec.fat || 0;
+        const fat = lastRec.fat;
 
 		const createGauge = (id, val, max, ranges, chartKey) => {
 			const ctx = document.getElementById(id).getContext('2d');
@@ -4978,12 +5000,15 @@
         
         createGauge('gaugeBmiChart', bmi, 45, bmiRanges, 'gaugeBmi');
 
-        createGauge('gaugeFatChart', fat, 50, [
-            { size: 15, color: '#a5d6a7' }, 
-            { size: 10, color: '#fff59d' }, 
-            { size: 10, color: '#ffcc80' }, 
-            { size: 15, color: '#ef9a9a' }  
-        ], 'gaugeFat');
+        // 입력하지 않은 체지방률을 0%로 표시하지 않습니다.
+        if (Number.isFinite(fat)) {
+            createGauge('gaugeFatChart', fat, 50, [
+                { size: 15, color: '#a5d6a7' },
+                { size: 10, color: '#fff59d' },
+                { size: 10, color: '#ffcc80' },
+                { size: 15, color: '#ef9a9a' }
+            ], 'gaugeFat');
+        }
     }
 
     function updateDayOfWeekChart(colors) {
@@ -6285,7 +6310,20 @@
     }
 
     function renderNewTables() {
-        if(AppState.records.length < 2) return;
+        if(AppState.records.length < 2) {
+            const tables = {
+                zoneReportTableBody: 3,
+                sprintTableBody: 4,
+                gradesTableBody: 4,
+                top5TableBody: 4,
+                monthlyRateTableBody: 4
+            };
+            Object.entries(tables).forEach(([id, columns]) => {
+                const table = AppState.getEl(id);
+                if (table) table.innerHTML = `<tr><td colspan="${columns}">데이터 부족</td></tr>`;
+            });
+            return;
+        }
 
         const zones = {};
         for(let i=1; i<AppState.records.length; i++) {
