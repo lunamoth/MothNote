@@ -548,14 +548,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (visited) normalizedVisitedViews[key] = true;
             });
 
+            // [MAJOR BUG FIX] 업적 컨테이너만 객체인지 확인하고 개별 항목은 조용히
+            // 버리거나 String()으로 강제 변환하면, 다음 일반 저장에서 손상 원본의
+            // 업적 정보가 영구적으로 덮어써질 수 있습니다. 가져오기 검증과 동일하게
+            // 알려진 업적 항목의 구조까지 확인하고, 해석 불가능하면 보호 모드로 전환합니다.
+            const normalizedAchievements = {};
+            Object.entries(rawAchievements).forEach(([key, value]) => {
+                if (!achievementList[key]) return;
+                if (!isPlainStateObject(value)
+                    || (hasOwn(value, 'unlockedAt') && typeof value.unlockedAt !== 'string')) {
+                    reportStructuralCorruption();
+                    return;
+                }
+                normalizedAchievements[key] = {
+                    unlockedAt: typeof value.unlockedAt === 'string' ? value.unlockedAt : ''
+                };
+            });
+
             return {
                 habits: sanitizedHabits,
                 currentView: validViews.has(rawState.currentView) ? rawState.currentView : 'calendar',
                 currentDate,
                 settings: { theme: rawSettings.theme === 'dark' ? 'dark' : 'light' },
-                achievements: Object.fromEntries(Object.entries(rawAchievements)
-                    .filter(([key, value]) => achievementList[key] && value && typeof value === 'object')
-                    .map(([key, value]) => [key, { unlockedAt: String(value.unlockedAt ?? '') }])),
+                achievements: normalizedAchievements,
                 reviewPeriod: rawState.reviewPeriod === 'monthly' ? 'monthly' : 'weekly',
                 visitedViews: normalizedVisitedViews,
                 filters: {

@@ -1839,19 +1839,35 @@ export const handleExport = async (settings) => {
             try {
                 habitTrackerDataForExport = JSON.parse(habitTrackerData);
                 if (habitTrackerDataForExport && typeof habitTrackerDataForExport === 'object' && !Array.isArray(habitTrackerDataForExport)) {
-                    const achievements = habitTrackerDataForExport.achievements && typeof habitTrackerDataForExport.achievements === 'object'
-                        ? habitTrackerDataForExport.achievements
-                        : {};
-                    if (!achievements.data_guardian) {
-                        achievements.data_guardian = { unlockedAt: new Date().toISOString() };
-                        habitTrackerDataForExport.achievements = achievements;
-                        // 백업에 포함할 뿐 아니라 습관 트래커를 다시 열었을 때도 업적이 유지되도록 저장합니다.
-                        try {
-                            localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(habitTrackerDataForExport));
-                        } catch (achievementSaveError) {
-                            // 백업은 저장 공간 문제를 복구하기 위한 핵심 수단입니다.
-                            // 부가 업적 기록 실패가 정상 노트·설정 백업 생성까지 막지 않게 합니다.
-                            console.warn('데이터 지킴이 업적을 저장하지 못했지만 백업은 계속 진행합니다.', achievementSaveError);
+                    const hasAchievements = Object.prototype.hasOwnProperty.call(habitTrackerDataForExport, 'achievements');
+                    const rawAchievements = habitTrackerDataForExport.achievements;
+                    const achievementsAreStructurallySafe = !hasAchievements || (
+                        isPlainImportObject(rawAchievements)
+                        && Object.values(rawAchievements).every(achievement => (
+                            isPlainImportObject(achievement)
+                            && (!Object.prototype.hasOwnProperty.call(achievement, 'unlockedAt')
+                                || typeof achievement.unlockedAt === 'string')
+                        ))
+                    );
+
+                    if (!achievementsAreStructurallySafe) {
+                        // [MAJOR BUG FIX] 습관 트래커가 손상 원본 보호 모드에 들어가야 할 업적 구조를
+                        // 백업 버튼이 먼저 `{}`로 교체해 다시 저장하면 복구에 필요한 원본이 사라집니다.
+                        // 손상된 부가 데이터는 원문 의미 그대로 백업에만 포함하고 절대 재저장하지 않습니다.
+                        console.warn('습관 트래커 업적 구조가 올바르지 않아 데이터 지킴이 업적 자동 저장을 건너뜁니다. 원본 데이터는 변경하지 않습니다.');
+                    } else {
+                        const achievements = hasAchievements ? rawAchievements : {};
+                        if (!achievements.data_guardian) {
+                            achievements.data_guardian = { unlockedAt: new Date().toISOString() };
+                            habitTrackerDataForExport.achievements = achievements;
+                            // 백업에 포함할 뿐 아니라 습관 트래커를 다시 열었을 때도 업적이 유지되도록 저장합니다.
+                            try {
+                                localStorage.setItem(HABIT_TRACKER_DATA_KEY, JSON.stringify(habitTrackerDataForExport));
+                            } catch (achievementSaveError) {
+                                // 백업은 저장 공간 문제를 복구하기 위한 핵심 수단입니다.
+                                // 부가 업적 기록 실패가 정상 노트·설정 백업 생성까지 막지 않게 합니다.
+                                console.warn('데이터 지킴이 업적을 저장하지 못했지만 백업은 계속 진행합니다.', achievementSaveError);
+                            }
                         }
                     }
                 }
