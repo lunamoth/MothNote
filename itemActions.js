@@ -37,6 +37,24 @@ const escapeCssAttributeValue = (value) => {
         .replace(/[\n\r\f]/g, ' ');
 };
 
+// contentEditable 이름 전체 선택은 deprecated execCommand에 의존하지 않습니다.
+// Selection/Range API가 예외를 던져도 호출자가 편집 상태를 정리할 수 있도록 실패를 반환합니다.
+const selectAllEditableText = (element) => {
+    if (!element || typeof document === 'undefined' || typeof window === 'undefined') return false;
+    try {
+        const selection = window.getSelection?.();
+        if (!selection || typeof document.createRange !== 'function') return false;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+    } catch (error) {
+        console.warn('Rename text selection failed:', error);
+        return false;
+    }
+};
+
 export const parseYYYYMMDDLocal = (value) => {
     if (typeof value !== 'string') return null;
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
@@ -1737,6 +1755,13 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
         } catch (error) {
             console.error('Rename finalization failed:', error);
             showToast('이름 변경 저장 중 오류가 발생했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            // 예외가 정상 종료 분기(setState/cleanup)에 도달하기 전에 발생해도
+            // renamingItemId와 DOM 이벤트가 남아 다음 이름 변경을 영구적으로 막지 않게 합니다.
+            if (pendingRenameCleanup) {
+                try { pendingRenameCleanup(); } catch (cleanupError) { console.warn('Rename listener cleanup failed:', cleanupError); }
+                pendingRenameCleanup = null;
+            }
+            setState({ renamingItemId: null });
             result = false;
             return result;
         } finally {
@@ -1812,59 +1837,69 @@ export const startRename = async (liElement, type) => {
             // 오래된 콜백이 편집 모드를 되살리거나 새 작업의 상태를 지우지 않도록 중단합니다.
             if (state.renamingItemId !== id || !pendingRenamePromise) return;
 
-            const safeId = escapeCssAttributeValue(id);
-            const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
-            const nameSpan = newLiElement?.querySelector('.item-name');
+            try {
+                const safeId = escapeCssAttributeValue(id);
+                const newLiElement = document.querySelector(`.item-list-entry[data-id="${safeId}"]`);
+                const nameSpan = newLiElement?.querySelector('.item-name');
 
-            if (!newLiElement || !nameSpan) {
-                forceResolvePendingRename();
-                return;
-            }
-            
-            nameSpan.contentEditable = true;
-            nameSpan.focus();
-            document.execCommand('selectAll', false, null);
+                if (!newLiElement || !nameSpan) {
+                    forceResolvePendingRename();
+                    return;
+                }
 
-            const onInput = () => {
-                if (pendingRenameDraft?.id === id) {
-                    const rawName = String(nameSpan.textContent ?? '');
-                    pendingRenameDraft.newName = rawName;
-                    const newName = rawName.trim();
+                const onInput = () => {
+                    if (pendingRenameDraft?.id === id) {
+                        const rawName = String(nameSpan.textContent ?? '');
+                        pendingRenameDraft.newName = rawName;
+                        const newName = rawName.trim();
 
-                    if (newName) {
-                        persistEmergencyChangesBackupEntry('itemRename', {
-                            id,
-                            type,
-                            newName,
-                            capturedAt: Date.now()
-                        });
-                    } else {
-                        // 빈 이름은 정상 커밋 대상이 아닙니다. 직전의 부분 입력이 다음 실행에서
-                        // 되살아나지 않도록 이 이름 변경의 비상 사본만 정리합니다.
-                        clearRenameEmergencyBackup(id, type);
+                        if (newName) {
+                            persistEmergencyChangesBackupEntry('itemRename', {
+                                id,
+                                type,
+                                newName,
+                                capturedAt: Date.now()
+                            });
+                        } else {
+                            // 빈 이름은 정상 커밋 대상이 아닙니다. 직전의 부분 입력이 다음 실행에서
+                            // 되살아나지 않도록 이 이름 변경의 비상 사본만 정리합니다.
+                            clearRenameEmergencyBackup(id, type);
+                        }
                     }
-                }
-            };
-            const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
-            const onKeydown = (event) => {
-                // 조합 확정/취소 키가 이름 전체의 저장/취소로 처리되지 않게 합니다.
-                if (event.isComposing || event.keyCode === 229) return;
-                if (event.key === 'Enter') {
-                    event.preventDefault();
-                    void _handleRenameEnd(id, type, nameSpan, true);
-                } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    void _handleRenameEnd(id, type, nameSpan, false);
-                }
-            };
-            nameSpan.addEventListener('input', onInput);
-            nameSpan.addEventListener('blur', onBlur, { once: true });
-            nameSpan.addEventListener('keydown', onKeydown);
-            pendingRenameCleanup = () => {
-                nameSpan.removeEventListener('input', onInput);
-                nameSpan.removeEventListener('blur', onBlur);
-                nameSpan.removeEventListener('keydown', onKeydown);
-            };
+                };
+                const onBlur = () => { void _handleRenameEnd(id, type, nameSpan, true); };
+                const onKeydown = (event) => {
+                    // 조합 확정/취소 키가 이름 전체의 저장/취소로 처리되지 않게 합니다.
+                    if (event.isComposing || event.keyCode === 229) return;
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void _handleRenameEnd(id, type, nameSpan, true);
+                    } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        void _handleRenameEnd(id, type, nameSpan, false);
+                    }
+                };
+                // 포커스/선택 API가 실패하더라도 blur/Enter/Escape가 정상 종료 경로를 탈 수 있도록
+                // 이벤트 정리를 먼저 설치합니다.
+                nameSpan.addEventListener('input', onInput);
+                nameSpan.addEventListener('blur', onBlur, { once: true });
+                nameSpan.addEventListener('keydown', onKeydown);
+                pendingRenameCleanup = () => {
+                    nameSpan.removeEventListener('input', onInput);
+                    nameSpan.removeEventListener('blur', onBlur);
+                    nameSpan.removeEventListener('keydown', onKeydown);
+                };
+
+                nameSpan.contentEditable = true;
+                nameSpan.focus();
+                selectAllEditableText(nameSpan);
+            } catch (error) {
+                console.error('Rename editor initialization failed:', error);
+                showToast('이름 변경을 시작하지 못했습니다. 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                // 타이머 콜백의 예외는 startRename()의 바깥 try/finally로 전파되지 않습니다.
+                // 여기서 직접 정리하지 않으면 pending Promise와 renamingItemId가 남을 수 있습니다.
+                forceResolvePendingRename();
+            }
         }, 0);
     } finally {
         isStartingRename = false;
