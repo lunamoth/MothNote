@@ -1687,7 +1687,18 @@
         }
     }
 
+    function ensureDietRecordsReadyForExport() {
+        if (!AppState.state.recordsLoadFailed) return true;
+
+        // 로드 실패 시 records는 화면 표시용으로 정제한 일부 기록 또는 빈 배열입니다.
+        // 이를 정상 백업으로 내보내면 손상 원본에 남아 있는 복구 가능한 정보를 잃으므로,
+        // 원문을 보존하는 MothNote 전체 백업을 안내합니다.
+        showToast('체중 기록을 안전하게 불러오지 못해 불완전한 백업 생성을 중단했습니다. MothNote 설정의 ‘데이터 백업’ 버튼으로 원본을 보관해주세요.');
+        return false;
+    }
+
 	function exportCSV() {
+        if (!ensureDietRecordsReadyForExport()) return;
         if (AppState.records.length === 0) return showToast('내보낼 데이터가 없습니다.');
         let csvContent = "\uFEFFDate,Weight,BodyFat\n";
         AppState.records.forEach(row => {
@@ -1704,6 +1715,7 @@
     }
 
 	function exportJSON() {
+        if (!ensureDietRecordsReadyForExport()) return;
         const data = {
             settings: AppState.settings,
             records: AppState.records,
