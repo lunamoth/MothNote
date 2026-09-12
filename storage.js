@@ -1457,7 +1457,7 @@ export const loadData = async () => {
 // --- 데이터 가져오기/내보내기 및 정제 로직 ---
 
 // [BUG FIX] chrome.downloads API 실패 시 일반 웹 다운로드 방식으로 대체하는 헬퍼 함수
-const fallbackAnchorDownload = (url, filename) => {
+const fallbackAnchorDownload = (url, filename, successMessage = CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS) => {
     try {
         const a = document.createElement('a');
         a.href = url;
@@ -1471,7 +1471,7 @@ const fallbackAnchorDownload = (url, filename) => {
             URL.revokeObjectURL(url);
         }, 100);
         
-        showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
+        showToast(successMessage);
     } catch (e) {
         console.error("Fallback download failed:", e);
         showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
@@ -1834,6 +1834,29 @@ export const handleExport = async (settings) => {
         const dietChallengeSettingsResult = readOptionalLocalStorageForExport(DIET_CHALLENGE_SETTINGS_KEY, '다이어트 챌린지 설정');
         const dietChallengeData = dietChallengeResult.value;
         const dietChallengeSettings = dietChallengeSettingsResult.value;
+
+        // [MAJOR BUG FIX] 부가 데이터 읽기 실패를 조용히 생략한 채 일반 백업 성공으로 표시하면
+        // 사용자가 완전한 백업으로 오인해 이후 원본 삭제/재설치 시 해당 기록을 복구하지 못할 수 있습니다.
+        // 핵심 노트 백업은 계속 허용하되, 누락되는 항목을 명시하고 사용자가 부분 백업을 선택한 경우에만 저장합니다.
+        const omittedBackupSections = [
+            !habitTrackerResult.ok ? '습관 트래커 데이터' : null,
+            !dietChallengeResult.ok ? '다이어트 챌린지 기록' : null,
+            !dietChallengeSettingsResult.ok ? '다이어트 챌린지 설정' : null
+        ].filter(Boolean);
+        const isPartialBackup = omittedBackupSections.length > 0;
+        if (isPartialBackup) {
+            const shouldSavePartialBackup = await showConfirm({
+                title: '⚠️ 일부 데이터를 백업할 수 없습니다',
+                message: `다음 항목을 저장소에서 읽지 못했습니다: ${omittedBackupSections.join(', ')}. 이 상태로 저장하면 해당 항목이 빠진 부분 백업이 생성됩니다. 핵심 폴더와 노트 데이터는 포함됩니다. 부분 백업을 저장하시겠습니까?`,
+                confirmText: '⚠️ 부분 백업 저장',
+                cancelText: '❌ 취소',
+                confirmButtonType: 'danger'
+            });
+            if (!shouldSavePartialBackup) {
+                return false;
+            }
+        }
+
         let habitTrackerDataForExport = null;
         if (habitTrackerData) {
             try {
@@ -1907,7 +1930,14 @@ export const handleExport = async (settings) => {
             // 그래야 이 백업을 다시 가져올 때 정상적인 기존 부가 데이터를 잘못 지우지 않습니다.
             ...(habitTrackerResult.ok ? { habitTrackerData: habitTrackerDataForExport } : {}),
             ...(dietChallengeResult.ok ? { dietChallengeData: dietChallengeData } : {}),
-            ...(dietChallengeSettingsResult.ok ? { dietChallengeSettings: dietChallengeSettings } : {})
+            ...(dietChallengeSettingsResult.ok ? { dietChallengeSettings: dietChallengeSettings } : {}),
+            ...(isPartialBackup ? {
+                backupMetadata: {
+                    completeness: 'partial',
+                    omittedSections: omittedBackupSections,
+                    createdAt: new Date().toISOString()
+                }
+            } : {})
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -1918,7 +1948,12 @@ export const handleExport = async (settings) => {
         const year = now.getFullYear().toString().slice(-2);
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
-        const filename = `${year}${month}${day}_MothNote_Backup.json`;
+        const filename = isPartialBackup
+            ? `${year}${month}${day}_MothNote_Backup_PARTIAL.json`
+            : `${year}${month}${day}_MothNote_Backup.json`;
+        const exportSuccessMessage = isPartialBackup
+            ? `⚠️ 부분 백업 저장 완료: ${omittedBackupSections.join(', ')} 제외`
+            : CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS;
 
         // chrome.downloads API가 사용 가능한지 확인하고 우선적으로 사용합니다.
         if (typeof chrome !== 'undefined' && chrome.downloads && typeof chrome.downloads.download === 'function') {
@@ -1931,16 +1966,16 @@ export const handleExport = async (settings) => {
                 if (chrome.runtime.lastError) {
                     console.warn(`chrome.downloads.download API 실패: ${chrome.runtime.lastError.message}. 일반 다운로드로 전환합니다.`);
                     // API 실패 시, 권한이 없어도 동작하는 폴백(fallback) 함수를 호출합니다.
-                    fallbackAnchorDownload(url, filename);
+                    fallbackAnchorDownload(url, filename, exportSuccessMessage);
                 } else {
                     // API 성공 시, 약간의 지연 후 URL을 해제하여 메모리 누수를 방지합니다.
                     setTimeout(() => URL.revokeObjectURL(url), 1000);
-                    showToast(CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS);
+                    showToast(exportSuccessMessage);
                 }
             });
         } else {
             // chrome.downloads API를 사용할 수 없는 환경(예: 일반 웹페이지)일 경우 즉시 폴백을 사용합니다.
-            fallbackAnchorDownload(url, filename);
+            fallbackAnchorDownload(url, filename, exportSuccessMessage);
         }
 
         return true;
