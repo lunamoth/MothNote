@@ -47,7 +47,9 @@ const isSelectableItemInCurrentView = (itemId) => {
 
     const { item: currentFolder } = findFolder(state.activeFolderId);
     return Array.isArray(currentFolder?.notes)
-        && currentFolder.notes.some(item => String(item?.id ?? '') === normalizedId);
+        && currentFolder.notes.some(item => String(item?.id ?? '') === normalizedId)
+        // 휴지통에는 폴더도 같은 배열에 있으므로 실제 노트로 확인되는 ID만 선택 대상으로 인정합니다.
+        && Boolean(findNote(normalizedId).item);
 };
 
 const fallbackToAllNotesForMissingFolder = (missingFolderId) => {
@@ -171,18 +173,24 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     }
     
     const notesInFolder = Array.isArray(folder.notes) ? folder.notes : [];
+    // 휴지통 가상 폴더는 삭제된 폴더/노트를 한 배열에 보관합니다. 자동 선택은 실제 노트만
+    // 대상으로 해야 activeNoteId가 폴더 ID로 오염되지 않습니다.
+    const selectableNotesInFolder = notesInFolder.filter(item => {
+        const itemId = String(item?.id ?? '');
+        return itemId && Boolean(findNote(itemId).item);
+    });
     
     let nextActiveNoteId = null;
     const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
 
-    if (lastActiveNoteId && notesInFolder.some(n => n.id === lastActiveNoteId)) {
+    if (lastActiveNoteId && selectableNotesInFolder.some(n => n.id === lastActiveNoteId)) {
         nextActiveNoteId = lastActiveNoteId;
     } 
-    else if (notesInFolder.length > 0) {
+    else if (selectableNotesInFolder.length > 0) {
         const isSortable = folder?.isSortable !== false;
         const notesToSelectFrom = isSortable
-            ? sortNotes(notesInFolder, state.noteSortOrder)
-            : notesInFolder;
+            ? sortNotes(selectableNotesInFolder, state.noteSortOrder)
+            : selectableNotesInFolder;
         nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
     }
 

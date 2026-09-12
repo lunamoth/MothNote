@@ -1292,10 +1292,11 @@ const handleListClick = async (e, type) => {
     const li = getClosestElement(e.target, '.item-list-entry');
     if (!li) return;
     const id = li.dataset.id;
+    const actualType = li.dataset.type || type;
     const actionBtn = getClosestElement(e.target, '.icon-button');
     if (actionBtn) {
         cancelPendingSearchRequest();
-        void handleItemActionClick(actionBtn, id, li.dataset.type);
+        void handleItemActionClick(actionBtn, id, actualType);
         return;
     }
 
@@ -1309,9 +1310,13 @@ const handleListClick = async (e, type) => {
             requestAnimationFrame(() => folderList?.focus());
         }
     } else if (type === CONSTANTS.ITEM_TYPE.NOTE) {
-        const changed = await changeActiveNote(id);
+        // 휴지통은 삭제된 폴더와 노트를 같은 목록에 표시합니다. 폴더 행을 노트로
+        // 선택하면 activeNoteId에 폴더 ID가 들어가 편집기/세션 상태가 깨지므로,
+        // 폴더 행은 현재 노트 선택만 안전하게 해제하고 복원/삭제 버튼만 사용합니다.
+        const targetNoteId = actualType === CONSTANTS.ITEM_TYPE.NOTE ? id : null;
+        const changed = await changeActiveNote(targetNoteId);
         // 노트 리스트도 동일하게 수정하여 일관성을 유지합니다.
-        if (changed) requestAnimationFrame(() => noteList?.focus());
+        if (changed) requestAnimationFrame(() => li.isConnected ? li.focus() : noteList?.focus());
     }
 };
 
@@ -1617,7 +1622,10 @@ const _navigateList = async (type, direction) => {
         const list = type === CONSTANTS.ITEM_TYPE.FOLDER ? folderList : noteList;
         if (!list) return;
 
-        const items = Array.from(list.querySelectorAll('.item-list-entry'));
+        // 휴지통의 노트 목록에는 삭제된 폴더 행도 섞여 있습니다. 키보드 노트 이동이
+        // 폴더 ID를 activeNoteId로 저장하지 않도록 요청한 타입과 실제 행 타입이 같은 항목만 탐색합니다.
+        const items = Array.from(list.querySelectorAll('.item-list-entry'))
+            .filter(item => (item.dataset.type || type) === type);
         if (items.length === 0) return;
 
         const activeId = type === CONSTANTS.ITEM_TYPE.FOLDER ? state.activeFolderId : state.activeNoteId;
@@ -1710,30 +1718,17 @@ const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, input
     const splitter = document.getElementById(splitterId);
     if (!splitter) return;
 
-    const onMouseMove = (e) => {
-        e.preventDefault();
-        const container = document.querySelector('.container');
-        const foldersPanel = document.getElementById('folders-panel');
-        if (!container || (splitterId !== 'splitter-1' && !foldersPanel)) return;
+    let isDragging = false;
 
-        const containerRect = container.getBoundingClientRect();
-        if (!containerRect.width) return;
-
-        let newPanelWidth = splitterId === 'splitter-1'
-            ? e.clientX - containerRect.left
-            : e.clientX - foldersPanel.getBoundingClientRect().right;
-        let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50));
-        document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`);
-        const roundedValue = Math.round(newPanelPercentage);
-        if (sliderElement) sliderElement.value = roundedValue;
-        if (inputElement) inputElement.value = roundedValue;
-    };
-
-    const onMouseUp = () => {
+    const finishDrag = () => {
+        if (!isDragging) return;
+        isDragging = false;
         splitter.classList.remove('dragging');
         document.body.style.cursor = 'default';
         document.body.style.userSelect = 'auto';
         window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', finishDrag);
+        window.removeEventListener('blur', finishDrag);
         if (sliderElement) {
             const persistedSettings = persistAppSettings({
                 ...appSettings,
@@ -1752,13 +1747,42 @@ const setupSplitter = (splitterId, cssVarName, settingsKey, sliderElement, input
         }
     };
 
+    const onMouseMove = (e) => {
+        // 창 밖에서 버튼을 놓치면 mouseup이 전달되지 않을 수 있습니다. 다시 들어온 첫 이동에서
+        // 버튼이 이미 올라가 있으면 즉시 정리해 전역 mousemove/선택 금지 상태가 남지 않게 합니다.
+        if (!isDragging || e.buttons === 0) {
+            finishDrag();
+            return;
+        }
+        e.preventDefault();
+        const container = document.querySelector('.container');
+        const foldersPanel = document.getElementById('folders-panel');
+        if (!container || (splitterId !== 'splitter-1' && !foldersPanel)) return;
+
+        const containerRect = container.getBoundingClientRect();
+        if (!containerRect.width) return;
+
+        let newPanelWidth = splitterId === 'splitter-1'
+            ? e.clientX - containerRect.left
+            : e.clientX - foldersPanel.getBoundingClientRect().right;
+        let newPanelPercentage = Math.max(10, Math.min((newPanelWidth / containerRect.width) * 100, 50));
+        document.documentElement.style.setProperty(cssVarName, `${newPanelPercentage}%`);
+        const roundedValue = Math.round(newPanelPercentage);
+        if (sliderElement) sliderElement.value = roundedValue;
+        if (inputElement) inputElement.value = roundedValue;
+    };
+
     splitter.addEventListener('mousedown', (e) => {
         e.preventDefault();
+        // 비정상적으로 이전 드래그가 남아 있더라도 새 드래그 전에 한 번 정리합니다.
+        finishDrag();
+        isDragging = true;
         splitter.classList.add('dragging');
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
         window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp, { once: true });
+        window.addEventListener('mouseup', finishDrag);
+        window.addEventListener('blur', finishDrag);
     });
 };
 
@@ -1776,7 +1800,27 @@ const setupZenModeResize = () => {
             e.preventDefault();
             const startX = e.clientX;
             const startWidth = mainContent.offsetWidth;
+            let isResizing = true;
+
+            const finishResize = () => {
+                if (!isResizing) return;
+                isResizing = false;
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', finishResize);
+                window.removeEventListener('blur', finishResize);
+                const persistedSettings = persistAppSettings({
+                    ...appSettings,
+                    zenMode: { ...appSettings.zenMode, maxWidth: parseInt(settingsZenMaxWidth.value, 10) }
+                });
+                if (persistedSettings) appSettings = persistedSettings;
+            };
+
             const onMouseMove = (moveEvent) => {
+                // 창 밖에서 mouseup을 놓친 뒤 포인터가 돌아온 경우에도 크기 조절을 즉시 종료합니다.
+                if (!isResizing || moveEvent.buttons === 0) {
+                    finishResize();
+                    return;
+                }
                 const deltaX = moveEvent.clientX - startX;
                 let newWidth = startWidth + (handle.id === 'zen-resize-handle-right' ? deltaX * 2 : -deltaX * 2);
                 newWidth = Math.max(getZenMin(), Math.min(newWidth, getZenMax()));
@@ -1785,16 +1829,10 @@ const setupZenModeResize = () => {
                 settingsZenMaxWidth.value = roundedWidth;
                 settingsZenMaxInput.value = roundedWidth;
             };
-            const onMouseUp = () => {
-                window.removeEventListener('mousemove', onMouseMove);
-                const persistedSettings = persistAppSettings({
-                    ...appSettings,
-                    zenMode: { ...appSettings.zenMode, maxWidth: parseInt(settingsZenMaxWidth.value, 10) }
-                });
-                if (persistedSettings) appSettings = persistedSettings;
-            };
+
             window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('mouseup', onMouseUp, { once: true });
+            window.addEventListener('mouseup', finishResize);
+            window.addEventListener('blur', finishResize);
         });
     };
     initResize(leftHandle);

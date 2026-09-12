@@ -503,12 +503,16 @@ export const renderNotes = () => {
     const activeEditorOwnsUnsavedDraft = state.isDirty
         && state.dirtyNoteId
         && state.activeNoteId === state.dirtyNoteId;
+    const activeNoteIsSelectable = !state.activeNoteId || sortedNotes.some(item => (
+        item?.id === state.activeNoteId && Boolean(findNote(state.activeNoteId).item)
+    ));
     if (state.activeNoteId
-        && !sortedNotes.some(note => note.id === state.activeNoteId)
+        && !activeNoteIsSelectable
         && !activeEditorOwnsUnsavedDraft) {
-        // activeNoteId 보정은 setState()를 통해 즉시 재렌더를 유발합니다.
-        // 현재 렌더가 계속 진행되면 재렌더된 DOM을 오래된 목록으로 다시 덮어쓸 수 있으므로 중단합니다.
-        setState({ activeNoteId: sortedNotes[0]?.id ?? null });
+        // 휴지통 목록에는 폴더도 섞여 있으므로 첫 '항목'이 아니라 실제 노트를 대체 선택합니다.
+        // activeNoteId 보정은 setState()를 통해 즉시 재렌더를 유발하므로 현재 렌더는 여기서 중단합니다.
+        const fallbackNoteId = sortedNotes.find(item => item?.id && Boolean(findNote(item.id).item))?.id ?? null;
+        setState({ activeNoteId: fallbackNoteId });
         return;
     }
     
