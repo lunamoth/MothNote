@@ -704,11 +704,26 @@ const canonicalizeDataBeforeSave = (data) => {
 };
 
 const getNextActiveNoteAfterDeletion = (deletedNoteId, notesInView) => {
-    if (!notesInView || notesInView.length === 0) return null;
-    const futureNotesInView = notesInView.filter(n => n.id !== deletedNoteId);
+    if (!Array.isArray(notesInView) || notesInView.length === 0) return null;
+
+    // 휴지통 목록에는 삭제된 폴더와 노트가 함께 들어 있습니다. 폴더 행을
+    // 노트 후보에 포함하면 노트 영구 삭제 후 폴더 ID가 activeNoteId로 저장되어
+    // 편집기가 빈 화면으로 남고, 다음 새로고침 때 잘못된 세션이 복원될 수 있습니다.
+    // 일반 폴더/가상 폴더 목록은 이미 노트만 전달하지만, 여기서도 동일하게
+    // 노트 형태를 확인해 호출부별 목록 구성 차이를 안전하게 흡수합니다.
+    const noteItemsInView = notesInView.filter(item => (
+        item
+        && !Array.isArray(item.notes)
+        && (item.type === CONSTANTS.ITEM_TYPE.NOTE
+            || Object.prototype.hasOwnProperty.call(item, 'title')
+            || Object.prototype.hasOwnProperty.call(item, 'content'))
+    ));
+    if (noteItemsInView.length === 0) return null;
+
+    const futureNotesInView = noteItemsInView.filter(n => n.id !== deletedNoteId);
     if(futureNotesInView.length === 0) return null;
 
-    const deletedIndexInOriginalView = notesInView.findIndex(n => n.id === deletedNoteId);
+    const deletedIndexInOriginalView = noteItemsInView.findIndex(n => n.id === deletedNoteId);
     if (deletedIndexInOriginalView === -1) return futureNotesInView[0].id;
     
     const nextItem = futureNotesInView[deletedIndexInOriginalView] || futureNotesInView[deletedIndexInOriginalView - 1];
