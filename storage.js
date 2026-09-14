@@ -2719,6 +2719,25 @@ export const setupImportHandler = () => {
             let importRollbackFailed = false;
             let importCommitted = false;
             let importReloadScheduled = false;
+            // 복구 백업이 만들어진 뒤에는 저장소와 기존 화면이 다시 일치하고
+            // 복구 정보 정리까지 끝났을 때만 편집을 재개할 수 있습니다.
+            let importRequiresRestart = false;
+
+            const keepImportProtectedUntilRestart = () => {
+                window.isImporting = true;
+                window.isReplacementImportActive = true;
+                importOperationInProgress = true;
+                // 진행 중인 쓰기는 종료됐으므로 사용자가 직접 새로고침할 수 있게 합니다.
+                // 편집 차단은 그대로 유지해 오래된 화면의 저장이나 추가 가져오기를 막습니다.
+                window.isImportReloadPending = true;
+                const importMessage = overlay?.querySelector('.import-message');
+                if (importMessage) {
+                    importMessage.textContent = importCommitted
+                        ? '데이터 적용은 완료되었습니다. 현재 화면의 편집을 중단했으니 새 탭을 다시 열어주세요.'
+                        : '데이터 복구를 완료하지 못해 편집을 중단했습니다. 새 탭을 다시 열면 복구를 재시도합니다.';
+                }
+                overlay?.querySelector('.import-spinner')?.remove();
+            };
 
             const scheduleImportReload = () => {
                 const reloadTimer = setTimeout(() => {
@@ -2726,11 +2745,16 @@ export const setupImportHandler = () => {
                         window.location.reload();
                     } catch (reloadError) {
                         console.error('Import completed, but the automatic reload failed.', reloadError);
-                        window.isImportReloadPending = false;
-                        window.isImporting = false;
-                        window.isReplacementImportActive = false;
-                        importOperationInProgress = false;
-                        if (overlay?.parentElement) overlay.remove();
+                        if (importRequiresRestart) {
+                            keepImportProtectedUntilRestart();
+                        } else {
+                            // Simplenote 병합은 성공한 트랜잭션에서 메모리 상태도 갱신합니다.
+                            window.isImportReloadPending = false;
+                            window.isImporting = false;
+                            window.isReplacementImportActive = false;
+                            importOperationInProgress = false;
+                            if (overlay?.parentElement) overlay.remove();
+                        }
                         void showAlert({
                             title: '📥 가져오기 완료',
                             message: '데이터 적용은 완료되었지만 화면을 자동으로 다시 시작하지 못했습니다. 새 탭을 다시 열어주세요.',
@@ -3038,6 +3062,7 @@ export const setupImportHandler = () => {
                         localStorage.setItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS, 'true');
                         await storageSet({ appState_backup: backupPayload });
                         importBackupCreated = true;
+                        importRequiresRestart = true;
                     } catch (backupError) {
                         try {
                             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
@@ -3087,6 +3112,7 @@ export const setupImportHandler = () => {
                             await storageRemove('appState_backup');
                             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                             importRollbackCompleted = true;
+                            importRequiresRestart = false;
                         } catch (restoreError) {
                             importRollbackFailed = true;
                             console.error('CRITICAL: Failed to restore import backup while lock was held.', restoreError);
@@ -3135,6 +3161,8 @@ export const setupImportHandler = () => {
                             await storageRemove('appState_backup');
                             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                         });
+                        importRollbackCompleted = true;
+                        importRequiresRestart = false;
                         showAlert({
                             title: '📥 가져오기 실패',
                             message: '가져오기 중 오류가 발생하여 이전 데이터로 복원했습니다.',
@@ -3157,6 +3185,7 @@ export const setupImportHandler = () => {
                             localStorage.removeItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
                             await storageRemove('appState_backup');
                         });
+                        importRequiresRestart = false;
                         showAlert({
                             title: '📥 가져오기 실패',
                             message: '가져오기 준비 중 오류가 발생했습니다. 기존 데이터는 변경되지 않았습니다.',
@@ -3186,6 +3215,10 @@ export const setupImportHandler = () => {
                 if (importReloadScheduled) {
                     const importMessage = overlay?.querySelector('.import-message');
                     if (importMessage) importMessage.textContent = '데이터 적용을 완료했습니다. 앱을 다시 시작하는 중입니다...';
+                } else if (importRequiresRestart) {
+                    // 실패한 롤백이나 재시작 오류 뒤에 이전 편집기를 다시 열면,
+                    // 후속 저장이 가져온 데이터를 덮어쓰거나 다음 자동 복구에서 사라질 수 있습니다.
+                    keepImportProtectedUntilRestart();
                 } else {
                     window.isImportReloadPending = false;
                     window.isImporting = false;
