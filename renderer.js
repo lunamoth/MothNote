@@ -23,6 +23,34 @@ let editorBoundNoteId = null;
 const HIGHLIGHT_TERM_MAX_LENGTH = 50; // [버그 수정] 하이라이트를 적용할 최대 검색어 길이 상수 추가
 const NOTE_SNIPPET_MAX_LENGTH = 180;
 
+// [MAJOR BUG FIX] 편집기 통계를 계산할 때 split()/match()로 단어·줄 수만큼의
+// 임시 배열을 만들지 않습니다. 대용량 노트도 본문 크기에 비례한 추가 메모리 없이
+// 한 번 순회하여 기존과 동일한 글자/단어/줄 수를 계산합니다.
+const getTextStatistics = (content) => {
+    const text = String(content ?? '');
+    if (!text) return { charCount: 0, wordCount: 0, lineCount: 0 };
+
+    let wordCount = 0;
+    let lineCount = 1;
+    let inWord = false;
+    const whitespacePattern = /\s/;
+
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (char === '\n') lineCount += 1;
+
+        const isWhitespace = whitespacePattern.test(char);
+        if (isWhitespace) {
+            inWord = false;
+        } else if (!inWord) {
+            wordCount += 1;
+            inWord = true;
+        }
+    }
+
+    return { charCount: text.length, wordCount, lineCount };
+};
+
 // [메이저 버그 수정] 긴 단일 행이나 대용량 본문 전체가 목록 DOM에 복사되지 않도록
 // 첫 번째 비어 있지 않은 행만 탐색하고, 미리보기 길이를 제한합니다.
 const getFirstNonEmptyLineSnippet = content => {
@@ -640,9 +668,7 @@ export const renderEditor = async () => {
     
     const { DOM_IDS } = CONSTANTS.EDITOR;
     const content = editorContentForActiveNote;
-    const charCount = content.length;
-    const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
-    const lineCount = content ? (content.match(/\n/g) || []).length + 1 : 0;
+    const { charCount, wordCount, lineCount } = getTextStatistics(content);
     
     document.getElementById(DOM_IDS.updatedDate).textContent = `🕒 수정일: ${formatDate(activeNote.updatedAt)}`;
     document.getElementById(DOM_IDS.createdDate).textContent = `📅 생성일: ${formatDate(activeNote.createdAt)}`;

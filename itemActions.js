@@ -1461,7 +1461,11 @@ const deriveFinalNoteTitle = (rawTitle, content) => {
     let finalTitle = String(rawTitle ?? '').trim();
 
     if (!finalTitle && content) {
-        let firstLine = String(content).split('\n')[0].trim();
+        // [MAJOR BUG FIX] 제목이 비어 있는 대형 노트를 저장할 때 첫 줄 하나를 얻기 위해
+        // 본문 전체를 split()으로 배열화하지 않습니다. 첫 개행 위치까지만 잘라 자동 제목을 만듭니다.
+        const normalizedContent = String(content);
+        const firstNewlineIndex = normalizedContent.indexOf('\n');
+        let firstLine = normalizedContent.slice(0, firstNewlineIndex === -1 ? normalizedContent.length : firstNewlineIndex).trim();
         if (firstLine) {
             const hasKorean = /[\uAC00-\uD7AF]/.test(firstLine);
             const limit = hasKorean ? CONSTANTS.AUTO_TITLE_LENGTH_KOR : CONSTANTS.AUTO_TITLE_LENGTH;

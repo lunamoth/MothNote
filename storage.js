@@ -2523,8 +2523,25 @@ const validateSimplenoteNotesCollection = (notes, fieldName, { optional = false 
 const normalizeSimplenoteContent = (note) => String(note?.content ?? '');
 
 const getSimplenoteTitle = (content, createdAt) => {
-    const firstNonEmptyLine = String(content ?? '').split('\n').find(line => line.trim() !== '');
-    return (firstNonEmptyLine ? firstNonEmptyLine.trim().slice(0, 100) : null)
+    // [MAJOR BUG FIX] 대형 Simplenote 노트에서 제목 한 줄을 찾기 위해 전체 본문을
+    // split()으로 배열화하지 않습니다. 개행 위치를 순차 탐색해 첫 비어 있지 않은 줄만 읽습니다.
+    const text = String(content ?? '');
+    let start = 0;
+    let firstNonEmptyLine = null;
+
+    while (start <= text.length) {
+        const newlineIndex = text.indexOf('\n', start);
+        const end = newlineIndex === -1 ? text.length : newlineIndex;
+        const line = text.slice(start, end).trim();
+        if (line) {
+            firstNonEmptyLine = line;
+            break;
+        }
+        if (newlineIndex === -1) break;
+        start = newlineIndex + 1;
+    }
+
+    return (firstNonEmptyLine ? firstNonEmptyLine.slice(0, 100) : null)
         || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
 };
 
