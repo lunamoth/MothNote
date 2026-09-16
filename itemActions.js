@@ -605,9 +605,16 @@ const pruneLastActiveNoteMapForData = (data) => {
         noteIdsByFolder.set(String(folder.id), noteIds);
     });
 
-    const trashItemIds = new Set();
+    const trashNoteIds = new Set();
     trash.forEach(item => {
-        if (item?.id) trashItemIds.add(String(item.id));
+        if (!item || typeof item !== 'object') return;
+        const isFolderLike = item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes);
+        const isNoteLike = !isFolderLike && (
+            item.type === CONSTANTS.ITEM_TYPE.NOTE
+            || Object.prototype.hasOwnProperty.call(item, 'title')
+            || Object.prototype.hasOwnProperty.call(item, 'content')
+        );
+        if (isNoteLike && item.id) trashNoteIds.add(String(item.id));
     });
 
     const { ALL, RECENT, FAVORITES, TRASH } = CONSTANTS.VIRTUAL_FOLDERS;
@@ -626,7 +633,7 @@ const pruneLastActiveNoteMapForData = (data) => {
             return activeNoteIds.has(normalizedNoteId) && favorites.has(normalizedNoteId);
         }
         if (normalizedFolderId === TRASH.id) {
-            return trashItemIds.has(normalizedNoteId);
+            return trashNoteIds.has(normalizedNoteId);
         }
         return false;
     };

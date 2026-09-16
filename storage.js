@@ -222,7 +222,9 @@ const buildDataReferenceContext = (data) => {
 
     const noteIdsByFolder = new Map();
     const activeNoteIds = new Set();
-    const trashItemIds = new Set();
+    // 휴지통에는 삭제된 폴더와 노트가 함께 있으므로, 마지막 활성 "노트" 참조에는
+    // 실제 노트 ID만 허용합니다. 폴더 ID까지 포함하면 activeNoteId가 폴더를 가리킬 수 있습니다.
+    const trashNoteIds = new Set();
 
     folders.forEach(folder => {
         if (!folder?.id) return;
@@ -238,10 +240,12 @@ const buildDataReferenceContext = (data) => {
     });
 
     trash.forEach(item => {
-        if (item?.id) trashItemIds.add(String(item.id));
+        if (item?.id && getTrashItemKind(item) === CONSTANTS.ITEM_TYPE.NOTE) {
+            trashNoteIds.add(String(item.id));
+        }
     });
 
-    return { noteIdsByFolder, activeNoteIds, trashItemIds, favorites };
+    return { noteIdsByFolder, activeNoteIds, trashNoteIds, favorites };
 };
 
 const isValidLastActiveReference = (folderId, noteId, context) => {
@@ -262,7 +266,7 @@ const isValidLastActiveReference = (folderId, noteId, context) => {
         return context.activeNoteIds.has(normalizedNoteId) && context.favorites.has(normalizedNoteId);
     }
     if (normalizedFolderId === TRASH.id) {
-        return context.trashItemIds.has(normalizedNoteId);
+        return context.trashNoteIds.has(normalizedNoteId);
     }
     return false;
 };
@@ -1272,7 +1276,11 @@ export const loadData = async () => {
                 let selectableNotes = Array.isArray(folder?.notes) ? folder.notes : [];
 
                 if (folderId === CONSTANTS.VIRTUAL_FOLDERS.TRASH.id) {
-                    selectableNotes = [...selectableNotes].sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
+                    // 휴지통 최상위 배열에는 폴더와 노트가 섞여 있습니다. 시작 시 자동 선택은
+                    // 편집 가능한 실제 노트만 대상으로 하여 폴더 ID가 activeNoteId가 되지 않게 합니다.
+                    selectableNotes = [...selectableNotes]
+                        .filter(item => getTrashItemKind(item) === CONSTANTS.ITEM_TYPE.NOTE)
+                        .sort((a, b) => (b?.deletedAt ?? 0) - (a?.deletedAt ?? 0));
                 } else if (folder?.isSortable !== false) {
                     selectableNotes = sortNotes(selectableNotes, state.noteSortOrder);
                 }

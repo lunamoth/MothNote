@@ -218,6 +218,13 @@ const getCurrentViewNotes = () => {
     return currentFolder?.notes ?? [];
 };
 
+// 휴지통 목록은 폴더/노트가 섞여 있어 표시 대상과 편집기 선택 대상이 다릅니다.
+// 검색 결과 자체에는 폴더를 남기되 activeNoteId 후보는 실제 노트만 허용합니다.
+const getSelectableNotes = items => (Array.isArray(items) ? items : []).filter(item => {
+    const itemId = String(item?.id ?? '');
+    return itemId && Boolean(findNote(itemId).item);
+});
+
 const handleSearch = (searchTerm) => {
     const previousSearchTerm = state.searchTerm;
     const newState = { searchTerm };
@@ -238,7 +245,8 @@ const handleSearch = (searchTerm) => {
             (n.title ?? n.name ?? '').toLowerCase().includes(normalizedSearchTerm) ||
             (n.content ?? '').toLowerCase().includes(normalizedSearchTerm)
         );
-        const notesToSelectFrom = isSortableView ? sortNotes(filteredNotes, state.noteSortOrder) : filteredNotes;
+        const selectableFilteredNotes = getSelectableNotes(filteredNotes);
+        const notesToSelectFrom = isSortableView ? sortNotes(selectableFilteredNotes, state.noteSortOrder) : selectableFilteredNotes;
         
         if (notesToSelectFrom.length > 0) {
             nextActiveNoteId = notesToSelectFrom[0].id;
@@ -249,21 +257,22 @@ const handleSearch = (searchTerm) => {
     } else {
         clearSortedNotesCache();
         const notesInCurrentView = getCurrentViewNotes();
+        const selectableNotesInCurrentView = getSelectableNotes(notesInCurrentView);
 
-        if (state.preSearchActiveNoteId && notesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
+        if (state.preSearchActiveNoteId && selectableNotesInCurrentView.some(n => n.id === state.preSearchActiveNoteId)) {
             nextActiveNoteId = state.preSearchActiveNoteId;
         } 
         else {
             if (!state.dateFilter) {
                 const lastActiveNoteId = state.lastActiveNotePerFolder[state.activeFolderId];
-                if (lastActiveNoteId && notesInCurrentView.some(n => n.id === lastActiveNoteId)) {
+                if (lastActiveNoteId && selectableNotesInCurrentView.some(n => n.id === lastActiveNoteId)) {
                     nextActiveNoteId = lastActiveNoteId;
                 }
             }
         }
         
-        if (nextActiveNoteId === null && notesInCurrentView.length > 0) {
-            const notesToSelectFrom = isSortableView ? sortNotes(notesInCurrentView, state.noteSortOrder) : notesInCurrentView;
+        if (nextActiveNoteId === null && selectableNotesInCurrentView.length > 0) {
+            const notesToSelectFrom = isSortableView ? sortNotes(selectableNotesInCurrentView, state.noteSortOrder) : selectableNotesInCurrentView;
             nextActiveNoteId = notesToSelectFrom[0]?.id ?? null;
         }
 
