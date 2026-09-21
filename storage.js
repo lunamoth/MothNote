@@ -1148,28 +1148,6 @@ export const loadData = async () => {
                         showToast("저장되지 않았던 변경사항을 버렸습니다.", CONSTANTS.TOAST_TYPE.SUCCESS);
                     }
                 }
-                
-                const updatedStorageResult = await storageGet('appState');
-                authoritativeData = updatedStorageResult.appState;
-                if (authoritativeData) {
-                    const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
-                    if (verification.isTopLevelInvalid) {
-                        throw createUnrecoverableAppStateError('비상 복구 결과의 최상위 구조가 올바르지 않아 원본 보존을 위해 저장을 중단했습니다.');
-                    }
-                    authoritativeData = verification.sanitizedData;
-                    verification.folderIdUpdateMap.forEach((newId, oldId) => folderIdUpdateMap.set(oldId, newId));
-                    verification.noteIdUpdateMap.forEach((newId, oldId) => noteIdUpdateMap.set(oldId, newId));
-
-                    if (verification.wasSanitized) {
-                        await storageSet({ appState: authoritativeData });
-                        console.warn('[Emergency Recovery] Recovered data required additional sanitization and was saved back to storage.');
-                    }
-                    if (verification.shouldNotify) {
-                        const sanitizationMessage = '복구된 데이터의 무결성 검사 중 문제를 발견하여 자동 복구했습니다.';
-                        recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanitizationMessage}` : sanitizationMessage;
-                    }
-                }
-
             } catch (e) {
                 if (!emergencyBackupValidated) {
                     console.error("비상 백업 형식이 손상되어 안전하게 제거합니다.", e);
@@ -1186,6 +1164,30 @@ export const loadData = async () => {
                     // 복원 성공/사용자 폐기/대상 없음 처리 뒤 후속 검증에서 실패한 경우입니다.
                     console.error("비상 백업 처리 후 저장 데이터 확인 중 오류가 발생했습니다.", e);
                     showToast("비상 백업 처리 후 데이터를 확인하는 중 오류가 발생했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                }
+            }
+
+            // 복구가 저장된 뒤에는 복구 전 스냅샷으로 화면을 초기화하면 안 됩니다.
+            // 최종 재조회·검증 오류는 비상 백업 처리의 복구 가능한 오류와 분리하여
+            // 바깥 초기화 경계로 전달합니다. 다음 실행에서 저장된 최신 내용을 다시 읽습니다.
+            const updatedStorageResult = await storageGet('appState');
+            authoritativeData = updatedStorageResult.appState;
+            if (authoritativeData) {
+                const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(authoritativeData)));
+                if (verification.isTopLevelInvalid) {
+                    throw createUnrecoverableAppStateError('비상 복구 결과의 최상위 구조가 올바르지 않아 원본 보존을 위해 저장을 중단했습니다.');
+                }
+                authoritativeData = verification.sanitizedData;
+                verification.folderIdUpdateMap.forEach((newId, oldId) => folderIdUpdateMap.set(oldId, newId));
+                verification.noteIdUpdateMap.forEach((newId, oldId) => noteIdUpdateMap.set(oldId, newId));
+
+                if (verification.wasSanitized) {
+                    await storageSet({ appState: authoritativeData });
+                    console.warn('[Emergency Recovery] Recovered data required additional sanitization and was saved back to storage.');
+                }
+                if (verification.shouldNotify) {
+                    const sanitizationMessage = '복구된 데이터의 무결성 검사 중 문제를 발견하여 자동 복구했습니다.';
+                    recoveryMessage = recoveryMessage ? `${recoveryMessage}\n${sanitizationMessage}` : sanitizationMessage;
                 }
             }
         }
@@ -1465,7 +1467,7 @@ export const loadData = async () => {
 // --- 데이터 가져오기/내보내기 및 정제 로직 ---
 
 // [BUG FIX] chrome.downloads API 실패 시 일반 웹 다운로드 방식으로 대체하는 헬퍼 함수
-const fallbackAnchorDownload = (url, filename, successMessage = CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS) => {
+const fallbackAnchorDownload = (url, filename, requestMessage) => {
     try {
         const a = document.createElement('a');
         a.href = url;
@@ -1479,12 +1481,65 @@ const fallbackAnchorDownload = (url, filename, successMessage = CONSTANTS.MESSAG
             URL.revokeObjectURL(url);
         }, 100);
         
-        showToast(successMessage);
+        // 링크 클릭은 파일 저장 완료를 확인할 수 없으므로 완료로 표시하지 않습니다.
+        showToast(requestMessage);
     } catch (e) {
         console.error("Fallback download failed:", e);
         showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
         // 실패 시에도 메모리 누수 방지를 위해 URL을 즉시 해제
         URL.revokeObjectURL(url);
+    }
+};
+
+// download() 콜백은 다운로드 시작만 확인합니다. 실제 완료/중단은 해당 ID의
+// 상태 변경으로 확인하고, 콜백 전에 완료된 작은 파일은 search()로 보완합니다.
+const monitorBackupDownload = (downloadId, url, successMessage, requestMessage) => {
+    const downloads = chrome.downloads;
+    let finished = false;
+    let timeoutId = null;
+    const finish = (message, type) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeoutId);
+        downloads.onChanged?.removeListener(onChanged);
+        URL.revokeObjectURL(url);
+        showToast(message, type);
+    };
+    const checkState = (downloadState, error) => {
+        if (downloadState === 'complete') {
+            finish(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS);
+        } else if (downloadState === 'interrupted') {
+            const message = error === 'USER_CANCELED'
+                ? '📤 백업 다운로드가 취소되었습니다. 백업 파일이 저장되지 않았습니다.'
+                : '📤❌ 백업 파일 저장에 실패했습니다. 브라우저 다운로드 목록을 확인한 뒤 다시 시도해주세요.';
+            finish(message, CONSTANTS.TOAST_TYPE.ERROR);
+        }
+    };
+    const onChanged = delta => {
+        if (delta.id === downloadId) checkState(delta.state?.current, delta.error?.current);
+    };
+
+    // 일시정지·사용자 확인 대기 중인 다운로드는 실패로 단정하거나 취소하지 않습니다.
+    // 장기 대기 시 관찰 자원만 정리하고, 완료를 확인하지 못했다는 사실을 알립니다.
+    timeoutId = setTimeout(() => finish(
+        '📤 백업 파일의 저장 완료를 확인하지 못했습니다. 브라우저 다운로드 목록에서 상태를 확인해주세요.',
+        CONSTANTS.TOAST_TYPE.ERROR
+    ), 5 * 60 * 1000);
+    showToast(requestMessage);
+
+    try {
+        downloads.onChanged.addListener(onChanged);
+        downloads.search({ id: downloadId }, items => {
+            if (chrome.runtime.lastError) {
+                console.warn('Backup download state query failed:', chrome.runtime.lastError);
+                return; // 상태 이벤트 또는 관찰 종료 안내를 기다립니다.
+            }
+            const item = items?.find(item => item.id === downloadId);
+            if (item) checkState(item.state, item.error);
+        });
+    } catch (error) {
+        // 다운로드는 이미 시작됐습니다. 관찰 오류 때문에 중복 다운로드하지 않습니다.
+        console.warn('Backup download monitoring could not be started:', error);
     }
 };
 
@@ -1962,6 +2017,9 @@ export const handleExport = async (settings) => {
         const exportSuccessMessage = isPartialBackup
             ? `⚠️ 부분 백업 저장 완료: ${omittedBackupSections.join(', ')} 제외`
             : CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS;
+        const exportRequestMessage = isPartialBackup
+            ? `📤 부분 백업 다운로드를 요청했습니다 (${omittedBackupSections.join(', ')} 제외). 브라우저 다운로드 목록에서 저장 완료 여부를 확인해주세요.`
+            : '📤 백업 다운로드를 요청했습니다. 브라우저 다운로드 목록에서 저장 완료 여부를 확인해주세요.';
 
         // chrome.downloads API가 사용 가능한지 확인하고 우선적으로 사용합니다.
         if (typeof chrome !== 'undefined' && chrome.downloads && typeof chrome.downloads.download === 'function') {
@@ -1974,16 +2032,14 @@ export const handleExport = async (settings) => {
                 if (chrome.runtime.lastError) {
                     console.warn(`chrome.downloads.download API 실패: ${chrome.runtime.lastError.message}. 일반 다운로드로 전환합니다.`);
                     // API 실패 시, 권한이 없어도 동작하는 폴백(fallback) 함수를 호출합니다.
-                    fallbackAnchorDownload(url, filename, exportSuccessMessage);
+                    fallbackAnchorDownload(url, filename, exportRequestMessage);
                 } else {
-                    // API 성공 시, 약간의 지연 후 URL을 해제하여 메모리 누수를 방지합니다.
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
-                    showToast(exportSuccessMessage);
+                    monitorBackupDownload(downloadId, url, exportSuccessMessage, exportRequestMessage);
                 }
             });
         } else {
             // chrome.downloads API를 사용할 수 없는 환경(예: 일반 웹페이지)일 경우 즉시 폴백을 사용합니다.
-            fallbackAnchorDownload(url, filename, exportSuccessMessage);
+            fallbackAnchorDownload(url, filename, exportRequestMessage);
         }
 
         return true;
