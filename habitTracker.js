@@ -678,6 +678,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error('Legacy habit data has an invalid top-level structure.');
                 }
 
+                // 변환 후에만 검사하면 `logs || {}`와 비교 연산이 손상 원본을
+                // 빈 기록/미완료로 바꿔 버립니다. 원본을 삭제하기 전에 변환 전
+                // 컨테이너와 V1 기록 값을 확인하여 손실이 있는 변환은 중단합니다.
+                const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+                const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+                for (const key of ['settings', 'achievements', 'visitedViews', 'filters']) {
+                    if (hasOwn(oldState, key) && !isRecord(oldState[key])) {
+                        throw new Error(`Legacy habit ${key} data has an invalid structure.`);
+                    }
+                }
+                const readLegacyLogNumber = value => {
+                    // 구버전 체크 기록의 true/false와 숫자 문자열은 기존 의미를 유지합니다.
+                    if (typeof value === 'boolean') return Number(value);
+                    if ((typeof value !== 'number' && typeof value !== 'string')
+                        || (typeof value === 'string' && value.trim() === '')) {
+                        throw new Error('Legacy habit log value is not numeric.');
+                    }
+                    const number = Number(value);
+                    if (!Number.isFinite(number)) throw new Error('Legacy habit log value is not finite.');
+                    return number;
+                };
+
                 // 아주 오래된 데이터 형식(V1)인지 확인
                 const isVeryOld = !oldState.version;
                 const legacyKeyToRemove = legacyKey || (isVeryOld ? 'habitTrackerData' : 'habitTrackerDataV2');
@@ -686,21 +708,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isVeryOld) {
                     migrationCandidate = {
                         ...this.state,
-                        habits: oldState.habits.map((habit, index) => ({
-                            id: habit.id || Date.now() + index,
-                            name: habit.name || 'Untitled',
-                            type: 'check',
-                            goal: 1,
-                            frequency: { type: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
-                            isArchived: false,
-                            order: index,
-                            createdAt: habit.id || Date.now() + index,
-                            logs: Object.entries(habit.logs || {}).reduce((acc, [date, value]) => {
-                                const wasCompleted = (habit.type === 'count' && habit.goal) ? (value >= habit.goal) : (value > 0);
-                                acc[date] = { value: wasCompleted ? 1 : 0 };
-                                return acc;
-                            }, {}),
-                        })),
+                        habits: oldState.habits.map((habit, index) => {
+                            if (!isRecord(habit)
+                                || (hasOwn(habit, 'name') && (habit.name === null || typeof habit.name === 'object'))
+                                || (hasOwn(habit, 'logs') && !isRecord(habit.logs))) {
+                                throw new Error('Legacy habit or log data has an invalid structure.');
+                            }
+                            const goal = habit.type === 'count' && hasOwn(habit, 'goal')
+                                ? readLegacyLogNumber(habit.goal)
+                                : 1;
+                            if (goal <= 0) throw new Error('Legacy habit count goal must be positive.');
+                            return {
+                                id: habit.id || Date.now() + index,
+                                name: habit.name || 'Untitled',
+                                type: 'check',
+                                goal: 1,
+                                frequency: { type: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
+                                isArchived: false,
+                                order: index,
+                                createdAt: habit.id || Date.now() + index,
+                                logs: Object.entries(habit.logs || {}).reduce((acc, [date, value]) => {
+                                    const numericValue = readLegacyLogNumber(value);
+                                    const wasCompleted = habit.type === 'count' ? numericValue >= goal : numericValue > 0;
+                                    acc[date] = { value: wasCompleted ? 1 : 0 };
+                                    return acc;
+                                }, {}),
+                            };
+                        }),
                         settings: { ...this.state.settings, theme: oldState.settings?.theme || 'light' }
                     };
                 } else {
