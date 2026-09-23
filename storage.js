@@ -126,6 +126,61 @@ const getTrashItemKind = item => {
     return null;
 };
 
+// 같은 유형의 원본 ID가 둘 이상이면 즐겨찾기·활성 노트·원래 폴더 등의 참조가
+// 어느 항목을 가리켰는지 무손실로 판별할 수 없습니다. 이런 상태를 임의로 첫 번째
+// 항목에 연결한 뒤 저장하면 손상 원본보다 복구 가능성이 더 낮아지므로 자동 정제하지 않습니다.
+const findAmbiguousDuplicateOriginalId = data => {
+    const seenFolderIds = new Set();
+    const seenNoteIds = new Set();
+
+    const register = (seenIds, rawId, itemType) => {
+        if (rawId === undefined || rawId === null) return null;
+        const normalizedId = String(rawId);
+        if (!normalizedId) return null;
+        if (seenIds.has(normalizedId)) {
+            return { id: normalizedId, itemType };
+        }
+        seenIds.add(normalizedId);
+        return null;
+    };
+
+    const scanNotes = notes => {
+        if (!Array.isArray(notes)) return null;
+        for (const note of notes) {
+            if (!note || typeof note !== 'object' || Array.isArray(note)) continue;
+            const duplicate = register(seenNoteIds, note.id, CONSTANTS.ITEM_TYPE.NOTE);
+            if (duplicate) return duplicate;
+        }
+        return null;
+    };
+
+    const folders = Array.isArray(data?.folders) ? data.folders : [];
+    for (const folder of folders) {
+        if (!folder || typeof folder !== 'object' || Array.isArray(folder)) continue;
+        const duplicateFolder = register(seenFolderIds, folder.id, CONSTANTS.ITEM_TYPE.FOLDER);
+        if (duplicateFolder) return duplicateFolder;
+        const duplicateNote = scanNotes(folder.notes);
+        if (duplicateNote) return duplicateNote;
+    }
+
+    const trash = Array.isArray(data?.trash) ? data.trash : [];
+    for (const item of trash) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+        const itemKind = getTrashItemKind(item);
+        if (itemKind === CONSTANTS.ITEM_TYPE.FOLDER) {
+            const duplicateFolder = register(seenFolderIds, item.id, CONSTANTS.ITEM_TYPE.FOLDER);
+            if (duplicateFolder) return duplicateFolder;
+            const duplicateNote = scanNotes(item.notes);
+            if (duplicateNote) return duplicateNote;
+        } else if (itemKind === CONSTANTS.ITEM_TYPE.NOTE) {
+            const duplicateNote = register(seenNoteIds, item.id, CONSTANTS.ITEM_TYPE.NOTE);
+            if (duplicateNote) return duplicateNote;
+        }
+    }
+
+    return null;
+};
+
 // Number.isFinite만으로는 Date가 표현할 수 없는 1e300 같은 값도 통과합니다.
 // 날짜 표시·정렬·달력 필터가 Invalid Date/NaN으로 오염되지 않도록 실제 Date 범위까지 확인합니다.
 const toValidTimestamp = value => {
@@ -396,6 +451,19 @@ export const verifyAndSanitizeLoadedData = (data) => {
 
     if (hasUnrecoverableDataStructure) {
         console.warn('[Data Sanitization] A malformed data container or record was detected. Automatic persistence was blocked to preserve the original appState.');
+        return createInvalidStructureResult();
+    }
+
+    // [MAJOR BUG FIX] 같은 유형의 중복 원본 ID는 참조 대상이 모호합니다.
+    // 기존 동작은 두 번째 이후 항목에 새 ID를 발급하면서 참조는 첫 번째 항목에 남겨,
+    // 손상 데이터의 의미를 임의로 확정한 뒤 chrome.storage에 다시 저장할 수 있었습니다.
+    // 무손실 판별이 불가능한 경우 원본을 그대로 보존하고 자동 저장을 차단합니다.
+    const ambiguousDuplicateId = findAmbiguousDuplicateOriginalId(data);
+    if (ambiguousDuplicateId) {
+        console.warn(
+            `[Data Sanitization] Duplicate ${ambiguousDuplicateId.itemType} ID "${ambiguousDuplicateId.id}" was detected. `
+            + 'Automatic persistence was blocked because references cannot be repaired without ambiguity.'
+        );
         return createInvalidStructureResult();
     }
 
@@ -1562,6 +1630,19 @@ const sanitizeContentData = data => {
 
     sanitizeObjectForPrototypePollution(data);
 
+    // [MAJOR BUG FIX] 백업 내부에 같은 유형의 중복 ID가 있으면 favorites,
+    // lastActiveNotePerFolder, activeNoteId, originalFolderId 같은 참조가 어느 항목을
+    // 가리켰는지 결정할 수 없습니다. 임의로 첫 항목에 연결해 현재 데이터를 교체하지 않고,
+    // 저장소를 건드리기 전에 가져오기를 명시적으로 중단합니다.
+    const ambiguousDuplicateId = findAmbiguousDuplicateOriginalId(data);
+    if (ambiguousDuplicateId) {
+        const typeLabel = ambiguousDuplicateId.itemType === CONSTANTS.ITEM_TYPE.FOLDER ? '폴더' : '노트';
+        throw new Error(
+            `백업에 중복된 ${typeLabel} ID("${ambiguousDuplicateId.id}")가 있어 참조 관계를 무손실로 판별할 수 없습니다. `
+            + '기존 데이터를 보호하기 위해 가져오기를 중단했습니다.'
+        );
+    }
+
     const usedIds = new Set(RESERVED_ITEM_IDS);
     const folderIdMap = new Map();
     const noteIdMap = new Map();
@@ -1582,7 +1663,8 @@ const sanitizeContentData = data => {
         }
 
         usedIds.add(finalId);
-        // 같은 유형 안에서 중복된 ID는 첫 번째 항목을 기준 참조로 유지합니다.
+        // 같은 유형의 중복 원본 ID는 위 사전 검사에서 이미 거부됩니다.
+        // 여기서는 정상/복구 가능한 단일 원본 ID의 참조 보정 맵만 기록합니다.
         if (oldId && !referenceMap.has(oldId)) referenceMap.set(oldId, finalId);
         return finalId;
     };
