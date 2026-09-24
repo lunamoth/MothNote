@@ -778,7 +778,7 @@
         renderOutfitScores(rec);
     }
 
-    function getOutdoorActivityAdvice(uv, gust, weatherCode) {
+    function getOutdoorActivityAdvice(uv, gust, weatherCode, air) {
         const uvValue = toFiniteNumber(uv);
         const gustValue = toFiniteNumber(gust);
         const stormy = [82, 95, 96, 99].includes(Number(weatherCode));
@@ -786,6 +786,8 @@
         if (gustValue !== null && gustValue >= 50) return { tag: '강풍 유의', tone: 'danger', text: '돌풍이 강할 수 있습니다. 간판, 우산, 자전거, 해안가 활동에 주의하세요. 🌬️' };
         if (uvValue !== null && uvValue >= 8) return { tag: '자외선 강함', tone: 'warn', text: '자외선이 매우 강합니다. 모자, 선글라스, 자외선 차단제를 준비하세요. 🧴' };
         if (uvValue !== null && uvValue >= 6) return { tag: '차단 권장', tone: 'warn', text: '낮 시간대 햇볕이 강할 수 있습니다. 긴 야외활동은 그늘 휴식을 섞어주세요. 🕶️' };
+        if (air?.hasAirQualityWarning) return { tag: '대기질 주의', tone: 'warn', text: '대기질 주의 신호가 있습니다. 기온이나 바람이 무난해도 야외활동에 적합하다고 판단할 수 없으므로 외출 전 대기질을 확인해 주세요.' };
+        if (!air?.hasAirQualityAssessment || uvValue === null || gustValue === null || toFiniteNumber(weatherCode) === null) return { tag: '자료 확인', tone: 'info', text: '대기질 또는 기상 자료가 부족해 야외활동 적합 여부를 판단할 수 없습니다. 외출 전 최신 정보를 확인해 주세요.' };
         return { tag: '활동 무난', tone: 'good', text: '위험 신호가 크지 않습니다. 다만 시간별 강수와 바람 변화는 한 번 더 확인하세요. 🚶' };
     }
 
@@ -932,13 +934,24 @@
         const uvDailyMax = dailyData?.uv_index_max?.[0] ?? null;
         const uvValue = uvCurrent ?? uvDailyMax;
         const uvSource = uvCurrent != null ? '현재 자외선 지수' : '오늘 최대 자외선';
+        const pm10Info = getAqiLevel('pm10', pm10Avg24);
+        const pm25Info = getAqiLevel('pm2_5', pm25Avg24);
+        // 결측치를 양호한 값으로 간주하지 않습니다. 종합 AQI 또는 두 미세먼지
+        // 지표가 있어야 긍정 판정을 하되, 확인된 나쁜 지표의 경고는 항상 유지합니다.
+        const hasAirQualityAssessment = toFiniteNumber(usAqi) !== null
+            || (toFiniteNumber(pm10Avg24) !== null && toFiniteNumber(pm25Avg24) !== null);
+        const hasAirQualityWarning = (toFiniteNumber(usAqi) ?? 0) > 100
+            || ['나쁨', '매우 나쁨'].includes(pm10Info.level)
+            || ['나쁨', '매우 나쁨'].includes(pm25Info.level);
         return {
             pm10Current,
             pm25Current,
             pm10Avg24,
             pm25Avg24,
-            pm10Info: getAqiLevel('pm10', pm10Avg24),
-            pm25Info: getAqiLevel('pm2_5', pm25Avg24),
+            pm10Info,
+            pm25Info,
+            hasAirQualityAssessment,
+            hasAirQualityWarning,
             usAqi,
             usAqiInfo: getUsAqiLevel(usAqi),
             uvValue,
@@ -979,7 +992,9 @@
         else if (maxGust >= 35) risks.push({ label: `바람 ${formatWithUnit(maxGust, 0, ' km/h')}`, severity: 2 });
         if ((toFiniteNumber(uvValue) ?? 0) >= 8) risks.push({ label: `자외선 ${formatNumber(uvValue, 1)}`, severity: 3 });
         else if ((toFiniteNumber(uvValue) ?? 0) >= 6) risks.push({ label: `자외선 ${formatNumber(uvValue, 1)}`, severity: 2 });
-        if ((toFiniteNumber(air.usAqi) ?? 0) > 100 || ['나쁨', '매우 나쁨'].includes(air.pm10Info.level) || ['나쁨', '매우 나쁨'].includes(air.pm25Info.level)) risks.push({ label: `대기질 ${air.usAqiInfo.level}`, severity: 2 });
+        if (air.hasAirQualityWarning) risks.push({ label: '대기질 주의', severity: 2 });
+        else if (!air.hasAirQualityAssessment) risks.push({ label: '대기질 자료 확인', severity: 1 });
+        if (toFiniteNumber(uvValue) === null) risks.push({ label: '자외선 자료 확인', severity: 1 });
         if (diurnalRange !== null && diurnalRange >= 10) risks.push({ label: `일교차 ${formatWithUnit(diurnalRange, 1, '°C')}`, severity: 2 });
         if (humidity !== null && humidity >= 85) risks.push({ label: `높은 습도 ${formatWithUnit(humidity, 0, '%')}`, severity: 1 });
         if (minVisibility !== null && minVisibility < 5000) risks.push({ label: `시정 저하`, severity: minVisibility < 1000 ? 3 : 2 });
@@ -995,6 +1010,13 @@
         const lastStart = Math.min(startIndex + hours - windowSize, hourly.time.length - windowSize);
         for (let start = startIndex; start <= lastStart; start += 1) {
             const end = start + windowSize;
+            // 핵심 시간별 값이 빠진 구간은 0점 감점으로 100점 추천이 되지 않게 제외합니다.
+            const hasRequiredWeather = ['precipitation_probability', 'wind_speed_10m', 'apparent_temperature'].every((field) => {
+                const values = hourly[field]?.slice(start, end);
+                return Array.isArray(values) && values.length === windowSize
+                    && values.every((value) => toFiniteNumber(value) !== null);
+            });
+            if (!hasRequiredWeather) continue;
             const rain = average(hourly.precipitation_probability?.slice(start, end));
             const wind = average(hourly.wind_speed_10m?.slice(start, end));
             const gust = Math.max(...(hourly.wind_gusts_10m?.slice(start, end).map((v) => toFiniteNumber(v) ?? 0) || [0]));
@@ -1015,11 +1037,20 @@
             if (!best || score > best.score) best = { score, start, end: end - 1, rain, wind, apparent, uv };
         }
         if (!best) return null;
+        const label = formatHourRange(hourly, best.start, best.end);
+        const weatherText = `평균 강수확률 ${formatWithUnit(best.rain, 0, '%')}, 바람 ${formatWithUnit(best.wind, 1, ' km/h')}, 체감 ${formatWithUnit(best.apparent, 1, '°C')} 수준입니다.`;
+        // 상대적으로 높은 기상 점수가 이미 확인된 대기질 경고를 상쇄해서는 안 됩니다.
+        if (air.hasAirQualityWarning) {
+            return { label, tag: '대기질 주의', tone: 'warn', text: `${label} 구간의 기상 조건을 비교했지만 현재 대기질 주의 신호가 있어 외출 추천으로 판단할 수 없습니다. 외출 전 해당 시간대의 대기질을 다시 확인해 주세요. ${weatherText}` };
+        }
+        if (!air.hasAirQualityAssessment) {
+            return { label, tag: '자료 확인', tone: best.score >= 58 ? 'info' : 'warn', text: `${label} 구간은 기상 조건만 비교한 결과입니다. 대기질 자료가 부족해 외출 적합 여부를 판단할 수 없습니다. ${weatherText}` };
+        }
         return {
-            label: formatHourRange(hourly, best.start, best.end),
+            label,
             tag: best.score >= 78 ? '추천' : best.score >= 58 ? '무난' : '조건 제한',
             tone: best.score >= 78 ? 'good' : best.score >= 58 ? 'info' : 'warn',
-            text: `${formatHourRange(hourly, best.start, best.end)} 구간이 상대적으로 낫습니다. 평균 강수확률 ${formatWithUnit(best.rain, 0, '%')}, 바람 ${formatWithUnit(best.wind, 1, ' km/h')}, 체감 ${formatWithUnit(best.apparent, 1, '°C')} 수준입니다.`
+            text: `${label} 구간이 상대적으로 낫습니다. ${weatherText}`
         };
     }
 
@@ -1036,8 +1067,9 @@
         let action = '오늘은 큰 위험 신호가 적은 편이라 기본적인 외출은 무난합니다.';
         if (topRisk?.severity >= 3) action = `오늘은 ${topRisk.label} 신호가 가장 큽니다. 이동 전 시간별 변화를 한 번 더 확인해 주세요.`;
         else if ((toFiniteNumber(maxRainProb) ?? 0) >= 40) action = `비 가능성이 있어 우산 여부와 강수 시간대를 확인하는 것이 좋습니다.`;
-        else if ((toFiniteNumber(air.usAqi) ?? 0) > 100) action = '대기질이 민감군에게 부담될 수 있어 야외활동 강도 조절이 좋습니다.';
+        else if (air.hasAirQualityWarning) action = '대기질 주의 신호가 있어 외출 전 대기질을 확인하고 야외활동 강도를 조절하는 것이 좋습니다.';
         else if ((toFiniteNumber(air.uvValue) ?? 0) >= 6) action = `낮 시간대 ${uvText} 신호가 있어 자외선 차단을 챙기세요.`;
+        else if (!air.hasAirQualityAssessment || toFiniteNumber(air.uvValue) === null) action = '대기질 또는 자외선 자료가 부족해 외출 적합 여부를 판단할 수 없습니다. 외출 전 최신 정보를 확인해 주세요.';
         return { tag: topRisk?.severity ? topRisk.label : '무난', tone: getToneFromSeverity(topRisk?.severity ?? 0), text: `${base} ${action}` };
     }
 
@@ -1069,10 +1101,8 @@
         const air = getAirQualityMetrics(aqiData, dailyData, current?.time);
         const maxRainProb = maxNextHourly(hourly, 'precipitation_probability', startIndex, 6);
         const wind = current?.windspeed ?? current?.wind_speed_10m ?? getHourlyValue(hourly, 'wind_speed_10m', startIndex);
-        const hasAirData = [air.pm10Current, air.pm25Current, air.usAqi].some((value) => toFiniteNumber(value) !== null);
-        if (!hasAirData) return { tag: '자료 확인', tone: 'info', text: '대기질 자료가 부족합니다. 환기 전 실시간 대기질과 비·바람을 함께 확인해 주세요.' };
-        const aqiBad = (toFiniteNumber(air.usAqi) ?? 0) > 100 || ['나쁨', '매우 나쁨'].includes(air.pm10Info.level) || ['나쁨', '매우 나쁨'].includes(air.pm25Info.level);
-        if (aqiBad) return { tag: '짧게 환기', tone: 'warn', text: `PM10 ${air.pm10Info.level}, PM2.5 ${air.pm25Info.level}, US AQI ${formatNumber(air.usAqi, 0, '--')}입니다. 환기는 짧게 하고 민감하시면 창문을 오래 열어두지 않는 편이 좋습니다.` };
+        if (air.hasAirQualityWarning) return { tag: '짧게 환기', tone: 'warn', text: `PM10 ${air.pm10Info.level}, PM2.5 ${air.pm25Info.level}, US AQI ${formatNumber(air.usAqi, 0, '--')}입니다. 환기는 짧게 하고 민감하시면 창문을 오래 열어두지 않는 편이 좋습니다.` };
+        if (!air.hasAirQualityAssessment) return { tag: '자료 확인', tone: 'info', text: '대기질 자료가 부족합니다. 환기 전 실시간 대기질과 비·바람을 함께 확인해 주세요.' };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 60) return { tag: '비 확인', tone: 'info', text: `대기질은 큰 부담이 없지만 가까운 시간 강수 가능성이 있습니다. 창문을 열기 전 비 여부를 확인하세요.` };
         if ((toFiniteNumber(wind) ?? 0) >= 35) return { tag: '바람 확인', tone: 'info', text: `대기질은 무난하지만 바람이 다소 강할 수 있습니다. 짧은 환기가 적합합니다.` };
         return { tag: '환기 무난', tone: 'good', text: `대기질이 대체로 무난하고 강한 비·바람 신호가 크지 않아 짧은 환기에 큰 부담은 적습니다.` };
@@ -1080,12 +1110,17 @@
 
     function getSensitiveGroupAdvice(aqiData, dailyData, current) {
         const air = getAirQualityMetrics(aqiData, dailyData, current?.time);
-        const uv = air.uvValue;
+        const uv = toFiniteNumber(air.uvValue);
         const issues = [];
-        if ((toFiniteNumber(air.usAqi) ?? 0) > 100 || ['나쁨', '매우 나쁨'].includes(air.pm25Info.level)) issues.push(`호흡기 민감군은 장시간 야외활동을 줄이는 편이 좋습니다`);
-        if ((toFiniteNumber(uv) ?? 0) >= 6) issues.push(`피부가 민감하시면 낮 시간대 자외선 차단을 강화하세요`);
-        if (!issues.length) return { tag: '부담 낮음', tone: 'good', text: '현재 자료상 대기질·자외선 모두 일반적인 활동에는 큰 부담이 낮은 편입니다. 개인 컨디션에 맞춰 조절하세요.' };
-        return { tag: '민감군 주의', tone: 'warn', text: `${issues.join('. ')}.` };
+        if (air.hasAirQualityWarning) issues.push(`호흡기 민감군은 장시간 야외활동을 줄이는 편이 좋습니다`);
+        if (uv !== null && uv >= 6) issues.push(`피부가 민감하시면 낮 시간대 자외선 차단을 강화하세요`);
+        const missing = [];
+        if (!air.hasAirQualityAssessment) missing.push('대기질');
+        if (uv === null) missing.push('자외선');
+        const missingText = missing.length ? `${missing.join('·')} 자료가 부족해 해당 위험을 판단할 수 없습니다. 최신 정보를 확인해 주세요.` : '';
+        if (issues.length) return { tag: '민감군 주의', tone: 'warn', text: `${issues.join('. ')}.${missingText ? ` ${missingText}` : ''}` };
+        if (missingText) return { tag: '자료 확인', tone: 'info', text: missingText };
+        return { tag: '부담 낮음', tone: 'good', text: '현재 자료상 대기질·자외선 모두 일반적인 활동에는 큰 부담이 낮은 편입니다. 개인 컨디션에 맞춰 조절하세요.' };
     }
 
     function getTravelAdvice(current, hourly, startIndex) {
@@ -1530,7 +1565,9 @@
         const wind = getWindBriefing(current, hourly, dailyData, startIndex);
         const maxApparent = maxNextHourlyEntry(hourly, 'apparent_temperature', startIndex, 24);
         const minApparent = minNextHourlyEntry(hourly, 'apparent_temperature', startIndex, 24);
-        const outdoor = getOutdoorActivityAdvice(air.uvValue, Math.max(toFiniteNumber(maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 24)) ?? 0, toFiniteNumber(dailyData?.wind_gusts_10m_max?.[0]) ?? 0), current.weathercode ?? current.weather_code);
+        const outdoorGusts = [maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 24), dailyData?.wind_gusts_10m_max?.[0]]
+            .map(toFiniteNumber).filter((value) => value !== null);
+        const outdoor = getOutdoorActivityAdvice(air.uvValue, outdoorGusts.length ? Math.max(...outdoorGusts) : null, current.weathercode ?? current.weather_code, air);
         const ventilation = getVentilationAdvice(aqiData, dailyData, current, hourly, startIndex);
         const sensitive = getSensitiveGroupAdvice(aqiData, dailyData, current);
         const travel = getTravelAdvice(current, hourly, startIndex);
@@ -1547,7 +1584,7 @@
             : '체감온도 피크를 계산할 시간별 자료가 부족합니다.';
         const uvTitle = air.uvSource === '현재 자외선 지수' ? '자외선·햇빛 판단' : '자외선·햇빛 판단';
         const uvTone = (toFiniteNumber(air.uvValue) ?? 0) >= 8 ? 'danger' : (toFiniteNumber(air.uvValue) ?? 0) >= 6 ? 'warn' : air.uvInfo.level === '낮음' ? 'good' : 'info';
-        const airQualityWarn = (toFiniteNumber(air.usAqi) ?? 0) > 100 || ['나쁨', '매우 나쁨'].includes(air.pm10Info.level) || ['나쁨', '매우 나쁨'].includes(air.pm25Info.level);
+        const airQualityWarn = air.hasAirQualityWarning;
         const bestOutdoorItem = bestOutdoor || { tag: '확인 필요', tone: 'info', text: '외출 추천 시간대를 계산할 시간별 자료가 부족합니다.' };
 
         const items = [
@@ -1568,11 +1605,10 @@
             briefingItem('🕒', '외출 추천 시간대', bestOutdoorItem.text, bestOutdoorItem.tag, bestOutdoorItem.tone)
         ];
 
-        const hasAirData = [air.pm10Current, air.pm25Current, air.usAqi].some((value) => toFiniteNumber(value) !== null);
-        if (!hasAirData) {
-            items.splice(10, 0, briefingItem('🌬️', '대기질 요약', '대기질 API 응답이 부족해 PM10·PM2.5·US AQI를 확정적으로 평가하지 못했습니다.', '자료 확인', 'info'));
-        } else if (airQualityWarn) {
+        if (airQualityWarn) {
             items.splice(10, 0, briefingItem('🌬️', '대기질 요약', `PM10은 ${air.pm10Info.level}(24시간 평균 ${formatNumber(air.pm10Avg24, 1, '--')} µg/m³), PM2.5는 ${air.pm25Info.level}(24시간 평균 ${formatNumber(air.pm25Avg24, 1, '--')} µg/m³), US AQI는 ${formatNumber(air.usAqi, 0, '--')}입니다.`, '대기질 주의', 'warn'));
+        } else if (!air.hasAirQualityAssessment) {
+            items.splice(10, 0, briefingItem('🌬️', '대기질 요약', '대기질 API 응답이 부족해 PM10·PM2.5·US AQI를 확정적으로 평가하지 못했습니다.', '자료 확인', 'info'));
         } else {
             items.splice(10, 0, briefingItem('🌬️', '대기질 요약', `PM10 ${air.pm10Info.level}, PM2.5 ${air.pm25Info.level}, US AQI ${formatNumber(air.usAqi, 0, '--')}로 대체로 무난합니다.`, '무난', 'good'));
         }
