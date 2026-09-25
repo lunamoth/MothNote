@@ -256,7 +256,8 @@ export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
 export const TRANSACTION_FAILURE_REASON = Object.freeze({
     NO_CHANGE: 'no-change',
     ERROR: 'error',
-    IMPORT_IN_PROGRESS: 'import-in-progress'
+    IMPORT_IN_PROGRESS: 'import-in-progress',
+    IMPORT_RECOVERY_PENDING: 'import-recovery-pending'
 });
 
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -382,6 +383,27 @@ const clearRenameEmergencyBackup = (id, type) => {
 // 서로 어긋나지 않도록 read-modify-write 순서를 명확히 합니다.
 // 멀티탭 동시 편집의 병합이나 상태 조정은 지원 범위가 아닙니다.
 export const performTransactionalUpdate = async (updateFn) => {
+    const getRecoveryBlockedResult = () => {
+        let recoveryPending;
+        try {
+            const recoveryStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            recoveryPending = recoveryStatus === 'true' || recoveryStatus === 'done';
+        } catch (error) {
+            // 복구 상태를 읽지 못했다면 이전 롤백이 남아 있는지 판단할 수 없습니다.
+            // 이 상태에서 새 저장을 허용하면 다음 복구가 새 변경을 덮어쓸 수 있습니다.
+            console.error('Could not verify pending import recovery before a data change.', error);
+            recoveryPending = true;
+        }
+        if (!recoveryPending) return null;
+
+        showToast('이전 데이터 가져오기의 복구 상태를 안전하게 확인하지 못해 변경 작업을 중단했습니다. 새 탭을 다시 열어 복구를 완료해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return {
+            success: false,
+            payload: null,
+            failureReason: TRANSACTION_FAILURE_REASON.IMPORT_RECOVERY_PENDING
+        };
+    };
+
     const getImportBlockedResult = () => {
         showToast('데이터 교체 가져오기가 진행 중이어서 대기 중이던 변경 작업을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
         return {
@@ -396,6 +418,11 @@ export const performTransactionalUpdate = async (updateFn) => {
     if (typeof window !== 'undefined' && window.isReplacementImportActive) {
         return getImportBlockedResult();
     }
+
+    // 시작 시 자동 복구가 실패해도 UI 이벤트 리스너는 남아 있습니다. 복구 표시가
+    // 정리되기 전의 새 변경은 다음 시작에서 롤백될 수 있으므로 영속 상태로 차단합니다.
+    const recoveryBlockedResult = getRecoveryBlockedResult();
+    if (recoveryBlockedResult) return recoveryBlockedResult;
 
     const reportFailure = (error) => {
         console.error('Transactional update failed:', error);
@@ -424,6 +451,9 @@ export const performTransactionalUpdate = async (updateFn) => {
             if (typeof window !== 'undefined' && window.isReplacementImportActive) {
                 return getImportBlockedResult();
             }
+            // 큐를 기다리는 사이 복구 상태가 달라졌을 수 있어 실제 쓰기 경계에서 재확인합니다.
+            const queuedRecoveryBlockedResult = getRecoveryBlockedResult();
+            if (queuedRecoveryBlockedResult) return queuedRecoveryBlockedResult;
 
             let resultPayload = null;
 

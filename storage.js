@@ -2867,6 +2867,23 @@ export const setupImportHandler = () => {
             e.target.value = '';
             return;
         }
+
+        // 이전 시작에서 롤백/완료 검증이 실패했다면 그 복구 정보가 아직 유효합니다.
+        // 새 파일의 파싱 실패 경로가 진행 표시를 지우거나, 새 가져오기 준비가 유일한
+        // 롤백 백업을 교체하기 전에 중단합니다. 복구 성공 후에는 기존 경로를 사용합니다.
+        try {
+            const recoveryStatus = localStorage.getItem(CONSTANTS.LS_KEY_IMPORT_IN_PROGRESS);
+            if (recoveryStatus === 'true' || recoveryStatus === 'done') {
+                showToast('이전 데이터 가져오기의 복구가 끝나지 않아 새 백업을 열지 않았습니다. 새 탭을 다시 열어 복구를 완료해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                e.target.value = '';
+                return;
+            }
+        } catch (error) {
+            console.error('Could not verify pending import recovery before opening a backup.', error);
+            showToast('저장소의 복구 상태를 확인하지 못해 가져오기를 중단했습니다. 기존 복구 정보는 보존됩니다.', CONSTANTS.TOAST_TYPE.ERROR);
+            e.target.value = '';
+            return;
+        }
         importOperationInProgress = true;
 
         // 백업 파일 크기를 임의로 5MB로 제한하지 않습니다.
