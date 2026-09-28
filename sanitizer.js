@@ -245,18 +245,22 @@ function parseAndHardenHtml(dirtyHtml, profileName) {
     if (dirtyHtml === null || dirtyHtml === undefined) return null;
     const html = String(dirtyHtml);
 
-    if (typeof DOMParser === 'undefined') return null;
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
 
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    hardenSanitizedTree(doc.body, { profile: profileName });
-    return doc;
+    // DOMParser's detached HTML document can still fetch <img>/<iframe> URLs
+    // before their nodes reach our sanitizer. Template content stays inert until
+    // the already-sanitized nodes are moved into the live document.
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    hardenSanitizedTree(template.content, { profile: profileName });
+    return template;
 }
 
 function sanitizeHtmlWithProfile(dirtyHtml, profileName) {
     if (dirtyHtml === null || dirtyHtml === undefined) return '';
-    const doc = parseAndHardenHtml(dirtyHtml, profileName);
-    if (!doc) return escapeHtml(dirtyHtml);
-    return doc.body.innerHTML;
+    const template = parseAndHardenHtml(dirtyHtml, profileName);
+    if (!template) return escapeHtml(dirtyHtml);
+    return template.innerHTML;
 }
 
 function buildNativeSanitizerConfig(profileName) {
@@ -339,13 +343,13 @@ function setSanitizedHtml(target, dirtyHtml, options = {}) {
     // First apply MothNote's local policy in an inert document. This prevents
     // remote image beacons and other app-policy violations before any live DOM
     // insertion can trigger resource loads.
-    const doc = parseAndHardenHtml(html, profileName);
-    if (!doc) {
+    const template = parseAndHardenHtml(html, profileName);
+    if (!template) {
         target.textContent = html;
         return;
     }
 
-    const safeHtml = doc.body.innerHTML;
+    const safeHtml = template.innerHTML;
     const nativeSanitizer = getNativeSanitizer(profileName);
     if (nativeSanitizer && typeof target.setHTML === 'function') {
         try {
@@ -360,7 +364,7 @@ function setSanitizedHtml(target, dirtyHtml, options = {}) {
         }
     }
 
-    replaceChildrenSafely(target, Array.from(doc.body.childNodes));
+    replaceChildrenSafely(target, Array.from(template.content.childNodes));
 }
 
 function sanitizeHtml(dirtyHtml) {
