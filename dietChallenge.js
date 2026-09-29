@@ -5927,7 +5927,15 @@
         const upperPoints = [];
         const lowerPoints = [];
         
-        for(let i=0; i<=days + 30; i++) { // Project 30 days ahead
+        // The three guide lines are calculated from a linear daily slope. A
+        // sparse backup can span centuries even with only two actual records;
+        // allocating one point per day then multiplies Chart.js parsing and
+        // rendering memory. Keep both endpoints and at most 365 intervals,
+        // while retaining every actual record and the full 30-day projection.
+        const projectionDays = days + 30;
+        const guideIntervals = Math.min(projectionDays, 365);
+        for(let pointIndex=0; pointIndex<=guideIntervals; pointIndex++) {
+            const i = Math.round(projectionDays * pointIndex / guideIntervals);
             const d = new Date(startDate);
             d.setDate(d.getDate() + i);
             const idealW = startRec.weight - (dailyLoss * i);
