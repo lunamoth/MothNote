@@ -1534,6 +1534,13 @@
         const file = AppState.getEl('jsonFileInput').files[0];
         if (!file) return showToast('JSON 파일을 선택해주세요.');
         if (!beginDietImport()) return;
+
+        // FileReader가 파일을 읽는 동안에도 기록·설정 저장은 가능합니다.
+        // 그 사이 성공한 변경을 오래된 복원 요청이 덮어쓰지 않도록,
+        // 읽기 시작 시점과 실제 교체 직전의 상태를 비교합니다.
+        const recordsAtReadStart = JSON.stringify(AppState.records);
+        const settingsAtReadStart = JSON.stringify(AppState.settings);
+        const recordsLoadFailedAtReadStart = AppState.state.recordsLoadFailed;
         
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -1565,6 +1572,15 @@
                         showToast('빈 백업 복원을 취소했습니다. 기존 데이터를 유지합니다.');
                         return;
                     }
+                }
+
+                const recordsChangedDuringRead = JSON.stringify(AppState.records) !== recordsAtReadStart
+                    || AppState.state.recordsLoadFailed !== recordsLoadFailedAtReadStart;
+                const settingsChangedDuringRead = hasSettings
+                    && JSON.stringify(AppState.settings) !== settingsAtReadStart;
+                if (recordsChangedDuringRead || settingsChangedDuringRead) {
+                    showToast('파일을 읽는 동안 기록 또는 설정이 변경되어 JSON 복원을 중단했습니다. 최신 데이터를 백업한 뒤 다시 시도해주세요.');
+                    return;
                 }
 
                 const nextRecords = importResult.records;
