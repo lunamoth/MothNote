@@ -4776,15 +4776,22 @@
         const showTrend = AppState.getEl('showTrend').checked;
 
         if(showTrend && data.length > 0) {
+            // 기록과 필터 결과는 날짜순입니다. 날짜마다 전체 기록을 다시 검색하지 않고
+            // 7일 범위의 시작/끝을 앞으로 이동해 대량 기록에서도 화면이 멈추지 않게 합니다.
+            const recordTimes = AppState.records.map(r => DateUtil.parse(r.date).getTime());
+            let windowStart = 0;
+            let windowEnd = 0;
+
             for(let i=0; i<data.length; i++) {
                 const currentDate = DateUtil.parse(data[i].date);
                 const sevenDaysAgo = new Date(currentDate);
                 sevenDaysAgo.setDate(currentDate.getDate() - 6);
-                
-                const windowData = AppState.records.filter(r => {
-                    const d = DateUtil.parse(r.date);
-                    return d >= sevenDaysAgo && d <= currentDate;
-                });
+
+                const currentTime = currentDate.getTime();
+                const windowMinTime = sevenDaysAgo.getTime();
+                while(windowEnd < recordTimes.length && recordTimes[windowEnd] <= currentTime) windowEnd++;
+                while(windowStart < windowEnd && recordTimes[windowStart] < windowMinTime) windowStart++;
+                const windowData = AppState.records.slice(windowStart, windowEnd);
                 
                 if(windowData.length > 0) {
                      const weights = windowData.map(r => r.weight);
@@ -4864,7 +4871,8 @@
             scales: {
                 x: {
                     type: 'time',
-                    time: { unit: 'day', displayFormats: { day: 'MM/dd' } }
+                    // 긴 과거 기록도 표시할 수 있도록 날짜 범위에 맞는 눈금 단위를 자동 선택합니다.
+                    time: { minUnit: 'day', displayFormats: { day: 'MM/dd' } }
                 },
                 y: {
                     max: points.length > 0 ? Math.ceil(Math.max(MathUtil.max(points.map(p => p.y)), AppState.settings.startWeight)) + 1 : AppState.settings.startWeight + 1,
@@ -5417,7 +5425,7 @@
                 }
             }]
         }, {
-            scales: { x: { type: 'time', time: { unit: 'day' } } },
+            scales: { x: { type: 'time', time: { minUnit: 'day' } } },
             plugins: { legend: { display: false } }
         }, colors);
 
