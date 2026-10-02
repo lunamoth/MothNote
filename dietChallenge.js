@@ -849,6 +849,7 @@
         const fields = [];
         let field = '';
         let inQuotes = false;
+        let quoteClosed = false;
 
         for (let i = 0; i < line.length; i++) {
             const char = line[i];
@@ -860,6 +861,7 @@
                         i += 1;
                     } else {
                         inQuotes = false;
+                        quoteClosed = true;
                     }
                 } else {
                     field += char;
@@ -867,16 +869,26 @@
                 continue;
             }
 
-            if (char === '"' && field.length === 0) {
-                inQuotes = true;
-            } else if (char === ',') {
+            if (char === ',') {
                 fields.push(field);
                 field = '';
+                quoteClosed = false;
+            } else if (quoteClosed) {
+                // 닫힌 따옴표 뒤에는 공백이나 구분자만 허용합니다.
+                // "7"0 같은 손상 필드를 70으로 이어 붙여 기존 기록을 덮어쓰지 않습니다.
+                if (char !== ' ' && char !== '\t') return null;
+            } else if (char === '"' && field.trim().length === 0) {
+                field = '';
+                inQuotes = true;
+            } else if (char === '"') {
+                return null;
             } else {
                 field += char;
             }
         }
 
+        // 마지막 필드뿐 아니라 생략해서 사용하지 않는 추가 열의 손상도 검증합니다.
+        if (inQuotes) return null;
         fields.push(field);
         return fields;
     };
@@ -1635,12 +1647,21 @@
                 
                 for(let i=0; i<lines.length; i++) {
                     const line = lines[i].trim();
-                    if(!line || line.toLowerCase().startsWith('date')) continue; 
+                    if(!line) continue;
                     
                     const matches = parseCsvLineSafely(line);
+                    if (!matches) {
+                        // 닫히지 않은 따옴표 안의 다음 물리적 행을 정상 기록으로
+                        // 오인할 수 있으므로, 구문 오류에서는 파일 전체를 적용하지 않습니다.
+                        throw new Error(`${i + 1}번째 행의 CSV 따옴표 구조가 올바르지 않습니다. 기존 데이터를 유지합니다.`);
+                    }
+                    // 헤더도 구문 검증 후 건너뛰어, 열린 따옴표 안의 다음 줄을 기록으로 적용하지 않습니다.
+                    if (line.toLowerCase().startsWith('date')) continue;
                     
                     if(matches.length >= 2) {
-                        const d = matches[0].trim().replace(/['"]/g, ''); 
+                        // CSV의 바깥 큰따옴표는 파서가 제거합니다. 날짜 안의 실제 따옴표를
+                        // 모두 지우면 손상된 날짜가 정상 날짜로 바뀌어 기존 기록을 덮어씁니다.
+                        const d = matches[0].trim().replace(/^'(.*)'$/, '$1');
                         const weightText = String(matches[1] ?? '').trim();
                         const fatText = String(matches[2] ?? '').trim();
                         const w = Number(weightText);
@@ -1862,16 +1883,15 @@
         if (records.length > 1) {
             for (let i = 1; i < records.length; i++) {
                 const diff = MathUtil.diff(records[i].weight, records[i-1].weight);
-                diffs.push(diff);
-
                 const dayDiff = DateUtil.daysBetween(DateUtil.parse(records[i-1].date), DateUtil.parse(records[i].date));
                 if (dayDiff === 1 && diff <= 0) curStreak++;
                 else curStreak = 0;
                 if (curStreak > maxStreak) maxStreak = curStreak;
 
-                if (diff < 0) successCount++;
-
                 if (dayDiff === 1) {
+                    // 일일 성공률과 변동성의 분모도 실제 전날 기록이 있는 쌍만 사용합니다.
+                    diffs.push(diff);
+                    if (diff < 0) successCount++;
                     if (diff < 0 && Math.abs(diff) > maxDrop) maxDrop = Math.abs(diff);
                     if (diff > 0 && diff > maxGain) maxGain = diff;
                 }
@@ -1912,8 +1932,12 @@
 
         const getRateVal = (days) => {
              const now = new Date(); now.setHours(0,0,0,0);
-             const startTimestamp = now.getTime() - (days * 24 * 60 * 60 * 1000);
-             const rel = records.filter(r => DateUtil.parse(r.date).getTime() >= startTimestamp);
+             const cutoff = new Date(now);
+             cutoff.setDate(cutoff.getDate() - (days - 1));
+             const rel = records.filter(r => {
+                 const date = DateUtil.parse(r.date);
+                 return date >= cutoff && date <= now;
+             });
              if(rel.length < 2) return "-";
              const diff = MathUtil.diff(rel[rel.length-1].weight, rel[0].weight);
              const d = DateUtil.daysBetween(DateUtil.parse(rel[0].date), DateUtil.parse(rel[rel.length-1].date));
@@ -1925,9 +1949,13 @@
         const rate30 = getRateVal(30);
 
         const now = new Date(); now.setHours(0,0,0,0);
-        const t7 = now.getTime() - (7 * 24 * 60 * 60 * 1000);
-        const t14 = now.getTime() - (14 * 24 * 60 * 60 * 1000);
-        const thisW = records.filter(r => DateUtil.parse(r.date).getTime() >= t7);
+        const thisWeekStart = new Date(now);
+        thisWeekStart.setDate(thisWeekStart.getDate() - 6);
+        const lastWeekStart = new Date(now);
+        lastWeekStart.setDate(lastWeekStart.getDate() - 13);
+        const t7 = thisWeekStart.getTime();
+        const t14 = lastWeekStart.getTime();
+        const thisW = records.filter(r => { const t = DateUtil.parse(r.date).getTime(); return t >= t7 && t <= now.getTime(); });
         const lastW = records.filter(r => { const t = DateUtil.parse(r.date).getTime(); return t >= t14 && t < t7; });
         let weeklyComp = "데이터 부족";
         if(thisW.length > 0 && lastW.length > 0) {
@@ -1963,14 +1991,15 @@
                 if(!weeks[key]) weeks[key] = [];
                 weeks[key].push(r.weight);
              });
-             const weekKeys = Object.keys(weeks).sort();
+             const weekKeys = Object.keys(weeks).sort((a, b) => Number(a) - Number(b));
              if(weekKeys.length >= 2) {
                  let totalL = 0, count = 0;
                  for(let i=1; i<weekKeys.length; i++) {
                      const prevAvg = weeks[weekKeys[i-1]].reduce((a,b)=>a+b,0)/weeks[weekKeys[i-1]].length;
                      const currAvg = weeks[weekKeys[i]].reduce((a,b)=>a+b,0)/weeks[weekKeys[i]].length;
                      totalL += (prevAvg - currAvg);
-                     count++;
+                     // 기록이 비어 있는 주도 실제 경과 기간에 포함합니다.
+                     count += DateUtil.daysBetween(new Date(Number(weekKeys[i-1])), new Date(Number(weekKeys[i]))) / 7;
                  }
                  if(count > 0) weeklyAvgLoss = (totalL / count).toFixed(2);
              }
@@ -1978,7 +2007,7 @@
 
         return {
             current, min, max, maxStreak, lastRec, diffs,
-            successRate: records.length > 1 ? Math.round((successCount / (records.length - 1)) * 100) : 0,
+            successRate: diffs.length > 0 ? Math.round((successCount / diffs.length) * 100) : null,
             maxDrop: MathUtil.round(maxDrop), 
             maxGain: MathUtil.round(maxGain),
             maxDate: maxRec.date, minDate: minRec.date,
@@ -2043,7 +2072,7 @@
         updateProgressBar(currentW, totalLost, pct, remaining);
 
         AppState.getEl('streakDisplay').innerText = (s.maxStreak || 0) + '일';
-        AppState.getEl('successRateDisplay').innerText = (s.successRate || 0) + '%';
+        AppState.getEl('successRateDisplay').innerText = s.successRate != null ? s.successRate + '%' : '-';
         
         const pred = calculateScenarios(currentW);
         AppState.getEl('predictedDate').innerText = hasRecords ? pred.avg : '데이터 부족';
@@ -2062,7 +2091,7 @@
             <span class="text-primary">${s.min.toFixed(1)}kg</span>
         ` : '- / -';
         
-        AppState.getEl('dailyVolatilityDisplay').innerHTML = AppState.records.length > 1 ? `
+        AppState.getEl('dailyVolatilityDisplay').innerHTML = s.diffs?.length > 0 ? `
             <span class="text-primary">▼${(s.maxDrop||0).toFixed(1)}</span> / 
             <span class="text-danger">▲${(s.maxGain||0).toFixed(1)}</span>
         ` : '- / -';
@@ -2093,7 +2122,7 @@
         const currentW = lastRec.weight;
 
         const maEl = AppState.getEl('maDisparityDisplay');
-        if(AppState.records.length >= 7) {
+        if(AppState.records.length >= 7 && isConsecutiveDailyRecordRange(AppState.records.slice(-7))) {
             const last7 = AppState.records.slice(-7);
             const avg7 = last7.reduce((a,b)=>a+b.weight, 0) / 7;
             const disparity = MathUtil.diff(currentW, avg7);
@@ -2121,14 +2150,13 @@
 
         let recoveries = [];
         for(let i=1; i<AppState.records.length-1; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const diff = MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight);
             if(diff >= 0.5) { 
                 const baseWeight = AppState.records[i-1].weight;
-                let daysToRecover = 0;
                 for(let j=i+1; j<AppState.records.length; j++) {
-                    daysToRecover++;
                     if(AppState.records[j].weight <= baseWeight) {
-                        recoveries.push(daysToRecover);
+                        recoveries.push(DateUtil.daysBetween(DateUtil.parse(AppState.records[i].date), DateUtil.parse(AppState.records[j].date)));
                         break;
                     }
                 }
@@ -2237,7 +2265,7 @@
         }
 
         const shortTrendEl = AppState.getEl('shortTrendDisplay');
-        if(AppState.records.length >= 3) {
+        if(AppState.records.length >= 3 && isConsecutiveDailyRecordRange(AppState.records.slice(-3))) {
             const r3 = AppState.records[AppState.records.length-3];
             const r1 = AppState.records[AppState.records.length-1];
             const diff3 = MathUtil.diff(r1.weight, r3.weight);
@@ -2260,7 +2288,7 @@
         }
 
         const waterEl = AppState.getEl('waterIndexDisplay');
-        if(AppState.records.length >= 7) {
+        if(AppState.records.length >= 7 && isConsecutiveDailyRecordRange(AppState.records.slice(-7))) {
              const last7 = AppState.records.slice(-7);
              const avg7 = last7.reduce((a,b)=>a+b.weight,0)/last7.length;
              const dev = MathUtil.diff(s.current, avg7);
@@ -2269,7 +2297,7 @@
              
              const startW7 = last7[0].weight;
              const endW7 = last7[last7.length-1].weight;
-             const wSpeed = MathUtil.diff(endW7, startW7);
+             const wSpeed = MathUtil.diff(endW7, startW7) / DateUtil.daysBetween(DateUtil.parse(last7[0].date), DateUtil.parse(last7[last7.length-1].date)) * 7;
              const wSpeedEl = AppState.getEl('weeklySpeedDisplay');
              if(wSpeedEl) wSpeedEl.innerText = `${wSpeed.toFixed(2)} kg/주`;
              
@@ -2380,7 +2408,8 @@
 
         // --- [NEW] v3.0.71 Sodium Warning ---
         const sodEl = AppState.getEl('sodiumWarningDisplay');
-        if(sodEl && AppState.records.length >= 2) {
+        if(sodEl && AppState.records.length >= 2
+            && isNextCalendarDay(AppState.records[AppState.records.length-2], lastRec)) {
             const diff = AppState.records[AppState.records.length-1].weight - AppState.records[AppState.records.length-2].weight;
             if (diff > 1.5) {
                 sodEl.innerText = "🚨 급등 감지";
@@ -2389,6 +2418,9 @@
                 sodEl.innerText = "정상";
                 DomUtil.setTextColor(sodEl, 'default');
             }
+        } else if (sodEl) {
+            sodEl.innerText = '-';
+            DomUtil.setTextColor(sodEl, 'default');
         }
 
         // --- [NEW] v3.0.71 CV Status ---
@@ -2483,6 +2515,8 @@
         const maxPlateau = s.maxPlateau || 0;
         const lastRec = s.lastRec || {};
         const dayNames = ['일','월','화','수','목','금','토'];
+        const hasLastDailyChange = AppState.records.length >= 2
+            && isNextCalendarDay(AppState.records[AppState.records.length-2], lastRec);
 
         // 1. 다이어트 성향 (Persona)
         const stdDev = s.stdDev || 0;
@@ -2493,6 +2527,7 @@
         
         let weekendSpike = 0;
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
              const d = DateUtil.parse(AppState.records[i].date).getDay();
              if(d === 1 && AppState.records[i].weight > AppState.records[i-1].weight + 0.5) weekendSpike++;
         }
@@ -2500,7 +2535,7 @@
         htmlLines.push(`<li class="insight-item"><span class="insight-label">🕵️ 다이어트 성향:</span> 당신은 <strong>${persona}</strong>입니다.</li>`);
 
 		// 2. 수분 마스킹 (Water Masking) & 3. 상승 다이어트 (Lean Mass Up)
-        if(AppState.records.length >= 3) {
+        if(AppState.records.length >= 3 && hasLastDailyChange) {
             const last = AppState.records[AppState.records.length-1];
             const prev = AppState.records[AppState.records.length-2];
             
@@ -2519,7 +2554,7 @@
         }
 		
         // 4. 골든 크로스 / 데드 크로스 (Golden/Dead Cross)
-        if(AppState.records.length >= 30) {
+        if(AppState.records.length >= 31 && isConsecutiveDailyRecordRange(AppState.records.slice(-31))) {
             const last7 = AppState.records.slice(-7).reduce((a,b)=>a+b.weight,0)/7;
             const last30 = AppState.records.slice(-30).reduce((a,b)=>a+b.weight,0)/30;
             const prevRecs = AppState.records.slice(0, AppState.records.length-1);
@@ -2539,23 +2574,27 @@
         const dayDeltas = [0,0,0,0,0,0,0]; 
         const dayCounts = [0,0,0,0,0,0,0];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date).getDay();
             const diff = MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight);
             dayDeltas[d] += diff;
             dayCounts[d]++;
         }
         const dayAvgs = dayDeltas.map((sum, i) => dayCounts[i] ? sum/dayCounts[i] : 0);
-        const bestDayIdx = dayAvgs.indexOf(MathUtil.min(dayAvgs));
-        const worstDayIdx = dayAvgs.indexOf(MathUtil.max(dayAvgs));
+        const observedDayIndexes = dayCounts.map((count, index) => count > 0 ? index : null).filter(index => index !== null);
+        const bestDayIdx = observedDayIndexes.length ? observedDayIndexes.reduce((best, index) => dayAvgs[index] < dayAvgs[best] ? index : best) : -1;
+        const worstDayIdx = observedDayIndexes.length ? observedDayIndexes.reduce((worst, index) => dayAvgs[index] > dayAvgs[worst] ? index : worst) : -1;
         // const dayNames = ['일','월','화','수','목','금','토']; // 위에서 이미 선언됨
         
-        htmlLines.push(`<li class="insight-item"><span class="insight-label">🧐 요일 승률:</span> 
-            <strong>${dayNames[bestDayIdx]}요일</strong>에 가장 잘 빠지고, 
-            <strong>${dayNames[worstDayIdx]}요일</strong>에 주의가 필요합니다.</li>`);
+        if (observedDayIndexes.length) {
+            htmlLines.push(`<li class="insight-item"><span class="insight-label">🧐 요일 승률:</span> 
+                <strong>${dayNames[bestDayIdx]}요일</strong>에 가장 잘 빠지고, 
+                <strong>${dayNames[worstDayIdx]}요일</strong>에 주의가 필요합니다.</li>`);
+        }
 
         // 6. 패턴 감지 (Cycle Pattern)
         let cyclePattern = false;
-        if(AppState.records.length > 60) {
+        if(AppState.records.length > 60 && isConsecutiveDailyRecordRange(AppState.records)) {
             let spikeCount = 0;
             const reversed = [...AppState.records].reverse();
             for(let i=0; i<reversed.length-30; i+=28) {
@@ -2572,7 +2611,7 @@
         }
 
         // 8. 리바운드 경고 (Rebound Warning)
-        if(AppState.records.length >= 3) {
+        if(AppState.records.length >= 3 && isConsecutiveDailyRecordRange(AppState.records.slice(-3))) {
             const last3 = AppState.records.slice(-3);
             const drop3 = last3[0].weight - last3[2].weight;
             if(drop3 >= 2.0) {
@@ -2599,10 +2638,12 @@
         // 10. 치팅 여파 (Cheating Recovery)
         const recoveries = [];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const diff = MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight);
             if(diff >= 0.4) {
                 const spikeDay = DateUtil.parse(AppState.records[i].date).getDay();
                 for(let j=i+1; j<Math.min(i+7, AppState.records.length); j++) {
+                    if (DateUtil.daysBetween(DateUtil.parse(AppState.records[i].date), DateUtil.parse(AppState.records[j].date)) >= 7) break;
                     if(AppState.records[j].weight <= AppState.records[i-1].weight) {
                         const recoveryDay = DateUtil.parse(AppState.records[j].date).getDay();
                         recoveries.push({ spike: spikeDay, recovery: recoveryDay });
@@ -2645,7 +2686,7 @@
         let localMaxPlateau = 0; // 변수명 충돌 방지
         for(let i=1; i<AppState.records.length; i++) {
             const diff = Math.abs(MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight));
-            if(diff < 0.2) currPlateau++;
+            if(isNextCalendarDay(AppState.records[i-1], AppState.records[i]) && diff < 0.2) currPlateau++;
             else currPlateau = 0;
             if(currPlateau > localMaxPlateau) localMaxPlateau = currPlateau;
         }
@@ -2663,34 +2704,14 @@
             htmlLines.push(`<li class="insight-item"><span class="insight-label">🎢 요요 인덱스:</span> 변동성 점수 <strong>${Math.round(volScore)}점</strong> (${volMsg}) 입니다.</li>`);
         }
 
-        // 14. 신뢰도 구간 (Confidence Interval)
+        // 14. 최근 기록 기반 목표 구간 (단순 속도 시나리오)
         const remaining = s.current - AppState.settings.goal1;
-        if(remaining > 0) {
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - 30);
-            
-            let recentStartRecord = AppState.records.find(r => DateUtil.parse(r.date) >= cutoffDate);
-            const useFullHistory = !recentStartRecord || 
-                                  (AppState.records.indexOf(AppState.records[AppState.records.length-1]) - AppState.records.indexOf(recentStartRecord) < 3);
-
-            if(useFullHistory) {
-                recentStartRecord = AppState.records[0];
-            }
-
-            const rStartD = DateUtil.parse(recentStartRecord.date);
-            const rLastD = DateUtil.parse(s.lastRec.date);
-            const rDays = DateUtil.daysBetween(rStartD, rLastD) || 1;
-            
-            const currentSpeed = (recentStartRecord.weight - s.current) / rDays;
-
-            if(currentSpeed > 0.01) {
-                const daysCur = remaining / currentSpeed;
-                
-                const dEarly = new Date(); dEarly.setDate(dEarly.getDate() + daysCur * 0.9);
-                const dLate = new Date(); dLate.setDate(dLate.getDate() + daysCur * 1.1);
-                
-                htmlLines.push(`<li class="insight-item"><span class="insight-label">🎯 신뢰도 구간:</span> "현재 속도라면 90% 확률로 <strong>${DateUtil.format(dEarly)}</strong>에서 <strong>${DateUtil.format(dLate)}</strong> 사이에 목표를 달성합니다."</li>`);
-            } 
+        const currentForecast = calcForecastContext(s.current, AppState.settings.goal1);
+        if (remaining > 0 && currentForecast.available) {
+            const daysCur = currentForecast.daysToGoal;
+            const dEarly = new Date(); dEarly.setDate(dEarly.getDate() + daysCur * 0.9);
+            const dLate = new Date(); dLate.setDate(dLate.getDate() + daysCur * 1.1);
+            htmlLines.push(`<li class="insight-item"><span class="insight-label">🎯 예상 목표 구간:</span> "최근 추세가 유지된다는 단순 속도 시나리오에서는 <strong>${DateUtil.format(dEarly)}</strong>에서 <strong>${DateUtil.format(dLate)}</strong> 사이에 목표를 달성합니다. 통계적 신뢰구간이나 확률은 아닙니다."</li>`);
         }
 
         // 15. 월간 성적표 (Monthly Grade)
@@ -2714,7 +2735,7 @@
         }
 
         // 16. 요요 위험도 경고 (Rapid Drop Warning)
-        if(AppState.records.length > 7) {
+        if(AppState.records.length > 7 && isConsecutiveDailyRecordRange(AppState.records.slice(-7))) {
             const last7 = AppState.records.slice(-7);
             const totalDrop = MathUtil.diff(last7[0].weight, last7[last7.length-1].weight);
             if(totalDrop > 2.0) { 
@@ -2727,6 +2748,7 @@
             let maxLoss30 = -999;
             let bestPeriod = '';
             for(let i=30; i<AppState.records.length; i++) {
+                if (DateUtil.daysBetween(DateUtil.parse(AppState.records[i-30].date), DateUtil.parse(AppState.records[i].date)) !== 30) continue;
                 const prev = AppState.records[i-30];
                 const curr = AppState.records[i];
                 const diff = MathUtil.diff(prev.weight, curr.weight);
@@ -2748,6 +2770,7 @@
         // 19. 손절매 제안 (Stop Loss)
         let gainStreak = 0, gainSum = 0;
         for(let i=AppState.records.length-1; i>0; i--) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) break;
             const diff = AppState.records[i].weight - AppState.records[i-1].weight;
             if(diff > 0) { gainStreak++; gainSum += diff; }
             else break;
@@ -2757,7 +2780,7 @@
         }
 
         // 20. 가짜 정체기 판별 (Fake Plateau)
-        if(maxPlateau >= 7) {
+        if(maxPlateau >= 7 && isConsecutiveDailyRecordRange(AppState.records.slice(-7))) {
             const last7 = AppState.records.slice(-7);
             const trend = last7[last7.length-1].weight - (last7.reduce((a,b)=>a+b.weight,0)/7);
             if(Math.abs(last7[0].weight - last7[6].weight) < 0.2 && trend < 0) {
@@ -2783,6 +2806,7 @@
         if (recoveries.length > 2) {
              let recDurations = [];
              for(let i=1; i<AppState.records.length-1; i++) {
+                 if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
                  if(AppState.records[i].weight >= AppState.records[i-1].weight + 1.0) { 
                      for(let j=i+1; j<AppState.records.length; j++) {
                          if(AppState.records[j].weight <= AppState.records[i-1].weight) {
@@ -2801,15 +2825,20 @@
         // 24. 거북이 vs 토끼 진단 (Turtle vs Rabbit - New Logic)
         if (AppState.records.length > 30) {
              const diffs = [];
-             for(let i=1; i<AppState.records.length; i++) diffs.push(Math.abs(AppState.records[i].weight - AppState.records[i-1].weight));
-             const diffStdDev = MathUtil.stdDev(diffs);
-             let type = diffStdDev > 0.5 ? "토끼형(급빠급찐)" : "거북이형(꾸준함)";
-             htmlLines.push(`<li class="insight-item"><span class="insight-label">🐢 거북이 vs 토끼 진단:</span> "최근 1달 데이터를 보니, 천천히 꾸준히 빼는 '${type}'입니다. 급격한 감량보다는 현재 페이스 유지가 요요 방지에 유리합니다."</li>`);
+             for(let i=1; i<AppState.records.length; i++) {
+                 if (isNextCalendarDay(AppState.records[i-1], AppState.records[i])) diffs.push(Math.abs(AppState.records[i].weight - AppState.records[i-1].weight));
+             }
+             if (diffs.length > 0) {
+                 const diffStdDev = MathUtil.stdDev(diffs);
+                 let type = diffStdDev > 0.5 ? "토끼형(급빠급찐)" : "거북이형(꾸준함)";
+                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🐢 거북이 vs 토끼 진단:</span> "일간 변화 기록을 보니, '${type}'입니다. 급격한 감량보다는 현재 페이스 유지가 요요 방지에 유리합니다."</li>`);
+             }
         }
 
         // 25. 주말의 공격
         const satSpikes = [];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date);
             if(d.getDay() === 6 && AppState.records[i].weight > AppState.records[i-1].weight) { // Sat spike
                  for(let j=i+1; j<AppState.records.length; j++) {
@@ -2827,7 +2856,7 @@
 
         // 26. 가짜 살 판독기 (Fake Weight Detector)
         // const lastRec = ... (상단 공통 변수 lastRec 사용)
-        if (AppState.records.length > 7) {
+        if (AppState.records.length > 7 && isConsecutiveDailyRecordRange(AppState.records.slice(-8))) {
             const lastRecVal = AppState.records[AppState.records.length-1].weight;
             const prevRecVal = AppState.records[AppState.records.length-2].weight;
             const diffLast = lastRecVal - prevRecVal;
@@ -2840,20 +2869,16 @@
             }
         }
 
-        // 27. 시뮬레이션 예측 (Simulation)
-        if (remaining > 0) {
-             const rStart = AppState.records[0];
-             const rEnd = s.lastRec;
-             const rate = (rStart.weight - rEnd.weight) / (DateUtil.daysBetween(DateUtil.parse(rStart.date), DateUtil.parse(rEnd.date))||1);
-             if(rate > 0) {
-                 const timeOld = remaining / rate;
-                 const timeNew = remaining / (rate + (300/7700));
-                 const saved = timeOld - timeNew;
-                 const targetDate = new Date(); targetDate.setDate(targetDate.getDate() + timeNew);
-                 htmlLines.push(`<li class="insight-item"><span class="insight-label">🔮 시뮬레이션 예측:</span> "만약 오늘부터 매일 300kcal씩 덜 먹는다면, 예상 목표 달성일은 <strong>${DateUtil.format(targetDate)}</strong>로 <strong>${Math.round(saved)}일</strong> 앞당겨집니다."</li>`);
-             }
+        // 27. 시뮬레이션 예측 (최근 기록이 뒷받침하는 경우만)
+        if (remaining > 0 && currentForecast.available) {
+             const rate = Math.abs(currentForecast.trend.slopeKgPerDay);
+             const timeOld = remaining / rate;
+             const timeNew = remaining / (rate + (300/7700));
+             const saved = timeOld - timeNew;
+             const targetDate = new Date(); targetDate.setDate(targetDate.getDate() + timeNew);
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🔮 시뮬레이션 예측:</span> "만약 오늘부터 매일 300kcal씩 덜 먹는다면, 예상 목표 달성일은 <strong>${DateUtil.format(targetDate)}</strong>로 <strong>${Math.round(saved)}일</strong> 앞당겨집니다."</li>`);
         }
-        
+
         // 28. 정체기 타파 솔루션 (Plateau Solution)
         if (maxPlateau >= 10 && Math.abs(s.current - s.lastRec.weight) < 0.2) {
              htmlLines.push(`<li class="insight-item"><span class="insight-label">💡 정체기 타파 솔루션:</span> "현재 10일째 체중 변화가 없습니다. 지금은 <strong>운동 종류</strong>를 바꿔 대사에 충격을 줄 타이밍일 수 있습니다."</li>`);
@@ -2876,26 +2901,27 @@
         // 30. 노이즈 캔슬링 (Noise Canceling)
         const lastRecVal = AppState.records[AppState.records.length-1].weight;
         const prevRecVal = AppState.records[AppState.records.length-2].weight;
-        const diffLast = lastRecVal - prevRecVal;
+        const diffLast = hasLastDailyChange ? lastRecVal - prevRecVal : null;
         if (Math.abs(diffLast) > 0.6) {
-             htmlLines.push(`<li class="insight-item"><span class="insight-label">📡 노이즈 캔슬링:</span> "오늘 체중이 급변했지만 무시하셔도 됩니다. 통계적으로 이 정도 변동은 평소 <strong>'일일 변동 허용 범위(±0.6kg)'</strong> 이내입니다. 전체 추세는 여전히 유효합니다."</li>`);
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">📡 노이즈 캔슬링:</span> "체중이 전날 대비 <strong>${diffLast > 0 ? '+' : ''}${diffLast.toFixed(1)}kg</strong> 변했습니다. 단기 변화만으로 원인이나 전체 추세를 단정할 수 없으므로, 이후 기록과 함께 확인해주세요."</li>`);
         }
 
-        // 31. 시간 단축 마일리지 (Time Saved)
-        if(remaining > 0 && AppState.records.length > 30) {
-             const avgSpeed = (AppState.records[0].weight - s.current) / AppState.records.length;
-             const recentSpeed = (AppState.records[AppState.records.length-8].weight - s.current) / 7;
-             if(recentSpeed > avgSpeed) {
+        // 31. 시간 단축 마일리지 (실제 경과 일수와 최근 추세 비교)
+        if(remaining > 0 && AppState.records.length > 30 && currentForecast.available) {
+             const totalDays = DateUtil.daysBetween(DateUtil.parse(AppState.records[0].date), DateUtil.parse(lastRec.date));
+             const avgSpeed = totalDays > 0 ? (AppState.records[0].weight - s.current) / totalDays : 0;
+             const recentSpeed = Math.abs(currentForecast.trend.slopeKgPerDay);
+             if(avgSpeed > 0 && recentSpeed > avgSpeed) {
                  const daysSaved = (remaining/avgSpeed) - (remaining/recentSpeed);
                  if(daysSaved > 5) {
-                     htmlLines.push(`<li class="insight-item"><span class="insight-label">⏳ 시간 단축 마일리지:</span> "지난주 불태우셨군요! 🔥 최근 속도라면 원래 예상보다 목표 달성을 <strong>${Math.round(daysSaved)}일</strong> 앞당길 수 있습니다."</li>`);
+                     htmlLines.push(`<li class="insight-item"><span class="insight-label">⏳ 시간 단축 마일리지:</span> "최근 추세라면 전체 기록의 평균 속도보다 목표 달성을 <strong>${Math.round(daysSaved)}일</strong> 앞당길 수 있습니다."</li>`);
                  }
              }
         }
 
         // 32. 나트륨/부종 경보 (Sodium Alarm)
         if (diffLast > 2.0) {
-             htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">🧂 나트륨/부종 경보:</span> "하루 만에 2kg가 찌는 것은 생물학적으로 불가능합니다(지방 2kg ≈ 15,400kcal). 이는 99% <strong>수분(부종)</strong>입니다. 오늘 물 많이 드시고 칼륨(바나나 등)을 섭취하면 내일 복구됩니다."</li>`);
+             htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">🧂 나트륨/부종 경보:</span> "체중이 전날 대비 <strong>+${diffLast.toFixed(1)}kg</strong> 증가했습니다. 체중 기록만으로 지방·수분 변화의 원인이나 회복 시점을 확정할 수 없습니다. 같은 조건에서 재측정하고 이후 기록을 확인해주세요."</li>`);
         }
         
         // 33. 마의 N월 예보 (Month N Forecast)
@@ -2952,7 +2978,7 @@
         // ---------------------------------------------------------
 
         // 36. 스퀴즈 (Whoosh Effect 전조)
-        if (AppState.records.length > 20) {
+        if (AppState.records.length >= 30 && isConsecutiveDailyRecordRange(AppState.records.slice(-30))) {
             const last7 = AppState.records.slice(-7).map(r => r.weight);
             const std7 = MathUtil.stdDev(last7);
             const last30 = AppState.records.slice(-30).map(r => r.weight);
@@ -2964,7 +2990,7 @@
         }
 
         // 37. 급격한 변동 경고 (RSI 로직 응용)
-        if (AppState.records.length > 14) {
+        if (AppState.records.length > 14 && isConsecutiveDailyRecordRange(AppState.records.slice(-15))) {
             let gain = 0, loss = 0;
             const recent14 = AppState.records.slice(-15);
             for(let i=1; i<recent14.length; i++) {
@@ -2983,8 +3009,9 @@
         }
 
         // 38. 요요 경고 (Rebound Warning) 
-        if (AppState.records.length > 30) {
-            const periodRecs = AppState.records.slice(-30);
+        const recentMonthRecords = getRecentRecordsByDays(30);
+        if (AppState.records.length > 30 && recentMonthRecords.length >= 2) {
+            const periodRecs = recentMonthRecords;
             const pMax = MathUtil.max(periodRecs.map(r => r.weight));
             const pMin = MathUtil.min(periodRecs.map(r => r.weight));
             const totalDrop = pMax - pMin;
@@ -3001,6 +3028,7 @@
         // 39. 월요병 증후군 (Monday Sickness)
         let monGains = 0, monCount = 0;
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date);
             if (d.getDay() === 1) { // 월요일
                 if (AppState.records[i].weight > AppState.records[i-1].weight) monGains++;
@@ -3124,7 +3152,7 @@
         }
 
         // 53. 5일 이동평균선 돌파 (Moving Average Crossover)
-        if (AppState.records.length > 6) {
+        if (AppState.records.length > 6 && isConsecutiveDailyRecordRange(AppState.records.slice(-6))) {
             const last5Avg = AppState.records.slice(-6, -1).reduce((a,b)=>a+b.weight,0)/5;
             if (s.current < last5Avg && AppState.records[AppState.records.length-2].weight > last5Avg) {
                  htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 5일선 돌파:</span> "오늘 체중이 5일 이동평균선을 뚫고 내려갔습니다. 단기 하락 추세가 시작되었습니다."</li>`);
@@ -3133,22 +3161,27 @@
             }
         }
 
-        // 54. 3일 법칙 (The 3-Day Rule)
+        // 54. 3일 법칙: 이틀 연속 감량 뒤 실제 다음 날을 관측한 사례만 비교합니다.
         let threeDayDrop = 0;
-        for(let i=2; i<AppState.records.length; i++) {
-             if(AppState.records[i].weight < AppState.records[i-1].weight && 
-                AppState.records[i-1].weight < AppState.records[i-2].weight) threeDayDrop++;
+        let observedTwoDayDrops = 0;
+        for(let i=2; i<AppState.records.length-1; i++) {
+            if (!isConsecutiveDailyRecordRange(AppState.records.slice(i-2, i+2))) continue;
+            if(AppState.records[i].weight < AppState.records[i-1].weight &&
+               AppState.records[i-1].weight < AppState.records[i-2].weight) {
+                observedTwoDayDrops++;
+                if (AppState.records[i+1].weight < AppState.records[i].weight) threeDayDrop++;
+            }
         }
-        const totalDrops = AppState.records.filter((r,i)=>i>0 && r.weight < AppState.records[i-1].weight).length;
-        if(totalDrops > 0) {
-            const prob = (threeDayDrop / totalDrops * 100).toFixed(0);
-             htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 관성의 법칙:</span> "체중이 이틀 연속 빠지면, 3일째에도 빠질 확률이 <strong>${prob}%</strong>입니다."</li>`);
+        if(observedTwoDayDrops > 0) {
+            const prob = (threeDayDrop / observedTwoDayDrops * 100).toFixed(0);
+            htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 관성의 법칙:</span> "이틀 연속 감량 후 다음 날까지 관측한 기록에서, 3일째에도 감량한 비율은 <strong>${prob}%</strong>입니다."</li>`);
         }
 
         // 55. 체중계 공포증 (Scale Phobia)
         let skipAfterGain = 0;
         let gainEvents = 0;
         for(let i=1; i<AppState.records.length-2; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             if (AppState.records[i].weight > AppState.records[i-1].weight + 0.5) {
                  gainEvents++;
                  const nextDay = DateUtil.addDays(AppState.records[i].date, 1);
@@ -3216,6 +3249,7 @@
         if (AppState.records.length > 20) {
             const dailyDrops = [];
             for(let i=1; i<AppState.records.length; i++) {
+                if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
                 const diff = AppState.records[i-1].weight - AppState.records[i].weight;
                 if(diff > 0) dailyDrops.push(diff);
             }
@@ -3231,7 +3265,7 @@
         }
 
         // 62. 뇌피셜 방지 (Fact Check)
-        if (AppState.records.length > 30) {
+        if (AppState.records.length > 30 && isConsecutiveDailyRecordRange(AppState.records.slice(-30))) {
              const r7 = AppState.records.slice(-7);
              const r30 = AppState.records.slice(-30);
              const trend7 = r7[r7.length-1].weight - r7[0].weight;
@@ -3250,7 +3284,7 @@
         }
 
         // 66. 작용 반작용 (Newton's 3rd Law)
-        if (s.maxDrop > 1.5 && s.lastRec.weight - AppState.records[AppState.records.length-2].weight > 0.5) {
+        if (hasLastDailyChange && s.maxDrop > 1.5 && s.lastRec.weight - AppState.records[AppState.records.length-2].weight > 0.5) {
              htmlLines.push(`<li class="insight-item"><span class="insight-label">🍏 작용 반작용:</span> "최근 급격한 감량에 대한 반발력으로 일시적 증량이 왔습니다. 몸이 항상성을 유지하려는 자연스러운 현상입니다."</li>`);
         }
 
@@ -3294,7 +3328,7 @@
         }
 
         // 76. 수분 컷팅 (Water Cut)
-        if (s.lastRec.weight - AppState.records[AppState.records.length-2].weight < -1.5) {
+        if (hasLastDailyChange && s.lastRec.weight - AppState.records[AppState.records.length-2].weight < -1.5) {
              htmlLines.push(`<li class="insight-item"><span class="insight-label">💦 수분 컷팅:</span> "하루 만에 급격히 빠진 것은 지방이 아니라 수분일 가능성이 큽니다. 어제 저염식을 하셨거나 땀을 많이 흘리셨나요?"</li>`);
         }
 
@@ -3332,7 +3366,7 @@
         // 82. 데칼코마니 (Decalcomania)
         if (AppState.records.length > 2) {
              const r = AppState.records;
-             if (r[r.length-1].weight === r[r.length-2].weight) {
+             if (hasLastDailyChange && r[r.length-1].weight === r[r.length-2].weight) {
                   htmlLines.push(`<li class="insight-item"><span class="insight-label">🦋 데칼코마니:</span> "어제와 체중이 소수점까지 똑같습니다. 몸이 현재 체중에 적응 중인 것 같습니다."</li>`);
              }
         }
@@ -3353,7 +3387,7 @@
     function renderPlateauHelper(s) {
         const phEl = AppState.getEl('plateauHelperText');
         if (!phEl) return;
-        const recent = AppState.records.slice(-14); 
+        const recent = getRecentRecordsByDays(14);
         if (recent.length < 7) {
             phEl.innerText = CONFIG.MESSAGES.PLATEAU.NEED_DATA;
             return;
@@ -3458,6 +3492,7 @@
         const totalStats = [0,0,0,0,0,0,0]; 
         const dayNames = ['일','월','화','수','목','금','토'];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date).getDay();
             if(AppState.records[i].weight < AppState.records[i-1].weight) winStats[d]++;
             totalStats[d]++;
@@ -4617,6 +4652,11 @@
         const last = AppState.records[AppState.records.length-1];
         const prev = AppState.records[AppState.records.length-2];
         const diff = MathUtil.diff(last.weight, prev.weight);
+        if (!isNextCalendarDay(prev, last)) {
+            const elapsedDays = DateUtil.daysBetween(DateUtil.parse(prev.date), DateUtil.parse(last.date));
+            txtEl.innerText = `이전 기록(${prev.date}) 대비 ${diff > 0 ? '+' : ''}${diff}kg 변화했습니다. (${elapsedDays}일간 변화)`;
+            return;
+        }
         
         if (diff < 0) txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.LOSS.replace('{diff}', String(Math.abs(diff)));
         else if (diff > 0) txtEl.innerText = CONFIG.MESSAGES.ANALYSIS.GAIN.replace('{diff}', String(diff));
@@ -4627,8 +4667,10 @@
         if(currentW <= AppState.settings.goal1) return { avg: "달성 완료! 🎉", range: "" };
         if(AppState.records.length < 5) return { avg: "데이터 수집 중...", range: "" };
         
-        const recent = AppState.records.slice(-30);
-        if(recent.length < 2) return { avg: "분석 중...", range: "" };
+        const recent30 = getRecentRecordsByDays(30);
+        const recent90 = getRecentRecordsByDays(90);
+        const recent = recent30.length >= 5 ? recent30 : recent90;
+        if(recent.length < 5) return { avg: "최근 기록 부족", range: "최근 90일 안의 기록을 5개 이상 입력해주세요" };
 
         const first = recent[0];
         const last = recent[recent.length-1];
@@ -5053,13 +5095,14 @@
         const counts = [0,0,0,0,0,0,0];
         
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const diff = MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight);
             const day = DateUtil.parse(AppState.records[i].date).getDay();
             sums[day] = MathUtil.add(sums[day], diff);
             counts[day]++;
         }
         
-        const avgs = sums.map((s, i) => counts[i] ? s/counts[i] : 0);
+        const avgs = sums.map((s, i) => counts[i] ? s/counts[i] : null);
         const ctx = document.getElementById('dayOfWeekChart').getContext('2d');
         const config = createChartConfig('bar', {
             labels: ['일','월','화','수','목','금','토'],
@@ -5219,14 +5262,15 @@
         const weekdayDeltas = [], weekendDeltas = [];
         
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date).getDay();
             const diff = MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight);
             if(d === 0 || d === 6) weekendDeltas.push(diff);
             else weekdayDeltas.push(diff);
         }
 
-        const avgWeekday = weekdayDeltas.length ? weekdayDeltas.reduce((a,b)=>a+b,0)/weekdayDeltas.length : 0;
-        const avgWeekend = weekendDeltas.length ? weekendDeltas.reduce((a,b)=>a+b,0)/weekendDeltas.length : 0;
+        const avgWeekday = weekdayDeltas.length ? weekdayDeltas.reduce((a,b)=>a+b,0)/weekdayDeltas.length : null;
+        const avgWeekend = weekendDeltas.length ? weekendDeltas.reduce((a,b)=>a+b,0)/weekendDeltas.length : null;
 
         const chartData = [avgWeekday, avgWeekend];
 
@@ -5328,6 +5372,7 @@
         if(AppState.records.length < 2) return;
         const data = [];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const diff = AppState.records[i-1].weight - AppState.records[i].weight; 
             data.push({ x: AppState.records[i-1].weight, y: diff });
         }
@@ -5406,6 +5451,10 @@
         if(AppState.records.length < 2) return;
         const data = [];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) {
+                data.push({ x: AppState.records[i].date, y: null });
+                continue;
+            }
             data.push({
                 x: AppState.records[i].date,
                 y: MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight)
@@ -5506,8 +5555,11 @@
         if(AppState.records.length < 2) return;
         const deltas = [];
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             deltas.push(MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight));
         }
+
+        if (deltas.length === 0) return;
 
         const buckets = {};
         deltas.forEach(d => {
@@ -5543,6 +5595,7 @@
         const gainCount = [0,0,0,0,0,0,0];
         
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
              const d = DateUtil.parse(AppState.records[i].date).getDay();
              const diff = AppState.records[i-1].weight - AppState.records[i].weight; // Loss
              lossSum[d] += diff;
@@ -5554,7 +5607,7 @@
         const maxLoss = MathUtil.max(avgLoss.map(Math.abs));
         const normAvgLoss = avgLoss.map(v => v > 0 ? (v/maxLoss)*100 : 0); // Only show positive loss strength
         const maxCount = MathUtil.max(count);
-        const freq = count.map(c => (c / maxCount) * 100);
+        const freq = count.map(c => maxCount > 0 ? (c / maxCount) * 100 : 0);
         const overeat = gainCount.map((c, i) => count[i] ? (c / count[i]) * 100 : 0);
 
         const ctx = document.getElementById('radarChart').getContext('2d');
@@ -5884,6 +5937,7 @@
         let minDelta = 0;
         
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const diff = AppState.records[i].weight - AppState.records[i-1].weight;
             deltaMap[AppState.records[i].date] = diff;
             if(diff > maxDelta) maxDelta = diff;
@@ -6082,10 +6136,9 @@
     // --- [NEW] 차트 추가: Speedometer ---
     function updateSpeedometerChart(colors) {
         const ctx = document.getElementById('speedometerChart').getContext('2d');
-        const s = AppState.state.statsCache;
-        if(!s || !s.rate7) return; 
-        
-        const recs = AppState.records.slice(-8);
+        // 문자열 '-'도 truthy이므로 rate7의 존재 여부로 최근 자료를 판단할 수 없습니다.
+        const recs = getRecentRecordsByDays(7);
+        if(recs.length < 2) return;
         let weeklyRatePct = 0;
         if(recs.length >= 2) {
              const start = recs[0];
@@ -6157,6 +6210,7 @@
 
         const deltaMap = {};
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const diff = MathUtil.diff(AppState.records[i].weight, AppState.records[i-1].weight);
             deltaMap[AppState.records[i].date] = diff;
         }
@@ -6262,7 +6316,7 @@
             const currentDateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
             const targetIdx = AppState.records.findIndex(r => r.date === currentDateStr);
             
-            if(targetIdx > 0 && AppState.records[targetIdx] && AppState.records[targetIdx-1]) {
+            if(targetIdx > 0 && isNextCalendarDay(AppState.records[targetIdx-1], AppState.records[targetIdx])) {
                 const currentW = AppState.records[targetIdx].weight;
                 const prevW = AppState.records[targetIdx-1].weight;
                 const diff = MathUtil.diff(currentW, prevW);
@@ -6328,6 +6382,7 @@
         const dayNames = ['일','월','화','수','목','금','토'];
         
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date).getDay();
             const diff = AppState.records[i].weight - AppState.records[i-1].weight;
             totalCounts[d]++;
@@ -6406,6 +6461,7 @@
         const dayNames = ['일','월','화','수','목','금','토'];
         
         for(let i=1; i<AppState.records.length; i++) {
+            if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) continue;
             const d = DateUtil.parse(AppState.records[i].date).getDay();
             const diff = AppState.records[i].weight - AppState.records[i-1].weight;
             dayTot[d]++;
@@ -6428,7 +6484,7 @@
                 gRows.push(`<tr><td>${n}요일</td><td>${avg.toFixed(2)}</td><td>${win}%</td><td>${grade}</td></tr>`);
             }
         });
-        AppState.getEl('gradesTableBody').innerHTML = gRows.join('');
+        AppState.getEl('gradesTableBody').innerHTML = gRows.length ? gRows.join('') : '<tr><td colspan="4">데이터 부족</td></tr>';
         
         renderTop5Table();
         renderMonthlyRateTable();
@@ -6439,6 +6495,11 @@
         let maxStreak = 0, curStreak = 0;
         
         for(let i=1; i<AppState.records.length; i++) {
+             if (!isNextCalendarDay(AppState.records[i-1], AppState.records[i])) {
+                 maxStreak = Math.max(maxStreak, curStreak);
+                 curStreak = 0;
+                 continue;
+             }
              const diff = AppState.records[i].weight - AppState.records[i-1].weight;
              if(diff < 0) {
                  drops.push({ date: AppState.records[i].date, val: diff });
@@ -6477,7 +6538,7 @@
     function renderMonthlyRateTable() {
         const months = {};
         AppState.records.forEach((r, i) => {
-            if(i===0) return;
+            if(i===0 || !isNextCalendarDay(AppState.records[i-1], r)) return;
             const k = r.date.substring(0, 7);
             if(!months[k]) months[k] = { success: 0, total: 0 };
             const diff = r.weight - AppState.records[i-1].weight;
@@ -6491,7 +6552,7 @@
             const rate = d.total > 0 ? ((d.success / d.total) * 100).toFixed(0) : 0;
             html += `<tr><td>${m}</td><td>${d.success}일</td><td>${d.total}일</td><td>${rate}%</td></tr>`;
         });
-        AppState.getEl('monthlyRateTableBody').innerHTML = html;
+        AppState.getEl('monthlyRateTableBody').innerHTML = html || '<tr><td colspan="4">데이터 부족</td></tr>';
     }
 
     function renderMonthlyTable() {
