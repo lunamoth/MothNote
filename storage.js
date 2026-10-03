@@ -2528,7 +2528,11 @@ const normalizeDietSettingsImportValue = value => {
         if (number === null || number < rule.min || number > rule.max) {
             throw new Error(`다이어트 설정의 ${propertyName} 값이 올바르지 않습니다.`);
         }
-        return rule.integer ? Math.round(number) : roundDietImportNumber(number);
+        const roundedNumber = rule.integer ? Math.round(number) : roundDietImportNumber(number);
+        if (roundedNumber < rule.min || roundedNumber > rule.max) {
+            throw new Error(`다이어트 설정의 ${propertyName} 값이 반올림 후 유효 범위를 벗어납니다.`);
+        }
+        return roundedNumber;
     };
 
     // [MAJOR BUG FIX] 통합 백업이 구버전/부분 백업이라 일부 설정 키가 없을 때

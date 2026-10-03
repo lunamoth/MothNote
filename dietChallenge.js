@@ -649,6 +649,7 @@
         },
         state: {
             editingDate: null,
+            formEditSource: null,
             inlineEditDraft: null,
             statsCache: null,
             isDirty: true,
@@ -768,10 +769,17 @@
         const startWeight = parseFiniteNumericScalar(settings.startWeight);
         const goal1 = parseFiniteNumericScalar(settings.goal1);
         const intake = parseFiniteNumericScalar(settings.intake);
+        // 저장 정밀도는 소수 첫째 자리입니다. 양수라도 반올림 후 0이면
+        // 키·시작 체중을 분모로 사용하는 통계에 유효하지 않은 값이 전달됩니다.
+        const positiveRoundedSetting = (number, max, fallback) => {
+            if (number === null || number <= 0 || number > max) return fallback;
+            const rounded = MathUtil.round(number);
+            return rounded > 0 ? rounded : fallback;
+        };
         return {
-            height: height !== null && height > 0 && height <= 300 ? MathUtil.round(height) : defaults.height,
-            startWeight: startWeight !== null && startWeight > 0 && startWeight <= 500 ? MathUtil.round(startWeight) : defaults.startWeight,
-            goal1: goal1 !== null && goal1 > 0 && goal1 <= 500 ? MathUtil.round(goal1) : defaults.goal1,
+            height: positiveRoundedSetting(height, 300, defaults.height),
+            startWeight: positiveRoundedSetting(startWeight, 500, defaults.startWeight),
+            goal1: positiveRoundedSetting(goal1, 500, defaults.goal1),
             intake: intake !== null && intake >= 1 && intake <= 10000 ? Math.round(intake) : defaults.intake
         };
     };
@@ -805,7 +813,15 @@
                 };
             }
 
-            candidate[key] = rule.integer ? Math.round(numberValue) : MathUtil.round(numberValue);
+            const roundedValue = rule.integer ? Math.round(numberValue) : MathUtil.round(numberValue);
+            if (roundedValue < rule.min || roundedValue > rule.max) {
+                return {
+                    ok: false,
+                    settings: null,
+                    error: `settings의 ${rule.label} 값이 반올림 후 유효 범위를 벗어납니다.`
+                };
+            }
+            candidate[key] = roundedValue;
         }
 
         return { ok: true, settings: candidate, error: '' };
@@ -1359,7 +1375,9 @@
         if (isNaN(goal1) || goal1 <= 0 || goal1 > 500) return showToast('유효한 목표 체중을 입력해주세요.');
         if (!Number.isFinite(intake) || intake < 1 || intake > 10000) return showToast('유효한 하루 섭취 칼로리를 입력해주세요 (1~10000kcal).');
 
-        const nextSettings = sanitizeDietSettings({ height, startWeight, goal1, intake: Math.round(intake) });
+        const normalizedSettings = normalizeImportedDietSettings({ height, startWeight, goal1, intake }, AppState.settings);
+        if (!normalizedSettings.ok) return showToast(normalizedSettings.error);
+        const nextSettings = normalizedSettings.settings;
         if (!persistDietSettingsImmediate(nextSettings)) return;
 
         AppState.settings = nextSettings;
@@ -1406,6 +1424,19 @@
             return showToast(`유효한 체지방률을 입력해주세요 (${CONFIG.LIMITS.MIN_FAT}~${CONFIG.LIMITS.MAX_FAT}%).`);
         }
 
+        // 상단 수정 폼도 인라인 편집과 동일하게 편집 시작 시 원본을 확인합니다.
+        // JSON/CSV 복원·삭제·인라인 수정 후 남아 있는 이전 폼은 최신 기록을
+        // 확인 없이 덮어쓰거나 삭제된 기록을 다시 생성해서는 안 됩니다.
+        if (AppState.state.editingDate) {
+            const source = AppState.state.formEditSource;
+            const currentRecord = AppState.records.find(r => r.date === AppState.state.editingDate);
+            if (!source || source.date !== AppState.state.editingDate || !isRecordEditSourceUnchanged(source, currentRecord)) {
+                clearFormEditMode();
+                // 입력값은 복사하거나 새 기록으로 명시적으로 제출할 수 있도록 유지합니다.
+                return showToast('원본 기록이 변경되거나 삭제되어 수정을 중단했습니다. 입력값은 유지했으니 현재 기록을 확인한 뒤 새로 기록하거나 다시 수정해주세요.');
+            }
+        }
+
         // [수정 핵심] 유효성 검사를 통과했다면 즉시 버튼을 잠급니다.
         btn.disabled = true;
         const previousRecords = cloneDietRecords(AppState.records);
@@ -1435,10 +1466,6 @@
                     // 날짜는 그대로두고 값만 수정하는 경우
                     if (existingIndex >= 0) {
                         AppState.records[existingIndex] = record;
-                    } else {
-                        // 편집을 시작한 뒤 삭제/가져오기 등으로 원본 기록이 사라졌다면
-                        // 배열의 "-1" 속성에 쓰지 말고 제출한 기록을 정상 항목으로 복구합니다.
-                        AppState.records.push(record);
                     }
                 }
             } else {
@@ -1478,6 +1505,14 @@
         }
     }
 	
+    function clearFormEditMode() {
+        AppState.state.editingDate = null;
+        AppState.state.formEditSource = null;
+        const rBtn = AppState.getEl('recordBtn');
+        rBtn.innerText = '기록하기 📝';
+        rBtn.classList.remove('editing-mode');
+    }
+
     function resetForm(lastDateStr = null) {
         if (lastDateStr) {
             AppState.getEl('dateInput').value = DateUtil.addDays(lastDateStr, 1);
@@ -1486,11 +1521,7 @@
         }
         AppState.getEl('weightInput').value = '';
         AppState.getEl('fatInput').value = '';
-        AppState.state.editingDate = null;
-        
-        const rBtn = AppState.getEl('recordBtn');
-        rBtn.innerText = '기록하기 📝';
-        rBtn.classList.remove('editing-mode');
+        clearFormEditMode();
         AppState.getEl('weightInput').focus();
     }
 
@@ -1514,6 +1545,11 @@
             else AppState.getEl('fatInput').value = '';
             
             AppState.state.editingDate = date; 
+            AppState.state.formEditSource = {
+                date,
+                sourceWeight: record.weight,
+                sourceFat: Object.prototype.hasOwnProperty.call(record, 'fat') ? record.fat : null
+            };
             const rBtn = AppState.getEl('recordBtn');
             rBtn.innerText = '수정 완료 ✔️';
             rBtn.classList.add('editing-mode');
@@ -6679,7 +6715,7 @@
                 sourceFat
             };
             const sourceRecord = AppState.records.find(record => record.date === date);
-            if (!isInlineEditSourceUnchanged(normalizedDraft, sourceRecord)) {
+            if (!isRecordEditSourceUnchanged(normalizedDraft, sourceRecord)) {
                 clearInlineEditDraft();
                 return;
             }
@@ -6702,7 +6738,7 @@
         if (weightInput || fatInput) persistInlineEditDraftToSession();
     }
 
-    function isInlineEditSourceUnchanged(draft, record) {
+    function isRecordEditSourceUnchanged(draft, record) {
         if (!draft || !record) return false;
         const recordFat = Object.prototype.hasOwnProperty.call(record, 'fat') ? record.fat : null;
         return record.weight === draft.sourceWeight && recordFat === draft.sourceFat;
@@ -6713,7 +6749,7 @@
         if (!draft || !DateUtil.isValidDateString(draft.date)) return false;
 
         const record = AppState.records.find(item => item.date === draft.date);
-        if (!isInlineEditSourceUnchanged(draft, record)) {
+        if (!isRecordEditSourceUnchanged(draft, record)) {
             clearInlineEditDraft();
             if (record) showToast('원본 기록이 변경되어 오래된 인라인 편집을 취소했습니다.');
             return false;
@@ -7389,7 +7425,7 @@
 
             const recordIndex = AppState.records.findIndex(r => r.date === date);
             if(recordIndex >= 0) {
-                if (!isInlineEditSourceUnchanged(draft, AppState.records[recordIndex])) {
+                if (!isRecordEditSourceUnchanged(draft, AppState.records[recordIndex])) {
                     clearInlineEditDraft();
                     updateUI();
                     return showToast('원본 기록이 변경되어 오래된 인라인 편집을 저장하지 않았습니다.');
