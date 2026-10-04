@@ -242,7 +242,23 @@ export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
             }
         }
 
-        backup[entryKey] = entryValue;
+        // 시스템 시계를 뒤로 조정해도 방금 작성한 초안이 저장본보다 오래된 것으로
+        // 오인되어 다음 실행에서 폐기되지 않도록, 대상의 커밋 시각을 하한으로 둡니다.
+        // 저장된 과거 백업의 시각은 바꾸지 않고 현재 입력/이탈 시점의 새 사본만 보정합니다.
+        const targetItem = entryKey === 'noteUpdate'
+            ? findNote(entryValue.noteId).item
+            : (entryValue.type === CONSTANTS.ITEM_TYPE.FOLDER
+                ? findFolder(entryValue.id).item
+                : findNote(entryValue.id).item);
+        const capturedAt = Number(entryValue.capturedAt);
+        const committedAt = Number(targetItem?.updatedAt);
+        const currentEntry = { ...entryValue };
+        if (Number.isFinite(capturedAt) && capturedAt > 0
+            && Number.isFinite(committedAt) && committedAt > capturedAt) {
+            currentEntry.capturedAt = committedAt;
+        }
+
+        backup[entryKey] = currentEntry;
         localStorage.setItem(backupKey, JSON.stringify(backup));
         return true;
     } catch (error) {
