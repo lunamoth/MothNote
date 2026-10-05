@@ -96,6 +96,21 @@ export const parseEmergencyBackupChanges = rawBackup => {
         }
     }
 
+    // 이름 변경 저장에 실패한 뒤 같은 노트를 다시 편집하면 두 종류의 초안이 함께
+    // 남을 수 있습니다. 더 최신인 전체 노트 초안에는 제목도 포함되므로, 그보다
+    // 오래된 이름 변경을 나중에 적용하면 최신 제목이 유실됩니다. 저장본과 대조해
+    // 항목을 정리하기 전에 이 중복을 해소해야 최신 노트 초안이 이미 저장된 경우도
+    // 예전 이름으로 되돌아가지 않습니다. 시각이 없거나 같으면 순서를 단정하지 않습니다.
+    const { noteUpdate, itemRename } = normalized;
+    if (noteUpdate && itemRename
+        && itemRename.type === 'note'
+        && itemRename.id === noteUpdate.noteId
+        && Number.isFinite(noteUpdate.capturedAt)
+        && Number.isFinite(itemRename.capturedAt)
+        && noteUpdate.capturedAt > itemRename.capturedAt) {
+        delete normalized.itemRename;
+    }
+
     return normalized;
 };
 
