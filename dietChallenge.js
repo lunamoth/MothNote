@@ -1671,11 +1671,22 @@
         if (!file) return showToast('CSV 파일을 선택해주세요.');
         if (!beginDietImport()) return;
 
+        // CSV도 파일 읽기 중에는 기록 수정·삭제·초기화가 가능합니다.
+        // 최신 배열에 병합하더라도 같은 날짜의 새 값을 과거 CSV 값으로 덮어쓰거나
+        // 삭제한 기록을 되살릴 수 있으므로, JSON 복원과 같은 충돌 검사를 적용합니다.
+        const recordsAtReadStart = JSON.stringify(AppState.records);
+        const recordsLoadFailedAtReadStart = AppState.state.recordsLoadFailed;
+
         const reader = new FileReader();
         reader.onload = function(e) {
             try {
                 const content = getFileReaderText(e);
                 if (!content) return showToast('CSV 파일 내용이 비어 있거나 텍스트 형식이 아닙니다.');
+                if (JSON.stringify(AppState.records) !== recordsAtReadStart
+                    || AppState.state.recordsLoadFailed !== recordsLoadFailedAtReadStart) {
+                    showToast('파일을 읽는 동안 기록이 변경되어 CSV 가져오기를 중단했습니다. 최신 데이터를 백업한 뒤 다시 시도해주세요.');
+                    return;
+                }
                 const lines = content.split(/\r?\n/);
                 let count = 0;
                 let rejectedCount = 0;
