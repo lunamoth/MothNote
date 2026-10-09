@@ -468,11 +468,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         ? entry.value
                         : entry;
                     const value = parseFiniteNumericScalar(valueToCheck);
-                    if (value === null) {
+                    // 습관 기록은 완료(1)/미완료(0)만 존재합니다. 0.5, 2, -1 등의
+                    // 손상된 원본을 0/1로 강제 변환하면 다음 저장에서 원본 정보가 사라집니다.
+                    // 구버전 호환용 숫자 문자열은 허용하되 이진 값 외에는 보호 모드로 전환합니다.
+                    if (value === null || (value !== 0 && value !== 1)) {
                         reportStructuralCorruption();
                         continue;
                     }
-                    safeLogs[date] = { value: value > 0 ? 1 : 0 };
+                    safeLogs[date] = { value };
                 }
                 return safeLogs;
             };
@@ -532,6 +535,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentDate = rawState.currentDate instanceof Date ? rawState.currentDate : new Date();
             currentDate.setHours(0, 0, 0, 0);
 
+            // 손상된 검색 조건을 String()으로 강제 변환한 뒤 재저장하면
+            // 백업에서 복원할 수 있던 원래 값이 조용히 훼손될 수 있습니다.
+            if (hasOwn(rawFilters, 'search') && typeof rawFilters.search !== 'string') {
+                reportStructuralCorruption();
+            }
             const showArchived = hasOwn(rawFilters, 'showArchived')
                 ? parseBooleanScalar(rawFilters.showArchived)
                 : false;

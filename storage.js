@@ -2405,7 +2405,10 @@ const normalizeHabitTrackerImportValue = value => {
             const valueToCheck = isPlainImportObject(entry)
                 ? entry.value
                 : entry;
-            return parseFiniteImportNumber(valueToCheck) === null;
+            const parsedValue = parseFiniteImportNumber(valueToCheck);
+            // 통합 백업에서도 본문 로더와 동일하게 0/1만 허용합니다.
+            // 그 외 숫자를 받아들이면 복원 직후 0/1로 강제 변환되어 기록이 유실됩니다.
+            return parsedValue === null || (parsedValue !== 0 && parsedValue !== 1);
         })
     );
     const hasInvalidHabit = parsed.habits.some(habit => (
