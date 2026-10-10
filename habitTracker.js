@@ -1887,9 +1887,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const sortedDates = Object.keys(habit.logs)
                 .filter(dateStr => {
                     const parsedDate = this.parseDateString(dateStr);
+                    // 일정 변경으로 현재 비대상 요일이 된 과거 로그는 보존하되,
+                    // 완료 횟수·연속 달성 및 업적의 분자에는 포함하지 않습니다.
                     return !Number.isNaN(parsedDate.getTime())
                         && this.getDateString(parsedDate) === dateStr
-                        && this.isHabitWithinTrackingRange(habit, parsedDate);
+                        && this.isHabitCountableOnDate(habit, parsedDate);
                 })
                 .sort();
             if (sortedDates.length === 0) return { currentStreak: 0, longestStreak: 0, totalCompletions: 0, completionRate: 0 };
@@ -2250,7 +2252,10 @@ document.addEventListener('DOMContentLoaded', () => {
             
             dates.forEach(date => {
                 const dateStr = this.getDateString(date);
-                const isCompleted = this.isHabitCompletedOn(habit, dateStr);
+                // 일정 변경으로 비대상 요일이 된 기존 기록을 성공으로 칠하지 않습니다.
+                // 데이터는 그대로 남으며 통계·종합 히트맵의 기준과 일치합니다.
+                const isCompleted = this.isHabitCountableOnDate(habit, date)
+                    && this.isHabitCompletedOn(habit, dateStr);
                 const level = isCompleted ? 4 : 0;
                 const dayOfWeek = date.getDay();
                 
