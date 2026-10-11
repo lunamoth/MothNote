@@ -2599,13 +2599,15 @@ const INTEGRATED_IMPORT_TARGETS = Object.freeze([
         },
         hasMeaningfulCurrentData: value => {
             const parsed = JSON.parse(value);
-            return Boolean(
-                Array.isArray(parsed?.habits) && parsed.habits.length > 0
-                || (parsed?.achievements && typeof parsed.achievements === 'object'
-                    && Object.keys(parsed.achievements).length > 0)
-                || (parsed?.visitedViews && typeof parsed.visitedViews === 'object'
-                    && Object.keys(parsed.visitedViews).length > 0)
-            );
+            // 유효한 빈 데이터로 판정할 수 없는 저장값은 손상된 원본일 수 있습니다.
+            // 빈 백업으로 교체할 때 추가 삭제 확인을 생략하지 않습니다.
+            if (!isPlainImportObject(parsed) || !Array.isArray(parsed.habits)) return true;
+            if (parsed.habits.length > 0) return true;
+            for (const key of ['achievements', 'visitedViews']) {
+                if (!Object.prototype.hasOwnProperty.call(parsed, key)) continue;
+                if (!isPlainImportObject(parsed[key]) || Object.keys(parsed[key]).length > 0) return true;
+            }
+            return false;
         }
     },
     {
@@ -2615,7 +2617,9 @@ const INTEGRATED_IMPORT_TARGETS = Object.freeze([
         isEmpty: value => value === null || JSON.parse(value).length === 0,
         hasMeaningfulCurrentData: value => {
             const parsed = JSON.parse(value);
-            return Array.isArray(parsed) && parsed.length > 0;
+            // JSON 파싱에 성공했더라도 배열이 아니면 빈 기록으로 단정할 수 없습니다.
+            // 손상 원본을 지우기 전 사용자에게 별도의 삭제 확인을 요청합니다.
+            return !Array.isArray(parsed) || parsed.length > 0;
         }
     },
     {
@@ -2625,7 +2629,7 @@ const INTEGRATED_IMPORT_TARGETS = Object.freeze([
         isEmpty: value => value === null,
         hasMeaningfulCurrentData: value => {
             const parsed = JSON.parse(value);
-            return isPlainImportObject(parsed) && Object.keys(parsed).length > 0;
+            return !isPlainImportObject(parsed) || Object.keys(parsed).length > 0;
         }
     }
 ]);
