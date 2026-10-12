@@ -1687,7 +1687,9 @@
                     showToast('파일을 읽는 동안 기록이 변경되어 CSV 가져오기를 중단했습니다. 최신 데이터를 백업한 뒤 다시 시도해주세요.');
                     return;
                 }
-                const lines = content.split(/\r?\n/);
+                // CSV 파일은 CRLF, LF, 구형 Mac의 CR 줄바꿈을 모두 사용합니다.
+                // CR만 있는 파일을 한 행으로 읽으면 모든 정상 기록을 건너뛸 수 있습니다.
+                const lines = content.split(/\r\n|\n|\r/);
                 let count = 0;
                 let rejectedCount = 0;
                 const nextRecords = cloneDietRecords(AppState.records);
@@ -1728,8 +1730,18 @@
                         // 같은 날짜의 정상 체중·체지방률을 부분 데이터로 덮어쓰지 않습니다.
                         if(rec && (!hasFat || Object.prototype.hasOwnProperty.call(rec, 'fat'))) {
                             const idx = nextRecords.findIndex(r => r.date === rec.date);
-                            if(idx >= 0) nextRecords[idx] = rec;
-                            else nextRecords.push(rec);
+                            if (idx >= 0) {
+                                // Date,Weight 두 열만 제공하는 CSV로 기존 날짜를 갱신할 때,
+                                // 파일에 존재하지 않는 체지방률 열을 '삭제'로 해석하면
+                                // 과거에 직접 입력한 유일한 체지방 기록이 사라집니다.
+                                // 세 번째 열이 실제로 들어온 경우에만 그 값(빈 값 포함)을 적용합니다.
+                                if (matches.length < 3 && Object.prototype.hasOwnProperty.call(nextRecords[idx], 'fat')) {
+                                    rec.fat = nextRecords[idx].fat;
+                                }
+                                nextRecords[idx] = rec;
+                            } else {
+                                nextRecords.push(rec);
+                            }
                             count++;
                         } else {
                             rejectedCount++;
