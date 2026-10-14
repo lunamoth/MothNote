@@ -1117,7 +1117,7 @@
         bindClick('btn-print-medical-narrative', printMedicalNarrativeReport);
         window.addEventListener('afterprint', () => document.body.classList.remove('print-narrative-only'));
 
-        bindChange('showTrend', updateMainChart);
+        bindChange('showTrend', () => updateMainChart(DomUtil.getChartColors()));
         bindChange('chartStartDate', applyCustomDateRange);
         bindChange('chartEndDate', applyCustomDateRange);
 
@@ -4858,7 +4858,7 @@
         AppState.charts[key] = new Chart(ctx, config);
     }
 
-    function updateMainChart(colors) {
+    function updateMainChart(colors = DomUtil.getChartColors()) {
         const ctx = document.getElementById('mainChart').getContext('2d');
         const data = getFilteredData();
         const points = data.map(r => ({ x: r.date, y: r.weight }));
