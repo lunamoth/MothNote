@@ -423,9 +423,13 @@ export const verifyAndSanitizeLoadedData = (data) => {
         || hasLossyTextField(note, 'content')
     );
     const hasInvalidOptionalArray = key => hasOwn(data, key) && !Array.isArray(data[key]);
+    // 현재 MothNote 폴더 스키마에서 notes는 필수 배열입니다. 백업/저장소의 해당
+    // 필드가 통째로 누락된 상태를 빈 폴더로 자동 정제하면, 이후 저장이나 복원에서
+    // 누락된 노트가 영구 삭제된 것처럼 확정됩니다. 복구를 위해 원본을 보존합니다.
     const hasInvalidNoteCollection = folder => (
-        hasOwn(folder, 'notes')
-        && (!Array.isArray(folder.notes) || folder.notes.some(hasInvalidNoteRecord))
+        !hasOwn(folder, 'notes')
+        || !Array.isArray(folder.notes)
+        || folder.notes.some(hasInvalidNoteRecord)
     );
     const hasInvalidFolderRecords = Array.isArray(data.folders) && data.folders.some(folder => (
         !isRecord(folder)
@@ -1719,8 +1723,10 @@ const sanitizeContentData = data => {
             throw new Error('폴더 항목에 노트 필드가 포함되어 있어 무손실로 가져올 수 없습니다.');
         }
         assertSafeTextField(rawFolder, 'name', '폴더 이름');
-        if (Object.prototype.hasOwnProperty.call(rawFolder, 'notes') && !Array.isArray(rawFolder.notes)) {
-            throw new Error(`${isTrash ? '휴지통 폴더' : '폴더'}의 노트 목록이 배열 형식이 아닙니다.`);
+        // 누락된 notes도 빈 배열과 같지 않습니다. 잘린 백업의 폴더를 정상적인
+        // 빈 폴더로 간주해 기존 노트 전체를 교체하는 손실을 차단합니다.
+        if (!Object.prototype.hasOwnProperty.call(rawFolder, 'notes') || !Array.isArray(rawFolder.notes)) {
+            throw new Error(`${isTrash ? '휴지통 폴더' : '폴더'}의 노트 목록이 누락되었거나 배열 형식이 아닙니다.`);
         }
         const folderId = getUniqueId(CONSTANTS.ID_PREFIX.FOLDER, rawFolder.id, folderIdMap);
         const deletedAt = isTrash ? normalizeTimestamp(rawFolder.deletedAt) : null;
@@ -1988,11 +1994,37 @@ export const handleExport = async (settings) => {
             !dietChallengeResult.ok ? '다이어트 챌린지 기록' : null,
             !dietChallengeSettingsResult.ok ? '다이어트 챌린지 설정' : null
         ].filter(Boolean);
-        const isPartialBackup = omittedBackupSections.length > 0;
+
+        // localStorage.getItem()이 문자열을 반환했다고 해서 그 값이 가져오기 가능한
+        // 백업이라는 뜻은 아닙니다. 손상된 원문을 백업 파일에 보존하더라도 정상
+        // 가져오기에서는 그 섹션을 건너뛰므로, 완전 복원 가능한 백업으로 표시하면
+        // 재설치/초기화 후 사용자 기록이 사라질 수 있습니다.
+        const unrestorableBackupSections = [];
+        const checkOptionalBackupSection = (result, label, validator) => {
+            if (!result.ok || result.value === null) return;
+            try {
+                const normalized = validator(result.value);
+                // 실제 저장된 문자열 'null'은 데이터 없음과 구별해야 합니다.
+                // 이를 완전 백업에 넣으면 가져오기가 해당 저장값을 지울 수 있습니다.
+                if (normalized === null) throw new Error('저장된 원문이 null입니다.');
+            } catch (error) {
+                unrestorableBackupSections.push(label);
+                console.warn(`${label} 원문을 백업 파일에는 포함하지만 자동 복원 형식 검증에 실패했습니다.`, error);
+            }
+        };
+        checkOptionalBackupSection(habitTrackerResult, '습관 트래커 데이터', normalizeHabitTrackerImportValue);
+        checkOptionalBackupSection(dietChallengeResult, '다이어트 챌린지 기록', normalizeDietRecordsImportValue);
+        checkOptionalBackupSection(dietChallengeSettingsResult, '다이어트 챌린지 설정', normalizeDietSettingsImportValue);
+
+        const isPartialBackup = omittedBackupSections.length > 0 || unrestorableBackupSections.length > 0;
+        const partialBackupDetails = [
+            ...omittedBackupSections.map(label => `${label}: 읽기 실패로 제외`),
+            ...unrestorableBackupSections.map(label => `${label}: 손상된 원문은 보존하지만 자동 복원 불가`)
+        ];
         if (isPartialBackup) {
             const shouldSavePartialBackup = await showConfirm({
-                title: '⚠️ 일부 데이터를 백업할 수 없습니다',
-                message: `다음 항목을 저장소에서 읽지 못했습니다: ${omittedBackupSections.join(', ')}. 이 상태로 저장하면 해당 항목이 빠진 부분 백업이 생성됩니다. 핵심 폴더와 노트 데이터는 포함됩니다. 부분 백업을 저장하시겠습니까?`,
+                title: '⚠️ 완전한 복원을 보장할 수 없습니다',
+                message: `다음 항목에 문제가 있습니다: ${partialBackupDetails.join(', ')}. 핵심 노트와 폴더 데이터는 포함됩니다. 손상된 항목의 원문은 보존하지만 자동 가져오기에서는 복원되지 않습니다. 이 파일만 믿고 원본을 삭제하지 마세요. 부분 백업을 저장하시겠습니까?`,
                 confirmText: '⚠️ 부분 백업 저장',
                 cancelText: '❌ 취소',
                 confirmButtonType: 'danger'
@@ -2095,6 +2127,7 @@ export const handleExport = async (settings) => {
                 backupMetadata: {
                     completeness: 'partial',
                     omittedSections: omittedBackupSections,
+                    unrestorableSections: unrestorableBackupSections,
                     createdAt: new Date().toISOString()
                 }
             } : {})
@@ -2112,10 +2145,10 @@ export const handleExport = async (settings) => {
             ? `${year}${month}${day}_MothNote_Backup_PARTIAL.json`
             : `${year}${month}${day}_MothNote_Backup.json`;
         const exportSuccessMessage = isPartialBackup
-            ? `⚠️ 부분 백업 저장 완료: ${omittedBackupSections.join(', ')} 제외`
+            ? `⚠️ 부분 백업 저장 완료: ${partialBackupDetails.join(', ')}`
             : CONSTANTS.MESSAGES.SUCCESS.EXPORT_SUCCESS;
         const exportRequestMessage = isPartialBackup
-            ? `📤 부분 백업 다운로드를 요청했습니다 (${omittedBackupSections.join(', ')} 제외). 브라우저 다운로드 목록에서 저장 완료 여부를 확인해주세요.`
+            ? `📤 부분 백업 다운로드 요청 (${partialBackupDetails.join(', ')}). 저장 완료 여부와 복원 불가 항목을 확인해주세요.`
             : '📤 백업 다운로드를 요청했습니다. 브라우저 다운로드 목록에서 저장 완료 여부를 확인해주세요.';
 
         // chrome.downloads API가 사용 가능한지 확인하고 우선적으로 사용합니다.
