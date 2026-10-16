@@ -419,6 +419,10 @@ export const verifyAndSanitizeLoadedData = (data) => {
     const hasInvalidNoteRecord = note => (
         !isRecord(note)
         || hasFolderDataShape(note)
+        // MothNote 노트는 빈 본문이라도 content: ''를 명시적으로 저장합니다.
+        // 필드 자체가 빠진 손상 스냅샷을 빈 문자열로 자동 확정하면 복구 단서를 잃습니다.
+        || !hasOwn(note, 'title')
+        || !hasOwn(note, 'content')
         || hasLossyTextField(note, 'title')
         || hasLossyTextField(note, 'content')
     );
@@ -434,6 +438,7 @@ export const verifyAndSanitizeLoadedData = (data) => {
     const hasInvalidFolderRecords = Array.isArray(data.folders) && data.folders.some(folder => (
         !isRecord(folder)
         || hasNoteDataShape(folder)
+        || !hasOwn(folder, 'name')
         || hasLossyTextField(folder, 'name')
         || hasInvalidNoteCollection(folder)
     ));
@@ -442,7 +447,7 @@ export const verifyAndSanitizeLoadedData = (data) => {
         const itemKind = getTrashItemKind(item);
         if (!itemKind || itemKind === 'ambiguous') return true;
         return itemKind === CONSTANTS.ITEM_TYPE.FOLDER
-            ? hasLossyTextField(item, 'name') || hasInvalidNoteCollection(item)
+            ? !hasOwn(item, 'name') || hasLossyTextField(item, 'name') || hasInvalidNoteCollection(item)
             : hasInvalidNoteRecord(item);
     });
     const hasUnrecoverableDataStructure = (
@@ -1687,6 +1692,11 @@ const sanitizeContentData = data => {
 
     const sanitizeNote = (rawNote, isTrash = false) => {
         assertRecord(rawNote, '노트');
+        // 백업에 본문/제목 키가 누락된 경우를 정당한 빈 문자열과 구분합니다.
+        // 이 데이터를 그대로 가져오면 기존 노트 전체를 교체한 후 복구할 수 없습니다.
+        if (!hasOwnDataField(rawNote, 'title') || !hasOwnDataField(rawNote, 'content')) {
+            throw new Error('노트의 제목 또는 본문 필드가 누락되어 원본 보호를 위해 가져오기를 중단했습니다.');
+        }
         if (hasFolderDataShape(rawNote)) {
             throw new Error('노트 항목에 폴더 필드가 포함되어 있어 무손실로 가져올 수 없습니다.');
         }
@@ -1719,6 +1729,9 @@ const sanitizeContentData = data => {
 
     const sanitizeFolder = (rawFolder, isTrash = false) => {
         assertRecord(rawFolder, '폴더');
+        if (!hasOwnDataField(rawFolder, 'name')) {
+            throw new Error('폴더 이름 필드가 누락되어 원본 보호를 위해 가져오기를 중단했습니다.');
+        }
         if (hasNoteDataShape(rawFolder)) {
             throw new Error('폴더 항목에 노트 필드가 포함되어 있어 무손실로 가져올 수 없습니다.');
         }
