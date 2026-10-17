@@ -1693,6 +1693,10 @@
                 let count = 0;
                 let rejectedCount = 0;
                 const nextRecords = cloneDietRecords(AppState.records);
+                // CSV 파일 자체에 동일 날짜가 여러 번 나타나면 기존에는 마지막 행이
+                // 앞선 행을 조용히 덮어써 어느 체중/체지방 기록이 원본인지 사라졌습니다.
+                // 파일 안의 충돌은 가져오기 전체를 중단하여 기존 저장값을 보존합니다.
+                const importedDates = new Map();
                 
                 for(let i=0; i<lines.length; i++) {
                     const line = lines[i].trim();
@@ -1729,6 +1733,21 @@
                         // CSV에 값이 있었는데 정제 후 사라졌다면 행 전체를 건너뛰어,
                         // 같은 날짜의 정상 체중·체지방률을 부분 데이터로 덮어쓰지 않습니다.
                         if(rec && (!hasFat || Object.prototype.hasOwnProperty.call(rec, 'fat'))) {
+                            // 세 번째 열이 아예 없는 경우와 명시적으로 빈 경우는
+                            // 기존 체지방률 유지/삭제의 의미가 다르므로 구별합니다.
+                            const signature = JSON.stringify([
+                                rec.weight,
+                                matches.length >= 3,
+                                Object.prototype.hasOwnProperty.call(rec, 'fat') ? rec.fat : null
+                            ]);
+                            if (importedDates.has(rec.date)) {
+                                if (importedDates.get(rec.date) !== signature) {
+                                    throw new Error(`${i + 1}번째 행의 ${rec.date} 날짜가 앞선 CSV 행과 충돌합니다. 서로 다른 기록을 임의로 덮어쓰지 않도록 가져오기를 중단했습니다.`);
+                                }
+                                // 완전히 동일한 중복 행은 한 건으로만 집계합니다.
+                                continue;
+                            }
+                            importedDates.set(rec.date, signature);
                             const idx = nextRecords.findIndex(r => r.date === rec.date);
                             if (idx >= 0) {
                                 // Date,Weight 두 열만 제공하는 CSV로 기존 날짜를 갱신할 때,
