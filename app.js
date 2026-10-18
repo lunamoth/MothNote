@@ -45,7 +45,8 @@ import {
 } from './itemActions.js';
 import { 
     changeActiveFolder, changeActiveNote, handleSearchInput, 
-    handleClearSearch, handleSortChange, confirmNavigation, cancelPendingSearchRequest
+    handleClearSearch, handleSortChange, confirmNavigation, cancelPendingSearchRequest,
+    reserveNavigationRequest
 } from './navigationActions.js';
 
 let appSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
@@ -1207,19 +1208,26 @@ class Dashboard {
             const target = getClosestElement(e.target, '.date-cell.has-notes');
             if (!target) return;
 
+            // DOM을 다시 그리거나 비동기 저장을 기다리는 동안 클릭한 셀을 잃지 않도록
+            // 날짜와 탐색 순번을 먼저 캡처합니다. 최신 선택 외에는 화면을 변경하지 않습니다.
+            const requestedDate = target.dataset.date;
+            const isLatestRequest = reserveNavigationRequest();
             cancelPendingSearchRequest();
 
-            if (!(await finishPendingRename())) {
+            const renameSuccess = await finishPendingRename();
+            if (!isLatestRequest()) return;
+            if (!renameSuccess) {
                 showToast('이름 변경 저장에 실패하여 날짜 이동을 취소했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
                 return;
             }
 
-            if (!(await confirmNavigation())) return;
+            const canNavigate = await confirmNavigation();
+            if (!isLatestRequest() || !canNavigate) return;
 
-            const newFilterDate = parseYYYYMMDDLocal(target.dataset.date);
+            const newFilterDate = parseYYYYMMDDLocal(requestedDate);
             if (!newFilterDate) return;
 
-            const isSameDate = state.dateFilter && toYYYYMMDD(state.dateFilter) === target.dataset.date;
+            const isSameDate = state.dateFilter && toYYYYMMDD(state.dateFilter) === requestedDate;
             if (searchInput) searchInput.value = '';
 
             if (isSameDate) {
@@ -1231,7 +1239,7 @@ class Dashboard {
                 this.internalState.currentDate = newFilterDate;
                 const notesOnDate = Array.from(state.noteMap.values())
                     .map(e => e.note)
-                    .filter(n => toYYYYMMDD(n.createdAt) === target.dataset.date);
+                    .filter(n => toYYYYMMDD(n.createdAt) === requestedDate);
                 const sortedNotes = sortNotes(notesOnDate, state.noteSortOrder);
                 // 날짜 필터 자체는 dateFilter가 결정하되, 세션에는 유효한 기반 폴더를 남깁니다.
                 // activeFolderId가 null인 채 새로고침되면 전체 노트 화면에서 선택 노트를

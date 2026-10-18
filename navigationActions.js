@@ -24,6 +24,12 @@ export const cancelPendingSearchRequest = ({ restoreInput = true } = {}) => {
 // 저장/이름 변경을 기다리는 동안 새 폴더 또는 노트 선택이 들어오면 이전 탐색을 무효화합니다.
 // 두 탐색이 별도 상태로 경합하면 서로 다른 폴더와 노트가 한 세션에 섞일 수 있으므로 공유합니다.
 let navigationRequestVersion = 0;
+// 달력 날짜 선택도 노트·폴더 이동과 동일한 탐색 순서를 사용합니다.
+// 비동기 저장/이름 변경 확인 중 더 최근 요청이 들어오면 오래된 선택은 적용하지 않습니다.
+export const reserveNavigationRequest = () => {
+    const requestVersion = ++navigationRequestVersion;
+    return () => requestVersion === navigationRequestVersion;
+};
 const SEARCH_TERM_MAX_LENGTH = 100; // [버그 수정] 검색어 최대 길이 상수 추가
 
 export const confirmNavigation = async () => {
@@ -82,8 +88,7 @@ const fallbackToAllNotesForMissingFolder = (missingFolderId) => {
 };
 
 export const changeActiveNote = async (newNoteId) => {
-    const requestVersion = ++navigationRequestVersion;
-    const isLatestRequest = () => requestVersion === navigationRequestVersion;
+    const isLatestRequest = reserveNavigationRequest();
     cancelPendingSearchRequest();
 
     // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
@@ -127,8 +132,7 @@ export const changeActiveNote = async (newNoteId) => {
 };
 
 export const changeActiveFolder = async (newFolderId, options = {}) => {
-    const requestVersion = ++navigationRequestVersion;
-    const isLatestRequest = () => requestVersion === navigationRequestVersion;
+    const isLatestRequest = reserveNavigationRequest();
     cancelPendingSearchRequest();
 
     // [버그 수정] finishPendingRename의 성공 여부를 확인합니다.
@@ -287,21 +291,22 @@ const restoreSearchInput = () => {
     if (searchInput) searchInput.value = state.searchTerm;
 };
 
-const applySearchSafely = async (term, requestVersion) => {
-    // 이전 검색 저장이 진행되는 동안 새 입력이 들어오면 오래된 요청을 폐기합니다.
-    if (requestVersion !== searchRequestVersion) return;
+const applySearchSafely = async (term, requestVersion, isLatestNavigationRequest) => {
+    // 이전 검색 저장이 진행되는 동안 새 입력이 들어오거나 다른 화면 탐색이 시작되면 폐기합니다.
+    if (requestVersion !== searchRequestVersion || !isLatestNavigationRequest()) return;
 
     // 검색 결과는 활성 노트를 바꿀 수 있으므로, 편집 중인 노트가 실제로 저장된 뒤에만 적용합니다.
     if (!(await confirmNavigation())) {
-        if (requestVersion === searchRequestVersion) restoreSearchInput();
+        if (requestVersion === searchRequestVersion && isLatestNavigationRequest()) restoreSearchInput();
         return;
     }
 
-    if (requestVersion !== searchRequestVersion) return;
+    if (requestVersion !== searchRequestVersion || !isLatestNavigationRequest()) return;
     handleSearch(term);
 };
 
 export const handleSearchInput = async (e) => {
+    const isLatestNavigationRequest = reserveNavigationRequest();
     const requestVersion = ++searchRequestVersion;
     const input = e?.target || searchInput;
     let term = String(input?.value ?? '');
@@ -314,7 +319,7 @@ export const handleSearchInput = async (e) => {
     }
 
     const renameSuccess = await finishPendingRename();
-    if (requestVersion !== searchRequestVersion) return;
+    if (requestVersion !== searchRequestVersion || !isLatestNavigationRequest()) return;
     if (!renameSuccess) {
         showToast("이름 변경 저장에 실패하여 검색을 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         restoreSearchInput();
@@ -322,16 +327,17 @@ export const handleSearchInput = async (e) => {
     }
 
     debounce(() => {
-        void applySearchSafely(term, requestVersion);
+        void applySearchSafely(term, requestVersion, isLatestNavigationRequest);
     }, CONSTANTS.DEBOUNCE_DELAY.SEARCH);
 };
 
 export const handleClearSearch = async () => {
+    const isLatestNavigationRequest = reserveNavigationRequest();
     const requestVersion = ++searchRequestVersion;
     clearTimeout(searchDebounceTimer);
 
     const renameSuccess = await finishPendingRename();
-    if (requestVersion !== searchRequestVersion) return;
+    if (requestVersion !== searchRequestVersion || !isLatestNavigationRequest()) return;
     if (!renameSuccess) {
         showToast("이름 변경 저장에 실패하여 검색 지우기를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
         restoreSearchInput();
@@ -339,10 +345,10 @@ export const handleClearSearch = async () => {
     }
 
     if (!(await confirmNavigation())) {
-        if (requestVersion === searchRequestVersion) restoreSearchInput();
+        if (requestVersion === searchRequestVersion && isLatestNavigationRequest()) restoreSearchInput();
         return;
     }
-    if (requestVersion !== searchRequestVersion || !searchInput) return;
+    if (requestVersion !== searchRequestVersion || !isLatestNavigationRequest() || !searchInput) return;
     if (searchInput.value === '' && state.searchTerm === '') return;
 
     searchInput.value = '';
