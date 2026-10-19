@@ -417,6 +417,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     && !Array.isArray(frequency.days)) {
                     reportStructuralCorruption();
                 }
+                // 특정 요일 습관에서 days가 통째로 누락되면 기본 7일로 대체되어
+                // 사용자가 지정했던 일정과 과거 달성률이 바뀝니다. 원본을 덮어쓰지 않습니다.
+                if (frequency?.type === 'specific_days'
+                    && !Object.prototype.hasOwnProperty.call(frequency, 'days')) {
+                    reportStructuralCorruption();
+                }
                 const type = validTypes.has(frequency?.type) ? frequency.type : 'daily';
                 const defaultDays = {
                     daily: [0,1,2,3,4,5,6],
@@ -452,7 +458,12 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const normalizeLogs = (logs) => {
                 const safeLogs = {};
-                if (logs === undefined) return safeLogs;
+                // 현재 저장 형식에서 logs는 빈 습관에도 반드시 존재합니다.
+                // 누락된 필드를 빈 객체로 저장하면 원래의 실천 기록을 복구할 단서가 사라집니다.
+                if (logs === undefined) {
+                    reportStructuralCorruption();
+                    return safeLogs;
+                }
                 if (!logs || typeof logs !== 'object' || Array.isArray(logs)) {
                     reportStructuralCorruption();
                     return safeLogs;

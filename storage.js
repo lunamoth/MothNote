@@ -2433,6 +2433,8 @@ const normalizeHabitTrackerImportValue = value => {
         !isPlainImportObject(frequency)
         || (Object.prototype.hasOwnProperty.call(frequency, 'type')
             && !validFrequencyTypes.has(frequency.type))
+        || (frequency.type === 'specific_days'
+            && !Object.prototype.hasOwnProperty.call(frequency, 'days'))
         || (Object.prototype.hasOwnProperty.call(frequency, 'days')
             && (!Array.isArray(frequency.days)
                 || frequency.days.length === 0
@@ -2466,7 +2468,10 @@ const normalizeHabitTrackerImportValue = value => {
             && (habit.name === null || typeof habit.name === 'object'))
         || (Object.prototype.hasOwnProperty.call(habit, 'isArchived')
             && parseImportBoolean(habit.isArchived) === null)
-        || ('logs' in habit && hasInvalidLogs(habit.logs))
+        // 통합 저장 스키마는 빈 기록도 logs: {}로 보존합니다. 필드 자체가
+        // 사라진 백업을 정상으로 받아들이면 다음 저장에서 기존 기록이 소실됩니다.
+        || !Object.prototype.hasOwnProperty.call(habit, 'logs')
+        || hasInvalidLogs(habit.logs)
         || ('frequency' in habit && hasInvalidFrequency(habit.frequency))
     ));
     if (hasInvalidHabit) {
