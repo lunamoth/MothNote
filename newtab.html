@@ -69,7 +69,7 @@
                 <button id="shortcut-guide-btn" class="text-button ripple-effect" title="⌨️ 전체 단축키 보기">⌨️ 키보드 단축키</button>
                 <button id="settings-btn" class="text-button ripple-effect" title="⚙️ 설정 열기">⚙️ 설정</button>
             </footer>
-            <input type="file" id="import-file-input" accept=".json" style="display: none;">
+            <input type="file" id="import-file-input" accept=".json,.zip" style="display: none;">
         </aside>
 
         <div class="splitter" id="splitter-1"></div>
@@ -249,8 +249,9 @@
                 </div>
                 <p class="settings-description">
                     ℹ️ 현재 모든 <strong>폴더, 노트, 설정, 습관 트래커 데이터, 다이어트 챌린지 데이터</strong>를 JSON 파일로 백업하거나, 백업 파일로부터 복원합니다.<br> <!-- [수정] 설명 문구 업데이트 -->
-					⚠️ <strong>주의:</strong> 가져오기를 실행하면 현재 데이터와 설정이 <strong>모두 덮어씌워집니다.</strong><br><br>
-					ℹ️ Simplenote 백업 JSON 파일 복원을 지원합니다. (이 경우에만 기존 데이터를 유지합니다.)
+					⚠️ <strong>주의:</strong> MothNote JSON 백업 복원은 기존 데이터와 설정을 교체합니다.<br><br>
+                    ℹ️ Simplenote 백업 JSON 및 Notesnook Markdown ZIP 파일은 자동 인식해 새 폴더에 추가하며 기존 데이터는 유지합니다.<br>
+                    ℹ️ Notesnook ZIP의 파일 생성·수정 시각을 복원합니다. Markdown 이외 첨부파일은 가져오지 않으며, 가져오기 전에 안내합니다.
                 </p>
             </div>
         </div>

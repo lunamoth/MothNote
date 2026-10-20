@@ -2958,6 +2958,363 @@ const restoreImportBackupPayload = async (backupPayload) => {
     });
 };
 
+// Notesnook의 Markdown ZIP 내보내기를 외부 라이브러리 없이 읽습니다.
+// ZIP64 파일별 크기/위치, NTFS 생성·수정 시각, UTC 확장 시각을 지원합니다.
+// ZIP 전체를 먼저 검증한 다음에만 기존 노트에 병합합니다.
+const NOTESNOOK_MAX_ZIP_BYTES = 512 * 1024 * 1024;
+const NOTESNOOK_MAX_NOTE_BYTES = 64 * 1024 * 1024;
+const NOTESNOOK_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
+const NOTESNOOK_MAX_ENTRIES = 20000;
+const NOTESNOOK_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
+
+const parseNotesnookZip = async (archiveBuffer) => {
+    if (!(archiveBuffer instanceof ArrayBuffer) || archiveBuffer.byteLength > NOTESNOOK_MAX_ZIP_BYTES) {
+        throw new Error('ZIP 파일이 너무 크거나 읽을 수 없습니다. (최대 512MB)');
+    }
+
+    const bytes = new Uint8Array(archiveBuffer);
+    const view = new DataView(archiveBuffer);
+    const ensure = (position, length, label = 'ZIP') => {
+        if (!Number.isSafeInteger(position) || position < 0 || length < 0
+            || position > bytes.length || length > bytes.length - position) {
+            throw new Error(`${label} 구조가 손상되었거나 지원하지 않는 크기입니다.`);
+        }
+    };
+    const u16 = offset => { ensure(offset, 2); return view.getUint16(offset, true); };
+    const u32 = offset => { ensure(offset, 4); return view.getUint32(offset, true); };
+    const u64 = offset => {
+        ensure(offset, 8);
+        const result = view.getBigUint64(offset, true);
+        if (result > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new Error('브라우저가 안전하게 읽을 수 없는 ZIP64 크기 또는 위치입니다.');
+        }
+        return Number(result);
+    };
+    const decodeFilename = (start, length, flags, extraStart, extraLength) => {
+        ensure(start, length, 'ZIP 파일 이름');
+        const raw = bytes.subarray(start, start + length);
+        try { return NOTESNOOK_UTF8_DECODER.decode(raw); } catch (_) { /* ZIP의 비 UTF-8 레거시 파일명 */ }
+        // ZIP Unicode Path extra(Info-ZIP 0x7075)가 있는 경우 우선합니다.
+        for (let p = extraStart; p + 4 <= extraStart + extraLength;) {
+            const fieldLength = u16(p + 2);
+            if (p + 4 + fieldLength > extraStart + extraLength) break;
+            if (u16(p) === 0x7075 && fieldLength >= 5 && bytes[p + 4] === 1) {
+                try { return NOTESNOOK_UTF8_DECODER.decode(bytes.subarray(p + 9, p + 4 + fieldLength)); }
+                catch (_) { /* 유효하지 않은 Unicode Path */ }
+            }
+            p += 4 + fieldLength;
+        }
+        if ((flags & 0x800) !== 0) throw new Error('ZIP의 UTF-8 파일명이 손상되었습니다.');
+        return new TextDecoder('windows-1252').decode(raw);
+    };
+    const parseExtra = (start, length, visit) => {
+        ensure(start, length, 'ZIP 확장 메타데이터');
+        for (let p = start; p < start + length;) {
+            if (p + 4 > start + length) throw new Error('ZIP 확장 필드 헤더가 손상되었습니다.');
+            const id = u16(p);
+            const size = u16(p + 2);
+            if (p + 4 + size > start + length) throw new Error('ZIP 확장 필드 길이가 잘못되었습니다.');
+            visit(id, p + 4, size);
+            p += 4 + size;
+        }
+    };
+    const filetimeToTimestamp = position => {
+        const filetime = view.getBigUint64(position, true);
+        if (filetime === 0n) return null;
+        return toValidTimestamp(Number(filetime / 10000n - 11644473600000n));
+    };
+    const timestampFromExtra = (start, length, fallback) => {
+        let createdAt = null;
+        let modifiedAt = null;
+        let unixModifiedAt = null;
+        parseExtra(start, length, (id, dataStart, size) => {
+            if (id === 0x000a && size >= 8) { // NTFS: mtime/atime/ctime (100ns, UTC)
+                for (let p = dataStart + 4; p + 4 <= dataStart + size;) {
+                    const kind = u16(p), tagLength = u16(p + 2);
+                    if (p + 4 + tagLength > dataStart + size) break;
+                    if (kind === 1 && tagLength >= 24) {
+                        modifiedAt = filetimeToTimestamp(p + 4) ?? modifiedAt;
+                        createdAt = filetimeToTimestamp(p + 20) ?? createdAt;
+                    }
+                    p += 4 + tagLength;
+                }
+            } else if (id === 0x5455 && size >= 5 && (bytes[dataStart] & 1)) {
+                unixModifiedAt = toValidTimestamp(u32(dataStart + 1) * 1000);
+            }
+        });
+        return {
+            createdAt,
+            updatedAt: modifiedAt ?? unixModifiedAt ?? fallback,
+            creationSource: createdAt ? 'ntfs' : 'fallback',
+            modificationSource: modifiedAt ? 'ntfs' : (unixModifiedAt ? 'unix' : 'dos')
+        };
+    };
+    const dosDateToTimestamp = (dosDate, dosTime) => {
+        const year = 1980 + (dosDate >>> 9);
+        const month = (dosDate >>> 5) & 15;
+        const day = dosDate & 31;
+        const hour = dosTime >>> 11;
+        const minute = (dosTime >>> 5) & 63;
+        const second = (dosTime & 31) * 2;
+        if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return null;
+        const date = new Date(year, month - 1, day, hour, minute, second);
+        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+            ? toValidTimestamp(date.getTime()) : null;
+    };
+    const crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        crcTable[n] = c >>> 0;
+    }
+    const crc32 = array => {
+        let crc = 0xffffffff;
+        for (let i = 0; i < array.length; i++) crc = crcTable[(crc ^ array[i]) & 255] ^ (crc >>> 8);
+        return (crc ^ 0xffffffff) >>> 0;
+    };
+
+    // EOCD는 최대 65535바이트의 주석 뒤에 있을 수 있으므로 끝에서 역탐색합니다.
+    let eocd = -1;
+    for (let p = bytes.length - 22; p >= Math.max(0, bytes.length - 22 - 65535); p--) {
+        if (u32(p) === 0x06054b50 && p + 22 + u16(p + 20) === bytes.length) {
+            eocd = p;
+            break;
+        }
+    }
+    if (eocd < 0) throw new Error('정상적인 ZIP 종료 레코드를 찾지 못했습니다.');
+    // Notesnook의 원본 ZIP64 백업은 작은 용량에서도 레거시 EOCD 디스크 필드를
+    // 0xFFFF로 채웁니다. 이는 분할 ZIP 증거가 아니라 ZIP64 대체 값이므로,
+    // 분할 여부는 ZIP64 종료 레코드를 해석한 다음 검증해야 합니다.
+    const eocdDisk = u16(eocd + 4);
+    const eocdCentralDisk = u16(eocd + 6);
+    const eocdDiskEntries = u16(eocd + 8);
+    let entryCount = u16(eocd + 10);
+    let centralSize = u32(eocd + 12);
+    let centralOffset = u32(eocd + 16);
+    const needsZip64 = eocdDisk === 0xffff || eocdCentralDisk === 0xffff
+        || eocdDiskEntries === 0xffff || entryCount === 0xffff
+        || centralSize === 0xffffffff || centralOffset === 0xffffffff;
+    if (needsZip64) {
+        // ZIP64 locator에는 실제 디스크 번호 및 전체 디스크 수가 저장됩니다.
+        const locator = eocd - 20;
+        if (locator < 0 || u32(locator) !== 0x07064b50) {
+            throw new Error('ZIP64 종료 레코드를 찾지 못했습니다.');
+        }
+        if (u32(locator + 4) !== 0 || u32(locator + 16) !== 1) {
+            throw new Error('여러 디스크로 분할된 ZIP은 지원하지 않습니다.');
+        }
+        const record = u64(locator + 8);
+        ensure(record, 56, 'ZIP64 종료 레코드');
+        if (u32(record) !== 0x06064b50 || u64(record + 4) < 44
+            || record + 12 + u64(record + 4) > locator) {
+            throw new Error('ZIP64 종료 레코드가 손상되었습니다.');
+        }
+        if (u32(record + 16) !== 0 || u32(record + 20) !== 0) {
+            throw new Error('여러 디스크로 분할된 ZIP은 지원하지 않습니다.');
+        }
+        const zip64DiskEntries = u64(record + 24);
+        const zip64TotalEntries = u64(record + 32);
+        if (zip64DiskEntries !== zip64TotalEntries) {
+            throw new Error('ZIP64 디렉터리 항목 수가 맞지 않습니다.');
+        }
+        if ((eocdDisk !== 0 && eocdDisk !== 0xffff)
+            || (eocdCentralDisk !== 0 && eocdCentralDisk !== 0xffff)
+            || (eocdDiskEntries !== 0xffff && eocdDiskEntries !== zip64DiskEntries)
+            || (entryCount !== 0xffff && entryCount !== zip64TotalEntries)) {
+            throw new Error('ZIP 종료 디렉터리 정보가 서로 일치하지 않습니다.');
+        }
+        entryCount = zip64TotalEntries;
+        centralSize = u64(record + 40);
+        centralOffset = u64(record + 48);
+    } else {
+        if (eocdDisk !== 0 || eocdCentralDisk !== 0) {
+            throw new Error('여러 디스크로 분할된 ZIP은 지원하지 않습니다.');
+        }
+        if (entryCount !== eocdDiskEntries) {
+            throw new Error('ZIP 디렉터리 항목 수가 맞지 않습니다.');
+        }
+    }
+    if (entryCount < 1 || entryCount > NOTESNOOK_MAX_ENTRIES) {
+        throw new Error(`ZIP 항목 수가 올바르지 않습니다. (최대 ${NOTESNOOK_MAX_ENTRIES.toLocaleString()}개)`);
+    }
+    ensure(centralOffset, centralSize, 'ZIP 중앙 디렉터리');
+    if (centralOffset + centralSize > eocd) throw new Error('ZIP 중앙 디렉터리 위치가 잘못되었습니다.');
+
+    const entries = [];
+    const usedNames = new Set();
+    let declaredNoteBytes = 0;
+    let ignoredFiles = 0;
+    let offset = centralOffset;
+    const centralEnd = centralOffset + centralSize;
+    for (let index = 0; index < entryCount; index++) {
+        ensure(offset, 46, 'ZIP 중앙 디렉터리 항목');
+        if (u32(offset) !== 0x02014b50) throw new Error('ZIP 중앙 디렉터리 서명이 잘못되었습니다.');
+        const flags = u16(offset + 8);
+        const method = u16(offset + 10);
+        const dosModified = dosDateToTimestamp(u16(offset + 14), u16(offset + 12));
+        const expectedCrc = u32(offset + 16);
+        let compressedSize = u32(offset + 20);
+        let uncompressedSize = u32(offset + 24);
+        const nameSize = u16(offset + 28);
+        const extraSize = u16(offset + 30);
+        const commentSize = u16(offset + 32);
+        const disk = u16(offset + 34);
+        let localOffset = u32(offset + 42);
+        let entryDisk = disk;
+        ensure(offset, 46 + nameSize + extraSize + commentSize, 'ZIP 파일 메타데이터');
+        const extraStart = offset + 46 + nameSize;
+        parseExtra(extraStart, extraSize, (tag, dataStart, size) => {
+            if (tag !== 0x0001) return;
+            let cursor = dataStart;
+            if (uncompressedSize === 0xffffffff) { if (cursor + 8 > dataStart + size) throw new Error('ZIP64 원본 크기가 없습니다.'); uncompressedSize = u64(cursor); cursor += 8; }
+            if (compressedSize === 0xffffffff) { if (cursor + 8 > dataStart + size) throw new Error('ZIP64 압축 크기가 없습니다.'); compressedSize = u64(cursor); cursor += 8; }
+            // 일부 Notesnook 내보내기는 32비트 오프셋이 유효해도 64비트
+            // 오프셋(8바이트)을 추가 필드에 포함합니다. 디스크 번호를
+            // 그 오프셋으로 오인하지 않도록 남은 필드 길이도 확인합니다.
+            if (localOffset === 0xffffffff || (entryDisk === 0xffff && dataStart + size - cursor >= 12)) {
+                if (cursor + 8 > dataStart + size) throw new Error('ZIP64 파일 위치가 없습니다.');
+                const extraOffset = u64(cursor);
+                if (localOffset !== 0xffffffff && localOffset !== extraOffset) throw new Error('ZIP64 파일 위치가 일치하지 않습니다.');
+                localOffset = extraOffset;
+                cursor += 8;
+            }
+            if (entryDisk === 0xffff) {
+                if (cursor + 4 > dataStart + size) throw new Error('ZIP64 디스크 정보가 없습니다.');
+                entryDisk = u32(cursor);
+            }
+        });
+        if (uncompressedSize === 0xffffffff || compressedSize === 0xffffffff
+            || localOffset === 0xffffffff || entryDisk === 0xffff) {
+            throw new Error('ZIP64 파일 정보가 누락되었습니다.');
+        }
+        if (entryDisk !== 0) throw new Error('여러 디스크로 분할된 ZIP 항목은 지원하지 않습니다.');
+        const name = decodeFilename(offset + 46, nameSize, flags, extraStart, extraSize).replace(/\\/g, '/');
+        if (name.includes('\0') || name.startsWith('/') || name.split('/').some(part => part === '..' || part === '.')) {
+            throw new Error('ZIP에 안전하지 않은 파일 경로가 포함되어 있습니다.');
+        }
+        if (usedNames.has(name)) throw new Error('ZIP에 중복된 파일 경로가 있습니다.');
+        usedNames.add(name);
+        offset += 46 + nameSize + extraSize + commentSize;
+        const isMarkdown = /\.(md|markdown)$/i.test(name) && !name.endsWith('/') && !name.startsWith('__MACOSX/');
+        if (!isMarkdown) { if (!name.endsWith('/')) ignoredFiles++; continue; }
+        if (flags & 1 || flags & 0x40) throw new Error('암호화된 Markdown ZIP 항목은 가져올 수 없습니다.');
+        if (method !== 0 && method !== 8) throw new Error('지원하지 않는 ZIP 압축 방식입니다. (저장/Deflate만 지원)');
+        if (uncompressedSize > NOTESNOOK_MAX_NOTE_BYTES) throw new Error('노트 파일이 64MB 제한을 초과했습니다.');
+        declaredNoteBytes += uncompressedSize;
+        if (declaredNoteBytes > NOTESNOOK_MAX_TOTAL_BYTES) throw new Error('노트 전체의 압축 해제 크기가 512MB를 초과했습니다.');
+        const timestamps = timestampFromExtra(extraStart, extraSize, dosModified);
+        // NTFS 필드가 일부 ZIP 도구에서 로컬 헤더에만 존재하는 경우도 확인합니다.
+        ensure(localOffset, 30, 'ZIP 로컬 헤더');
+        if (u32(localOffset) !== 0x04034b50) throw new Error('ZIP 로컬 헤더가 손상되었습니다.');
+        const localFlags = u16(localOffset + 6);
+        const localMethod = u16(localOffset + 8);
+        if (localMethod !== method || (localFlags & 1) !== (flags & 1)) throw new Error('ZIP 로컬·중앙 헤더가 일치하지 않습니다.');
+        const localNameSize = u16(localOffset + 26);
+        const localExtraSize = u16(localOffset + 28);
+        const dataStart = localOffset + 30 + localNameSize + localExtraSize;
+        ensure(dataStart, compressedSize, 'ZIP 압축 데이터');
+        if (dataStart + compressedSize > centralOffset) throw new Error('ZIP 압축 데이터 영역이 손상되었습니다.');
+        if (timestamps.creationSource !== 'ntfs') {
+            const localTimestamps = timestampFromExtra(localOffset + 30 + localNameSize, localExtraSize, dosModified);
+            timestamps.createdAt = localTimestamps.createdAt;
+            timestamps.creationSource = localTimestamps.creationSource;
+            if (localTimestamps.modificationSource === 'ntfs'
+                || (timestamps.modificationSource === 'dos' && localTimestamps.modificationSource === 'unix')) {
+                timestamps.updatedAt = localTimestamps.updatedAt;
+                timestamps.modificationSource = localTimestamps.modificationSource;
+            }
+        }
+        entries.push({ name, method, compressedSize, uncompressedSize, dataStart, expectedCrc, ...timestamps });
+    }
+    if (offset !== centralEnd) throw new Error('ZIP 중앙 디렉터리 크기와 항목 수가 일치하지 않습니다.');
+    if (entries.length === 0) throw new Error('ZIP 안에서 Markdown(.md 또는 .markdown) 노트를 찾지 못했습니다.');
+
+    const notes = [];
+    let fallbackCreationCount = 0;
+    let totalActualBytes = 0;
+    for (const entry of entries) {
+        const compressed = bytes.subarray(entry.dataStart, entry.dataStart + entry.compressedSize);
+        let decoded;
+        if (entry.method === 0) {
+            if (compressed.byteLength !== entry.uncompressedSize) throw new Error('ZIP 무압축 항목의 크기가 잘못되었습니다.');
+            decoded = compressed;
+        } else {
+            const decompressor = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+            const reader = decompressor.getReader();
+            const chunks = [];
+            let decompressedLength = 0;
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    decompressedLength += value.byteLength;
+                    if (decompressedLength > entry.uncompressedSize || decompressedLength > NOTESNOOK_MAX_NOTE_BYTES) {
+                        await reader.cancel();
+                        throw new Error('ZIP의 실제 압축 해제 크기가 선언된 크기나 안전 한도를 초과했습니다.');
+                    }
+                    chunks.push(value);
+                }
+            } catch (error) {
+                throw new Error(`ZIP 압축 해제에 실패했습니다: ${entry.name} (${error.message})`);
+            }
+            decoded = new Uint8Array(decompressedLength);
+            let cursor = 0;
+            for (const chunk of chunks) { decoded.set(chunk, cursor); cursor += chunk.length; }
+        }
+        if (decoded.byteLength !== entry.uncompressedSize || crc32(decoded) !== entry.expectedCrc) {
+            throw new Error(`ZIP 노트가 손상되어 크기 또는 CRC 검증에 실패했습니다: ${entry.name}`);
+        }
+        totalActualBytes += decoded.byteLength;
+        if (totalActualBytes > NOTESNOOK_MAX_TOTAL_BYTES) throw new Error('ZIP 전체 노트 용량이 허용치를 초과했습니다.');
+        let content;
+        try { content = NOTESNOOK_UTF8_DECODER.decode(decoded).replace(/^\uFEFF/, ''); }
+        catch (_) { throw new Error(`UTF-8 형식이 아닌 Markdown 노트는 가져올 수 없습니다: ${entry.name}`); }
+        // Notesnook Markdown은 대개 첫 번째 H1에 원본 제목이 담깁니다.
+        // YAML frontmatter가 있다면 제목을 읽되, 원본 본문은 통째로 보존합니다.
+        let frontmatterTitle = null;
+        let frontmatterCreated = null;
+        let frontmatterUpdated = null;
+        let isPinned = false;
+        let headingStart = 0;
+        if (content.startsWith('---\n') || content.startsWith('---\r\n')) {
+            const frontmatterMatch = /^---\r?\n([\s\S]{0,32768}?)\r?\n---\s*(?:\r?\n|$)/.exec(content);
+            if (frontmatterMatch) {
+                headingStart = frontmatterMatch[0].length;
+                for (const line of frontmatterMatch[1].split(/\r?\n/)) {
+                    const pair = /^\s*([a-zA-Z_][\w-]*)\s*:\s*(.*?)\s*$/.exec(line);
+                    if (!pair) continue;
+                    const key = pair[1].toLowerCase();
+                    const value = pair[2].replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
+                    if (key === 'title') frontmatterTitle = value;
+                    if (/^(created|createdat|created_at|creationdate)$/.test(key)) frontmatterCreated = parseSimplenoteTimestamp(value, null);
+                    if (/^(updated|updatedat|updated_at|modified|modifiedat|lastmodified)$/.test(key)) frontmatterUpdated = parseSimplenoteTimestamp(value, null);
+                    if (/^(pinned|ispinned)$/.test(key)) isPinned = value.toLowerCase() === 'true';
+                }
+            }
+        }
+        const preview = content.slice(headingStart, headingStart + 32768);
+        const heading = /^\s*#\s+([^\r\n]+)\s*$/m.exec(preview);
+        const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
+        const title = (heading?.[1]?.trim() || frontmatterTitle || fallbackFilename || '제목 없는 노트').trim();
+        // Notesnook의 내보내기용 첫 H1은 MothNote의 제목 필드로 이미 복원됩니다.
+        // 본문 맨 앞의 동일한 H1 한 줄과 바로 뒤의 빈 구분 줄만 제거하되,
+        // 실제 본문에 있는 일반 텍스트 제목 및 이후의 Markdown 제목은 보존합니다.
+        const leadingHeading = /^[ \t]*(?:\r?\n[ \t]*)*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content.slice(headingStart));
+        const importedContent = leadingHeading && leadingHeading[1].trim() === title
+            ? content.slice(0, headingStart)
+                + content.slice(headingStart + leadingHeading[0].length).replace(/^[ \t]*\r?\n/, '')
+            : content;
+        const updatedAt = entry.updatedAt ?? frontmatterUpdated ?? Date.now();
+        const createdAt = entry.createdAt ?? frontmatterCreated ?? updatedAt;
+        if (!entry.createdAt && !frontmatterCreated) fallbackCreationCount++;
+        notes.push({
+            title, content: importedContent, createdAt, updatedAt, isPinned,
+            path: entry.name
+        });
+    }
+    return { notes, ignoredFiles, fallbackCreationCount };
+};
+
 export const setupImportHandler = () => {
     if (!importFileInput) {
         console.error('Import handler was not registered: import file input element was not found.');
@@ -3059,7 +3416,85 @@ export const setupImportHandler = () => {
             };
 
             try {
-                const importedData = JSON.parse(event.target.result);
+                const importedBuffer = event.target.result;
+                if (!(importedBuffer instanceof ArrayBuffer)) throw new Error('선택한 파일을 읽을 수 없습니다.');
+                const header = new Uint8Array(importedBuffer, 0, Math.min(4, importedBuffer.byteLength));
+                const isZipArchive = header.length >= 4 && header[0] === 0x50 && header[1] === 0x4b
+                    && (header[2] === 0x03 || header[2] === 0x05 || header[2] === 0x07);
+                if (isZipArchive || /\.zip$/i.test(file.name)) {
+                    const { notes, ignoredFiles, fallbackCreationCount } = await parseNotesnookZip(importedBuffer);
+                    const warning = [
+                        ignoredFiles ? `Markdown 이외 파일 ${ignoredFiles}개는 메모로 변환하지 않습니다. (첨부파일 원본은 보존하시기 바랍니다.)` : '',
+                        fallbackCreationCount ? `${fallbackCreationCount}개 노트에는 생성 시각이 없어 확인 가능한 수정 시각으로 작성 일시를 대신합니다.` : ''
+                    ].filter(Boolean).join('<br>');
+                    const confirmed = await showConfirm({
+                        title: '📥 Notesnook Markdown ZIP 가져오기',
+                        message: `Markdown 노트 ${notes.length}개가 감지되었습니다. Notesnook 전용 폴더에 병합하시겠습니까? 기존 메모와 설정은 유지됩니다.${warning ? `<br><br>ℹ️ ${warning}` : ''}`,
+                        isHtml: true, confirmText: '📥 예, 가져옵니다', confirmButtonType: 'confirm'
+                    });
+                    if (!confirmed) return;
+                    if (!(await flushPendingChangesForDataOperation('Notesnook 가져오기'))) return;
+
+                    window.isImporting = true;
+                    window.isImportReloadPending = false;
+                    overlay = document.createElement('div');
+                    overlay.className = 'import-overlay';
+                    overlay.tabIndex = -1;
+                    overlay.innerHTML = `<div class="import-indicator-box"><div class="import-spinner"></div><p class="import-message">Notesnook 데이터를 가져오는 중...</p></div>`;
+                    document.body.appendChild(overlay);
+                    overlay.focus({ preventScroll: true });
+
+                    const { performTransactionalUpdate } = await import('./itemActions.js');
+                    const { success } = await performTransactionalUpdate(latestData => {
+                        const now = Date.now();
+                        const usedIds = new Set(RESERVED_ITEM_IDS);
+                        for (const folder of latestData.folders) {
+                            usedIds.add(folder.id);
+                            for (const note of folder.notes) usedIds.add(note.id);
+                        }
+                        for (const item of latestData.trash) {
+                            usedIds.add(item.id);
+                            if (Array.isArray(item.notes)) for (const note of item.notes) usedIds.add(note.id);
+                        }
+                        const folderKeys = new Set(latestData.folders.map(folder => String(folder.name).trim().toLowerCase()));
+                        // Notesnook를 항상 새 폴더로 만들고 재가져오기 시 기존 데이터를 덮지 않습니다.
+                        const rootName = getUniqueFolderName('Notesnook', folderKeys);
+                        const destinationFolders = new Map();
+                        const ensureFolder = (path) => {
+                            // MothNote의 폴더는 단일 계층이므로 ZIP 경로를 구분한 이름으로 보존합니다.
+                            const parts = path.replace(/\\/g, '/').split('/').slice(0, -1).filter(Boolean);
+                            const folderKey = parts.join('/');
+                            if (destinationFolders.has(folderKey)) return destinationFolders.get(folderKey);
+                            const name = parts.length ? getUniqueFolderName(`${rootName} / ${folderKey}`, folderKeys) : rootName;
+                            const id = generateUniqueId(CONSTANTS.ID_PREFIX.FOLDER, usedIds);
+                            usedIds.add(id);
+                            const newFolder = { id, name, notes: [], createdAt: now, updatedAt: now };
+                            destinationFolders.set(folderKey, newFolder);
+                            latestData.folders.push(newFolder);
+                            return newFolder;
+                        };
+                        ensureFolder('placeholder.md');
+                        for (const note of notes) {
+                            const dest = ensureFolder(note.path);
+                            const id = generateUniqueId(CONSTANTS.ID_PREFIX.NOTE, usedIds);
+                            usedIds.add(id);
+                            dest.notes.push({
+                                id, title: note.title, content: note.content,
+                                createdAt: note.createdAt, updatedAt: note.updatedAt,
+                                isPinned: note.isPinned
+                            });
+                        }
+                        return { newData: latestData, successMessage: null };
+                    });
+                    if (success) {
+                        showToast(`✅ Notesnook 노트 ${notes.length}개를 가져왔습니다. 앱을 다시 시작합니다.`, CONSTANTS.TOAST_TYPE.SUCCESS);
+                        scheduleImportReload();
+                    } else {
+                        showAlert({ title: '📥 Notesnook 가져오기 실패', message: '노트 저장에 실패했습니다. 기존 데이터는 유지됩니다.', confirmText: '✅ 확인' });
+                    }
+                    return;
+                }
+                const importedData = JSON.parse(NOTESNOOK_UTF8_DECODER.decode(new Uint8Array(importedBuffer)).replace(/^\uFEFF/, ''));
                 // [보안 수정] Prototype Pollution 방지를 위해 파일에서 읽어온 데이터를 정제합니다.
                 sanitizeObjectForPrototypePollution(importedData);
 
@@ -3536,7 +3971,7 @@ export const setupImportHandler = () => {
             e.target.value = '';
         };
         try {
-            reader.readAsText(file);
+            reader.readAsArrayBuffer(file);
         } catch (readStartError) {
             console.error('Backup file read could not be started:', readStartError);
             showToast(CONSTANTS.MESSAGES.ERROR.IMPORT_FILE_READ_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
