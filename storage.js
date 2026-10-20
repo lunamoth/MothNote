@@ -1993,6 +1993,26 @@ export const handleExport = async (settings) => {
         // [기능 추가] localStorage에서 습관 트래커 데이터 가져오기
         const habitTrackerResult = readOptionalLocalStorageForExport(HABIT_TRACKER_DATA_KEY, '습관 트래커');
         const habitTrackerData = habitTrackerResult.value;
+        // 트래커를 아직 열지 않은 업그레이드 직후에는 구버전 키만 남아 있을 수 있습니다.
+        // 이를 데이터 없음으로 백업하면 정상 기록이 빠진 파일이 완전 백업으로 표시됩니다.
+        // 기존 트래커의 검증된 마이그레이션을 완료한 뒤 백업하도록 안내합니다.
+        if (habitTrackerResult.ok && habitTrackerData === null) {
+            const legacyHabitResults = ['habitTrackerDataV2', 'habitTrackerData'].map(key =>
+                readOptionalLocalStorageForExport(key, '구버전 습관 트래커')
+            );
+            if (legacyHabitResults.some(result => !result.ok)) {
+                showToast('구버전 습관 데이터의 존재 여부를 확인하지 못해 백업을 중단했습니다. 저장소 접근 상태를 확인한 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                return false;
+            }
+            if (legacyHabitResults.some(result => result.value !== null)) {
+                await showAlert({
+                    title: '📤 습관 데이터 확인 필요',
+                    message: '구버전 습관 데이터가 남아 있어 현재 형식으로 백업할 수 없습니다. 습관 트래커를 한 번 열어 데이터 구조 업데이트가 완료되는지 확인한 뒤 다시 백업해주세요. 기존 데이터는 변경하지 않았습니다.',
+                    confirmText: '✅ 확인'
+                });
+                return false;
+            }
+        }
         // [기능 추가] localStorage에서 다이어트 챌린지 데이터 가져오기
         const dietChallengeResult = readOptionalLocalStorageForExport(DIET_CHALLENGE_DATA_KEY, '다이어트 챌린지');
         const dietChallengeSettingsResult = readOptionalLocalStorageForExport(DIET_CHALLENGE_SETTINGS_KEY, '다이어트 챌린지 설정');
@@ -2047,11 +2067,15 @@ export const handleExport = async (settings) => {
             }
         }
 
-        let habitTrackerDataForExport = null;
-        if (habitTrackerData) {
+        let habitTrackerDataForExport = habitTrackerData;
+        if (habitTrackerData !== null) {
             try {
                 habitTrackerDataForExport = JSON.parse(habitTrackerData);
-                if (habitTrackerDataForExport && typeof habitTrackerDataForExport === 'object' && !Array.isArray(habitTrackerDataForExport)) {
+                if (!isPlainImportObject(habitTrackerDataForExport)) {
+                    // 손상된 문자열 null/스칼라/배열도 원문 그대로 부분 백업에 보존합니다.
+                    // 실제 null로 내보내면 가져오기에서 명시적인 빈 데이터로 해석됩니다.
+                    habitTrackerDataForExport = habitTrackerData;
+                } else {
                     // The habit tracker refuses to save malformed integrated data so that its
                     // original JSON can be repaired later. Exporting a backup must not bypass
                     // that protection merely to award the backup achievement. Validate the
@@ -2256,11 +2280,18 @@ const parseIntegratedImportValue = (value, label) => {
         throw new Error(`${label} 데이터가 비어 있습니다.`);
     }
 
+    let parsed;
     try {
-        return JSON.parse(trimmed);
+        parsed = JSON.parse(trimmed);
     } catch (error) {
         throw new Error(`${label} 데이터가 올바른 JSON 형식이 아닙니다.`);
     }
+    // 필드 자체의 null은 데이터 없음 표식이지만, 저장된 JSON 문자열 "null"은
+    // 각 트래커가 손상으로 처리하는 원문입니다. 기존 기록을 지우는 값으로 바꾸지 않습니다.
+    if (parsed === null) {
+        throw new Error(`${label} 데이터 구조가 올바르지 않습니다.`);
+    }
+    return parsed;
 };
 
 
