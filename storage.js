@@ -2490,8 +2490,22 @@ const normalizeHabitTrackerImportValue = value => {
             return parsedValue === null || (parsedValue !== 0 && parsedValue !== 1);
         })
     );
+    const hasInvalidStoredHabitNumber = value => (
+        (typeof value !== 'number' && typeof value !== 'string')
+        || (typeof value === 'string' && value.trim() === '')
+        || !Number.isFinite(Number(value))
+    );
     const hasInvalidHabit = parsed.habits.some(habit => (
         !isPlainImportObject(habit)
+        // 작성일과 수동 정렬값이 손상된 백업을 그대로 교체 적용하면,
+        // 습관 트래커가 로드 시 오늘/배열 순서로 복구한 값을 저장해 원본 의미가 사라집니다.
+        // 필드 자체가 없는 구버전 백업만 기존 기본값 처리에 맡깁니다.
+        || (Object.prototype.hasOwnProperty.call(habit, 'createdAt')
+            && (hasInvalidStoredHabitNumber(habit.createdAt)
+                || Number(habit.createdAt) <= 0
+                || Number.isNaN(new Date(Number(habit.createdAt)).getTime())))
+        || (Object.prototype.hasOwnProperty.call(habit, 'order')
+            && hasInvalidStoredHabitNumber(habit.order))
         // 습관명 객체/배열/null은 트래커 로더에서 문자열 "[object Object]" 또는
         // 기본명으로 강제 변환됩니다. 손상된 선택 데이터를 정상 백업으로 받아들여
         // 기존 습관 데이터를 덮어쓰기 전에 가져오기 경계에서 거부합니다.

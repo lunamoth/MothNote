@@ -499,9 +499,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     const normalizedLogs = normalizeLogs(habit.logs);
                     const rawCreatedAt = Number(habit.createdAt);
-                    const hasValidCreatedAt = Number.isFinite(rawCreatedAt)
+                    const hasValidCreatedAt = (typeof habit.createdAt === 'number'
+                            || (typeof habit.createdAt === 'string' && habit.createdAt.trim() !== ''))
+                        && Number.isFinite(rawCreatedAt)
                         && rawCreatedAt > 0
                         && !Number.isNaN(new Date(rawCreatedAt).getTime());
+                    // 통합 저장본의 생성일/정렬 순서가 명시적으로 손상됐는데 이를
+                    // 오늘/배열 위치로 바꿔 저장하면 원래 작성일 및 사용자 지정 순서가 소실됩니다.
+                    // 구버전에서 필드가 없는 경우에만 기존 호환 기본값을 사용합니다.
+                    if (hasOwn(habit, 'createdAt') && !hasValidCreatedAt) {
+                        reportStructuralCorruption();
+                    }
+                    const rawOrder = habit.order;
+                    const hasValidOrder = (typeof rawOrder === 'number'
+                            || (typeof rawOrder === 'string' && rawOrder.trim() !== ''))
+                        && Number.isFinite(Number(rawOrder));
+                    if (hasOwn(habit, 'order') && !hasValidOrder) {
+                        reportStructuralCorruption();
+                    }
                     if (Object.prototype.hasOwnProperty.call(habit, 'name')
                         && (habit.name === null || typeof habit.name === 'object')) {
                         // 객체/배열/null 습관명을 문자열로 강제 변환해 원본을 조용히
@@ -529,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         goal: 1,
                         frequency: normalizeFrequency(habit.frequency),
                         isArchived: isArchived ?? false,
-                        order: Number.isFinite(Number(habit.order)) ? Number(habit.order) : index,
+                        order: hasValidOrder ? Number(rawOrder) : index,
                         logs: normalizedLogs,
                         createdAt: hasValidCreatedAt ? rawCreatedAt : (earliestLogTimestamp ?? now + index)
                     };
