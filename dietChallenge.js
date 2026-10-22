@@ -909,6 +909,42 @@
         return fields;
     };
 
+    // RFC 4180 CSV에서는 큰따옴표로 감싼 필드에 줄바꿈이 들어갈 수 있습니다.
+    // 물리적 줄 단위로 먼저 나누면 정상 CSV 전체를 손상된 파일로 거부하거나
+    // 뒤따르는 기록을 독립적인 행으로 오인하므로, 따옴표 밖의 개행에서만 행을 구분합니다.
+    const splitCsvLogicalRecords = (text) => {
+        const records = [];
+        let start = 0;
+        let startLine = 1;
+        let lineNumber = 1;
+        let insideQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            if (char === '"') {
+                if (insideQuotes && text[i + 1] === '"') {
+                    i++;
+                } else {
+                    insideQuotes = !insideQuotes;
+                }
+            } else if (char === '\n' || char === '\r') {
+                const newlineLength = char === '\r' && text[i + 1] === '\n' ? 2 : 1;
+                if (!insideQuotes) {
+                    records.push({ text: text.slice(start, i), lineNumber: startLine });
+                    start = i + newlineLength;
+                    startLine = lineNumber + 1;
+                }
+                lineNumber++;
+                i += newlineLength - 1;
+            }
+        }
+        if (insideQuotes) {
+            throw new Error(`${startLine}번째 행에서 CSV 큰따옴표가 닫히지 않았습니다. 기존 데이터를 유지합니다.`);
+        }
+        records.push({ text: text.slice(start), lineNumber: startLine });
+        return records;
+    };
+
     const rollbackLocalStorageEntries = (previousEntries) => {
         previousEntries.forEach(({ key, hadValue, value }) => {
             try {
@@ -1687,9 +1723,8 @@
                     showToast('파일을 읽는 동안 기록이 변경되어 CSV 가져오기를 중단했습니다. 최신 데이터를 백업한 뒤 다시 시도해주세요.');
                     return;
                 }
-                // CSV 파일은 CRLF, LF, 구형 Mac의 CR 줄바꿈을 모두 사용합니다.
-                // CR만 있는 파일을 한 행으로 읽으면 모든 정상 기록을 건너뛸 수 있습니다.
-                const lines = content.split(/\r\n|\n|\r/);
+                // RFC 4180의 인용 필드 안 줄바꿈을 보존하며 CRLF, LF, CR 행 구분을 지원합니다.
+                const csvRecords = splitCsvLogicalRecords(content);
                 let count = 0;
                 let rejectedCount = 0;
                 const nextRecords = cloneDietRecords(AppState.records);
@@ -1698,15 +1733,15 @@
                 // 파일 안의 충돌은 가져오기 전체를 중단하여 기존 저장값을 보존합니다.
                 const importedDates = new Map();
                 
-                for(let i=0; i<lines.length; i++) {
-                    const line = lines[i].trim();
+                for (const { text: rawLine, lineNumber } of csvRecords) {
+                    const line = rawLine.trim();
                     if(!line) continue;
                     
                     const matches = parseCsvLineSafely(line);
                     if (!matches) {
                         // 닫히지 않은 따옴표 안의 다음 물리적 행을 정상 기록으로
                         // 오인할 수 있으므로, 구문 오류에서는 파일 전체를 적용하지 않습니다.
-                        throw new Error(`${i + 1}번째 행의 CSV 따옴표 구조가 올바르지 않습니다. 기존 데이터를 유지합니다.`);
+                        throw new Error(`${lineNumber}번째 행의 CSV 따옴표 구조가 올바르지 않습니다. 기존 데이터를 유지합니다.`);
                     }
                     // 헤더도 구문 검증 후 건너뛰어, 열린 따옴표 안의 다음 줄을 기록으로 적용하지 않습니다.
                     if (line.toLowerCase().startsWith('date')) continue;
@@ -1742,7 +1777,7 @@
                             ]);
                             if (importedDates.has(rec.date)) {
                                 if (importedDates.get(rec.date) !== signature) {
-                                    throw new Error(`${i + 1}번째 행의 ${rec.date} 날짜가 앞선 CSV 행과 충돌합니다. 서로 다른 기록을 임의로 덮어쓰지 않도록 가져오기를 중단했습니다.`);
+                                    throw new Error(`${lineNumber}번째 행의 ${rec.date} 날짜가 앞선 CSV 행과 충돌합니다. 서로 다른 기록을 임의로 덮어쓰지 않도록 가져오기를 중단했습니다.`);
                                 }
                                 // 완전히 동일한 중복 행은 한 건으로만 집계합니다.
                                 continue;
