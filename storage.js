@@ -3202,7 +3202,8 @@ const parseNotesnookZip = async (archiveBuffer) => {
             throw new Error('ZIP64 파일 정보가 누락되었습니다.');
         }
         if (entryDisk !== 0) throw new Error('여러 디스크로 분할된 ZIP 항목은 지원하지 않습니다.');
-        const name = decodeFilename(offset + 46, nameSize, flags, extraStart, extraSize).replace(/\\/g, '/');
+        const centralNameStart = offset + 46;
+        const name = decodeFilename(centralNameStart, nameSize, flags, extraStart, extraSize).replace(/\\/g, '/');
         if (name.includes('\0') || name.startsWith('/') || name.split('/').some(part => part === '..' || part === '.')) {
             throw new Error('ZIP에 안전하지 않은 파일 경로가 포함되어 있습니다.');
         }
@@ -3225,6 +3226,15 @@ const parseNotesnookZip = async (archiveBuffer) => {
         if (localMethod !== method || (localFlags & 1) !== (flags & 1)) throw new Error('ZIP 로컬·중앙 헤더가 일치하지 않습니다.');
         const localNameSize = u16(localOffset + 26);
         const localExtraSize = u16(localOffset + 28);
+        // 중앙 디렉터리와 로컬 헤더가 서로 다른 경로를 선언하는 ZIP은
+        // 파일의 폴더/제목 메타데이터를 신뢰할 수 없습니다. 원본 이름 바이트를
+        // 일치 검사해 손상된 백업을 기존 노트에 병합하기 전에 거부합니다.
+        ensure(localOffset + 30, localNameSize + localExtraSize, 'ZIP 로컬 파일 메타데이터');
+        if (localNameSize !== nameSize || (localFlags & 0x800) !== (flags & 0x800)
+            || bytes.subarray(localOffset + 30, localOffset + 30 + localNameSize)
+                .some((byte, index) => byte !== bytes[centralNameStart + index])) {
+            throw new Error('ZIP 로컬·중앙 파일 이름이 일치하지 않아 가져올 수 없습니다.');
+        }
         const dataStart = localOffset + 30 + localNameSize + localExtraSize;
         ensure(dataStart, compressedSize, 'ZIP 압축 데이터');
         if (dataStart + compressedSize > centralOffset) throw new Error('ZIP 압축 데이터 영역이 손상되었습니다.');
@@ -3306,14 +3316,15 @@ const parseNotesnookZip = async (archiveBuffer) => {
                 }
             }
         }
-        const preview = content.slice(headingStart, headingStart + 32768);
-        const heading = /^\s*#\s+([^\r\n]+)\s*$/m.exec(preview);
-        const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
-        const title = (heading?.[1]?.trim() || frontmatterTitle || fallbackFilename || '제목 없는 노트').trim();
-        // Notesnook의 내보내기용 첫 H1은 MothNote의 제목 필드로 이미 복원됩니다.
-        // 본문 맨 앞의 동일한 H1 한 줄과 바로 뒤의 빈 구분 줄만 제거하되,
-        // 실제 본문에 있는 일반 텍스트 제목 및 이후의 Markdown 제목은 보존합니다.
+        // 본문 중간의 H1은 원본 노트의 절 제목일 수 있습니다. 첫 H1을
+        // 아무 위치에서나 찾으면 Notesnook의 제목 메타데이터 또는 파일명을
+        // 본문 소제목으로 덮어써 대량 가져오기 시 노트 제목이 바뀝니다.
+        // 맨 앞에 있는 제목 H1만 인식하고, 명시적 frontmatter 제목을 우선합니다.
         const leadingHeading = /^[ \t]*(?:\r?\n[ \t]*)*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content.slice(headingStart));
+        const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
+        const title = (frontmatterTitle?.trim() || leadingHeading?.[1]?.trim() || fallbackFilename || '제목 없는 노트').trim();
+        // 제목으로 실제 복원된 맨 앞 H1 한 줄만 제거하며, 나머지는 그대로 둡니다.
+        // 명시적 제목과 본문 H1이 서로 다르면 본문을 손대지 않습니다.
         const importedContent = leadingHeading && leadingHeading[1].trim() === title
             ? content.slice(0, headingStart)
                 + content.slice(headingStart + leadingHeading[0].length).replace(/^[ \t]*\r?\n/, '')
