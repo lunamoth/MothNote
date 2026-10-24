@@ -2972,7 +2972,8 @@ const restoreImportBackupPayload = async (backupPayload) => {
     });
 };
 
-// Notesnook의 Markdown ZIP 내보내기를 외부 라이브러리 없이 읽습니다.
+// Notesnook ZIP 가져오기는 일반 Markdown 형식만 지원하며
+// "Markdown + Frontmatter" 형식은 지원하지 않습니다(메타데이터 해석/복원 안 함).
 // ZIP64 파일별 크기/위치, NTFS 생성·수정 시각, UTC 확장 시각을 지원합니다.
 // ZIP 전체를 먼저 검증한 다음에만 기존 노트에 병합합니다.
 const NOTESNOOK_MAX_ZIP_BYTES = 512 * 1024 * 1024;
@@ -3064,6 +3065,10 @@ const parseNotesnookZip = async (archiveBuffer) => {
         };
     };
     const dosDateToTimestamp = (dosDate, dosTime) => {
+        // ZIP 작성 도구가 실제 수정 시각을 모를 때 기록하는 최소 DOS 일시
+        // (1980-01-01 00:00:00)는 원본 노트의 생성/수정 날짜라는 근거가 아닙니다.
+        // 이 기본값을 그대로 채택하면 수천 개의 가져온 노트가 1980년 기록으로 표시됩니다.
+        if (dosDate === 0x0021 && dosTime === 0) return null;
         const year = 1980 + (dosDate >>> 9);
         const month = (dosDate >>> 5) & 15;
         const day = dosDate & 31;
@@ -3293,47 +3298,30 @@ const parseNotesnookZip = async (archiveBuffer) => {
         let content;
         try { content = NOTESNOOK_UTF8_DECODER.decode(decoded).replace(/^\uFEFF/, ''); }
         catch (_) { throw new Error(`UTF-8 형식이 아닌 Markdown 노트는 가져올 수 없습니다: ${entry.name}`); }
-        // Notesnook Markdown은 대개 첫 번째 H1에 원본 제목이 담깁니다.
-        // YAML frontmatter가 있다면 제목을 읽되, 원본 본문은 통째로 보존합니다.
-        let frontmatterTitle = null;
-        let frontmatterCreated = null;
-        let frontmatterUpdated = null;
-        let isPinned = false;
-        let headingStart = 0;
-        if (content.startsWith('---\n') || content.startsWith('---\r\n')) {
-            const frontmatterMatch = /^---\r?\n([\s\S]{0,32768}?)\r?\n---\s*(?:\r?\n|$)/.exec(content);
-            if (frontmatterMatch) {
-                headingStart = frontmatterMatch[0].length;
-                for (const line of frontmatterMatch[1].split(/\r?\n/)) {
-                    const pair = /^\s*([a-zA-Z_][\w-]*)\s*:\s*(.*?)\s*$/.exec(line);
-                    if (!pair) continue;
-                    const key = pair[1].toLowerCase();
-                    const value = pair[2].replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
-                    if (key === 'title') frontmatterTitle = value;
-                    if (/^(created|createdat|created_at|creationdate)$/.test(key)) frontmatterCreated = parseSimplenoteTimestamp(value, null);
-                    if (/^(updated|updatedat|updated_at|modified|modifiedat|lastmodified)$/.test(key)) frontmatterUpdated = parseSimplenoteTimestamp(value, null);
-                    if (/^(pinned|ispinned)$/.test(key)) isPinned = value.toLowerCase() === 'true';
-                }
-            }
+        // Notesnook ZIP은 일반 Markdown만 지원합니다. Markdown + Frontmatter의
+        // YAML 제목/날짜/태그/고정 상태는 해석하지 않으며, 해당 내보내기 형식은
+        // 본문 메타데이터가 노트로 유입되지 않도록 저장 전에 명시적으로 거부합니다.
+        // 파일 맨 앞의 --- 구분자 쌍과 Notesnook 내보내기 메타데이터 키를 함께
+        // 확인하므로 일반 Markdown의 수평선(---)은 거부하지 않습니다.
+        const yamlHeader = /^---\r?\n([\s\S]{0,32768}?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content);
+        if (yamlHeader && /^[ \t]*(?:title|created_at|updated_at|tags)[ \t]*:/im.test(yamlHeader[1])) {
+            throw new Error('Notesnook Markdown + Frontmatter ZIP은 지원하지 않습니다. Notesnook에서 일반 Markdown 형식으로 내보낸 ZIP을 선택해주세요.');
         }
-        // 본문 중간의 H1은 원본 노트의 절 제목일 수 있습니다. 첫 H1을
-        // 아무 위치에서나 찾으면 Notesnook의 제목 메타데이터 또는 파일명을
-        // 본문 소제목으로 덮어써 대량 가져오기 시 노트 제목이 바뀝니다.
-        // 맨 앞에 있는 제목 H1만 인식하고, 명시적 frontmatter 제목을 우선합니다.
-        const leadingHeading = /^[ \t]*(?:\r?\n[ \t]*)*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content.slice(headingStart));
+        // 일반 Markdown에서는 맨 앞 H1만 제목으로 인식합니다.
+        // 본문 중간의 H1은 절 제목일 수 있으므로 제목으로 사용하지 않습니다.
+        const leadingHeading = /^[ \t]*(?:\r?\n[ \t]*)*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content);
         const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
-        const title = (frontmatterTitle?.trim() || leadingHeading?.[1]?.trim() || fallbackFilename || '제목 없는 노트').trim();
-        // 제목으로 실제 복원된 맨 앞 H1 한 줄만 제거하며, 나머지는 그대로 둡니다.
-        // 명시적 제목과 본문 H1이 서로 다르면 본문을 손대지 않습니다.
-        const importedContent = leadingHeading && leadingHeading[1].trim() === title
-            ? content.slice(0, headingStart)
-                + content.slice(headingStart + leadingHeading[0].length).replace(/^[ \t]*\r?\n/, '')
+        const title = (leadingHeading?.[1]?.trim() || fallbackFilename || '제목 없는 노트').trim();
+        // 제목으로 인식한 첫 H1 한 줄만 제거하고 나머지 Markdown 본문은 보존합니다.
+        const importedContent = leadingHeading
+            ? content.slice(leadingHeading[0].length).replace(/^[ \t]*\r?\n/, '')
             : content;
-        const updatedAt = entry.updatedAt ?? frontmatterUpdated ?? Date.now();
-        const createdAt = entry.createdAt ?? frontmatterCreated ?? updatedAt;
-        if (!entry.createdAt && !frontmatterCreated) fallbackCreationCount++;
+        // 노트 생성·수정 시각은 ZIP 파일 메타데이터에서 복원합니다.
+        const updatedAt = entry.updatedAt ?? Date.now();
+        const createdAt = entry.createdAt ?? updatedAt;
+        if (!entry.createdAt) fallbackCreationCount++;
         notes.push({
-            title, content: importedContent, createdAt, updatedAt, isPinned,
+            title, content: importedContent, createdAt, updatedAt, isPinned: false,
             path: entry.name
         });
     }
