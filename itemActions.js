@@ -1106,6 +1106,34 @@ export const performDeleteItem = (id, type) => {
                 } else {
                     postUpdateState.activeNoteId = null;
                 }
+            } else if (state.activeNoteId && folderToMove.notes.some(note => note.id === state.activeNoteId)) {
+                // 모든 노트/최근 노트/즐겨찾기 등 가상 폴더에서 열어 둔 노트의
+                // 실제 폴더를 삭제하면, 기존 선택이 휴지통으로 이동한 노트를 계속 가리킵니다.
+                // 현재 보기와 검색·날짜 필터를 지키면서 살아 있는 노트로 선택을 옮깁니다.
+                const { ALL, RECENT, FAVORITES } = CONSTANTS.VIRTUAL_FOLDERS;
+                const activeView = state.activeFolderId;
+                const favorites = new Set(latestData.favorites || []);
+                let remainingNotes = folders.flatMap(folder => folder.notes || []);
+                if (activeView === FAVORITES.id) {
+                    remainingNotes = remainingNotes.filter(note => favorites.has(note.id));
+                } else if (activeView !== ALL.id && activeView !== RECENT.id) {
+                    remainingNotes = [];
+                }
+                if (state.dateFilter) {
+                    const dateKey = toYYYYMMDD(state.dateFilter);
+                    remainingNotes = remainingNotes.filter(note => toYYYYMMDD(note.createdAt) === dateKey);
+                }
+                if (state.searchTerm) {
+                    const searchTerm = state.searchTerm.toLowerCase();
+                    remainingNotes = remainingNotes.filter(note =>
+                        String(note.title ?? '').toLowerCase().includes(searchTerm)
+                        || String(note.content ?? '').toLowerCase().includes(searchTerm)
+                    );
+                }
+                const nextNotes = activeView === RECENT.id
+                    ? [...remainingNotes].sort((a, b) => b.updatedAt - a.updatedAt)
+                    : sortNotes(remainingNotes, state.noteSortOrder);
+                postUpdateState.activeNoteId = nextNotes[0]?.id ?? null;
             }
         } else { // NOTE
             let noteToMove, sourceFolder;

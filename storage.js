@@ -3309,12 +3309,13 @@ const parseNotesnookZip = async (archiveBuffer) => {
         }
         // 일반 Markdown에서는 맨 앞 H1만 제목으로 인식합니다.
         // 본문 중간의 H1은 절 제목일 수 있으므로 제목으로 사용하지 않습니다.
-        const leadingHeading = /^[ \t]*(?:\r?\n[ \t]*)*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content);
+        // 제목 앞의 빈 줄도 사용자가 작성한 Markdown 본문의 일부입니다.
+        // 제목 행만 제거하되, 그 앞의 빈 줄과 제목 뒤의 공백/줄바꿈은 바이트 의미상 그대로 보존합니다.
+        const leadingHeading = /^((?:[ \t]*\r?\n)*)[ \t]*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content);
         const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
-        const title = (leadingHeading?.[1]?.trim() || fallbackFilename || '제목 없는 노트').trim();
-        // 제목으로 인식한 첫 H1 한 줄만 제거하고 나머지 Markdown 본문은 보존합니다.
+        const title = (leadingHeading?.[2]?.trim() || fallbackFilename || '제목 없는 노트').trim();
         const importedContent = leadingHeading
-            ? content.slice(leadingHeading[0].length).replace(/^[ \t]*\r?\n/, '')
+            ? leadingHeading[1] + content.slice(leadingHeading[0].length)
             : content;
         // 노트 생성·수정 시각은 ZIP 파일 메타데이터에서 복원합니다.
         const updatedAt = entry.updatedAt ?? Date.now();
