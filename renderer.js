@@ -643,7 +643,12 @@ export const renderEditor = async () => {
         // marked 로드에 성공한 경우에만 파싱을 실행합니다.
         if (marked) {
             try {
-                setSanitizedHtml(noteContentView, marked.parse(editorContentForActiveNote));
+                // UTF-8 BOM은 가져온 원문/편집값에 그대로 보존하되, Markdown 파서는
+                // 맨 앞 BOM을 문단 문자로 해석하므로 미리보기 입력에서만 제외합니다.
+                const contentForPreview = editorContentForActiveNote.startsWith('\uFEFF')
+                    ? editorContentForActiveNote.slice(1)
+                    : editorContentForActiveNote;
+                setSanitizedHtml(noteContentView, marked.parse(contentForPreview));
             } catch (error) {
                 // 깊게 중첩된 Markdown은 파서에서 예외를 발생시킬 수 있습니다.
                 // 이전 노트의 미리보기를 남기거나 통계 갱신까지 중단하지 않고,

@@ -2980,7 +2980,7 @@ const NOTESNOOK_MAX_ZIP_BYTES = 512 * 1024 * 1024;
 const NOTESNOOK_MAX_NOTE_BYTES = 64 * 1024 * 1024;
 const NOTESNOOK_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const NOTESNOOK_MAX_ENTRIES = 20000;
-const NOTESNOOK_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
+const NOTESNOOK_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 const parseNotesnookZip = async (archiveBuffer) => {
     if (!(archiveBuffer instanceof ArrayBuffer) || archiveBuffer.byteLength > NOTESNOOK_MAX_ZIP_BYTES) {
@@ -3296,33 +3296,33 @@ const parseNotesnookZip = async (archiveBuffer) => {
         totalActualBytes += decoded.byteLength;
         if (totalActualBytes > NOTESNOOK_MAX_TOTAL_BYTES) throw new Error('ZIP 전체 노트 용량이 허용치를 초과했습니다.');
         let content;
-        try { content = NOTESNOOK_UTF8_DECODER.decode(decoded).replace(/^\uFEFF/, ''); }
+        try { content = NOTESNOOK_UTF8_DECODER.decode(decoded); }
         catch (_) { throw new Error(`UTF-8 형식이 아닌 Markdown 노트는 가져올 수 없습니다: ${entry.name}`); }
+        // UTF-8 BOM은 저장할 원본에 남겨 두고, 메타데이터 식별에서만 제외합니다.
+        // 따라서 제목/Frontmatter 판별을 위해 원본 Markdown을 가공하거나 삭제하지 않습니다.
+        const contentForMetadata = content.startsWith('\uFEFF') ? content.slice(1) : content;
         // Notesnook ZIP은 일반 Markdown만 지원합니다. Markdown + Frontmatter의
         // YAML 제목/날짜/태그/고정 상태는 해석하지 않으며, 해당 내보내기 형식은
         // 본문 메타데이터가 노트로 유입되지 않도록 저장 전에 명시적으로 거부합니다.
         // 파일 맨 앞의 --- 구분자 쌍과 Notesnook 내보내기 메타데이터 키를 함께
         // 확인하므로 일반 Markdown의 수평선(---)은 거부하지 않습니다.
-        const yamlHeader = /^---\r?\n([\s\S]{0,32768}?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content);
+        const yamlHeader = /^---\r?\n([\s\S]{0,32768}?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(contentForMetadata);
         if (yamlHeader && /^[ \t]*(?:title|created_at|updated_at|tags)[ \t]*:/im.test(yamlHeader[1])) {
             throw new Error('Notesnook Markdown + Frontmatter ZIP은 지원하지 않습니다. Notesnook에서 일반 Markdown 형식으로 내보낸 ZIP을 선택해주세요.');
         }
-        // 일반 Markdown에서는 맨 앞 H1만 제목으로 인식합니다.
-        // 본문 중간의 H1은 절 제목일 수 있으므로 제목으로 사용하지 않습니다.
-        // 제목 앞의 빈 줄도 사용자가 작성한 Markdown 본문의 일부입니다.
-        // 제목 행만 제거하되, 그 앞의 빈 줄과 제목 뒤의 공백/줄바꿈은 바이트 의미상 그대로 보존합니다.
-        const leadingHeading = /^((?:[ \t]*\r?\n)*)[ \t]*#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(content);
+        // 첫 H1은 제목 필드 결정에만 사용하고, Markdown 본문에는 손대지 않습니다.
+        // CommonMark의 ATX 제목은 들여쓰기가 최대 3칸이며, 탭/4칸 들여쓰기는
+        // 제목이 아니라 코드 블록이므로 파일명으로 제목을 결정합니다.
+        // 본문 중간에 있는 H1 역시 메타데이터로 오인하지 않습니다.
+        const leadingHeading = /^(?:[ \t]*\r?\n)* {0,3}#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(contentForMetadata);
         const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
-        const title = (leadingHeading?.[2]?.trim() || fallbackFilename || '제목 없는 노트').trim();
-        const importedContent = leadingHeading
-            ? leadingHeading[1] + content.slice(leadingHeading[0].length)
-            : content;
+        const title = (leadingHeading?.[1]?.trim() || fallbackFilename || '제목 없는 노트').trim();
         // 노트 생성·수정 시각은 ZIP 파일 메타데이터에서 복원합니다.
         const updatedAt = entry.updatedAt ?? Date.now();
         const createdAt = entry.createdAt ?? updatedAt;
         if (!entry.createdAt) fallbackCreationCount++;
         notes.push({
-            title, content: importedContent, createdAt, updatedAt, isPinned: false,
+            title, content, createdAt, updatedAt, isPinned: false,
             path: entry.name
         });
     }
