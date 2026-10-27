@@ -3005,22 +3005,38 @@ const parseNotesnookZip = async (archiveBuffer) => {
         }
         return Number(result);
     };
+    // ZIP에서 UTF-8 플래그가 꺼져 있을 때의 레거시 기본 문자셋은 CP437입니다.
+    // Windows-1252로 대신 읽으면 한글/서유럽어 외에도 CP437 악센트·기호가
+    // 제어문자 또는 잘못된 글자로 바뀌어 가져온 노트의 제목·폴더 경로가 손상됩니다.
+    const zipCp437HighCharacters = "\u00c7\u00fc\u00e9\u00e2\u00e4\u00e0\u00e5\u00e7\u00ea\u00eb\u00e8\u00ef\u00ee\u00ec\u00c4\u00c5\u00c9\u00e6\u00c6\u00f4\u00f6\u00f2\u00fb\u00f9\u00ff\u00d6\u00dc\u00a2\u00a3\u00a5\u20a7\u0192\u00e1\u00ed\u00f3\u00fa\u00f1\u00d1\u00aa\u00ba\u00bf\u2310\u00ac\u00bd\u00bc\u00a1\u00ab\u00bb\u2591\u2592\u2593\u2502\u2524\u2561\u2562\u2556\u2555\u2563\u2551\u2557\u255d\u255c\u255b\u2510\u2514\u2534\u252c\u251c\u2500\u253c\u255e\u255f\u255a\u2554\u2569\u2566\u2560\u2550\u256c\u2567\u2568\u2564\u2565\u2559\u2558\u2552\u2553\u256b\u256a\u2518\u250c\u2588\u2584\u258c\u2590\u2580\u03b1\u00df\u0393\u03c0\u03a3\u03c3\u00b5\u03c4\u03a6\u0398\u03a9\u03b4\u221e\u03c6\u03b5\u2229\u2261\u00b1\u2265\u2264\u2320\u2321\u00f7\u2248\u00b0\u2219\u00b7\u221a\u207f\u00b2\u25a0\u00a0";
     const decodeFilename = (start, length, flags, extraStart, extraLength) => {
         ensure(start, length, 'ZIP 파일 이름');
         const raw = bytes.subarray(start, start + length);
-        try { return NOTESNOOK_UTF8_DECODER.decode(raw); } catch (_) { /* ZIP의 비 UTF-8 레거시 파일명 */ }
-        // ZIP Unicode Path extra(Info-ZIP 0x7075)가 있는 경우 우선합니다.
+        // UTF-8 플래그가 있는 파일은 해당 플래그를 우선하며, 손상된 UTF-8을
+        // 다른 인코딩으로 오인해 가져오지 않습니다.
+        if (flags & 0x800) return NOTESNOOK_UTF8_DECODER.decode(raw);
+
+        // Info-ZIP Unicode Path(0x7075)는 레거시 원본 이름이 ASCII/UTF-8로도
+        // 해석될 수 있는 경우에도 우선해야 합니다. 원본 이름 CRC-32가 실제로
+        // 일치하는지 검증해 다른 파일의 유니코드 경로를 잘못 적용하지 않습니다.
         for (let p = extraStart; p + 4 <= extraStart + extraLength;) {
             const fieldLength = u16(p + 2);
             if (p + 4 + fieldLength > extraStart + extraLength) break;
-            if (u16(p) === 0x7075 && fieldLength >= 5 && bytes[p + 4] === 1) {
-                try { return NOTESNOOK_UTF8_DECODER.decode(bytes.subarray(p + 9, p + 4 + fieldLength)); }
-                catch (_) { /* 유효하지 않은 Unicode Path */ }
+            if (u16(p) === 0x7075 && fieldLength >= 5 && bytes[p + 4] === 1
+                && u32(p + 5) === crc32(raw)) {
+                try {
+                    return NOTESNOOK_UTF8_DECODER.decode(bytes.subarray(p + 9, p + 4 + fieldLength));
+                } catch (_) { /* 손상된 유니코드 메타데이터는 원본 경로로 폴백합니다. */ }
             }
             p += 4 + fieldLength;
         }
-        if ((flags & 0x800) !== 0) throw new Error('ZIP의 UTF-8 파일명이 손상되었습니다.');
-        return new TextDecoder('windows-1252').decode(raw);
+
+        // 플래그가 빠진 UTF-8 ZIP에 대한 기존 호환 동작을 유지합니다.
+        try { return NOTESNOOK_UTF8_DECODER.decode(raw); }
+        catch (_) {
+            return Array.from(raw, byte => byte < 128
+                ? String.fromCharCode(byte) : zipCp437HighCharacters[byte - 128]).join('');
+        }
     };
     const parseExtra = (start, length, visit) => {
         ensure(start, length, 'ZIP 확장 메타데이터');
