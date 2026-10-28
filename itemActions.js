@@ -1560,6 +1560,17 @@ const deriveFinalNoteTitle = (rawTitle, content) => {
     return finalTitle;
 };
 
+// textarea.value는 CRLF와 단독 CR을 LF로 정규화합니다. 본문을 변경하지 않고
+// 제목만 수정한 경우에는 화면에 보이는 값이 같더라도 원본 줄바꿈을 저장해야 합니다.
+// 본문이 실제로 바뀐 경우에는 사용자가 편집한 textarea 값을 그대로 사용합니다.
+export const preserveUnchangedEditorContent = (storedContent, editorContent) => {
+    const current = String(editorContent ?? '');
+    if (typeof storedContent !== 'string') return current;
+    if (storedContent === current) return storedContent;
+    if (!storedContent.includes('\r')) return current;
+    return storedContent.replace(/\r\n?/g, '\n') === current ? storedContent : current;
+};
+
 export async function saveCurrentNoteIfChanged() {
     if (!state.isDirty) {
         return true;
@@ -1579,7 +1590,11 @@ export async function saveCurrentNoteIfChanged() {
 
     const noteIdToSave = state.dirtyNoteId || state.activeNoteId;
     const titleToSave = noteTitleInput?.value ?? '';
-    const contentToSave = noteContentTextarea?.value ?? '';
+    const editorContentAtStart = noteContentTextarea?.value ?? '';
+    const contentToSave = preserveUnchangedEditorContent(
+        findNote(noteIdToSave).item?.content,
+        editorContentAtStart
+    );
     const saveStartedAt = Date.now();
 
     if (!noteIdToSave) {
@@ -1636,9 +1651,11 @@ export async function saveCurrentNoteIfChanged() {
     }
 
     let liveTitle = noteTitleInput?.value ?? titleToSave;
-    const liveContent = noteContentTextarea?.value ?? contentToSave;
+    const liveContent = noteContentTextarea?.value ?? editorContentAtStart;
     const titleChangedDuringSave = liveTitle !== titleToSave;
-    const contentChangedDuringSave = liveContent !== contentToSave;
+    // 원본에 CRLF가 있으면 저장할 원문과 textarea 값은 원래 다릅니다.
+    // 저장 중 입력 여부는 원문이 아니라 저장 시작 시의 textarea 값과 비교합니다.
+    const contentChangedDuringSave = liveContent !== editorContentAtStart;
     const draftChangedDuringSave = titleChangedDuringSave || contentChangedDuringSave;
     const savedTitle = payload?.savedTitle ?? titleToSave;
     const savedContent = payload?.savedContent ?? contentToSave;
@@ -1685,7 +1702,8 @@ export async function saveCurrentNoteIfChanged() {
             if (noteTitleInput && noteTitleInput.value !== savedTitle) {
                 noteTitleInput.value = savedTitle;
             }
-            if (noteContentTextarea && noteContentTextarea.value !== savedContent) {
+            if (noteContentTextarea
+                && preserveUnchangedEditorContent(savedContent, noteContentTextarea.value) !== savedContent) {
                 noteContentTextarea.value = savedContent;
             }
         }
@@ -1709,7 +1727,7 @@ export async function handleUserInput() {
     if (!activeNote) return;
 
     const currentTitle = noteTitleInput.value;
-    const currentContent = noteContentTextarea.value;
+    const currentContent = preserveUnchangedEditorContent(activeNote.content, noteContentTextarea.value);
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
 
     if (hasChanged) {

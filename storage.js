@@ -1985,9 +1985,19 @@ export const handleExport = async (settings) => {
 
         let settingsToExport = sanitizeSettings(settings);
         const storedSettingsResult = readOptionalLocalStorageForExport(CONSTANTS.LS_KEY_SETTINGS, '설정');
-        if (storedSettingsResult.ok && storedSettingsResult.value) {
-            try { settingsToExport = sanitizeSettings(JSON.parse(storedSettingsResult.value)); }
-            catch (settingsError) { console.warn('저장된 설정을 읽지 못해 현재 설정을 백업합니다.', settingsError); }
+        let settingsUnrestorable = false;
+        if (storedSettingsResult.ok && storedSettingsResult.value !== null) {
+            try {
+                // 내보내기도 실제 복원 경계와 같은 검사를 거칩니다. 손상된 값이
+                // 기본값으로 조용히 바뀌어 완전 백업으로 표시되는 일을 막습니다.
+                settingsToExport = normalizeAppSettingsImportValue(JSON.parse(storedSettingsResult.value));
+            } catch (settingsError) {
+                settingsUnrestorable = true;
+                // 문자열 원문은 부분 백업에 보존하고, 가져오기에서는 잘못된
+                // 설정 필드로 판별되어 기존 설정을 덮어쓰지 않게 합니다.
+                settingsToExport = storedSettingsResult.value;
+                console.warn('저장된 설정을 자동 복원할 수 없어 원문을 부분 백업에 보존합니다.', settingsError);
+            }
         }
 
         // [기능 추가] localStorage에서 습관 트래커 데이터 가져오기
@@ -2023,6 +2033,7 @@ export const handleExport = async (settings) => {
         // 사용자가 완전한 백업으로 오인해 이후 원본 삭제/재설치 시 해당 기록을 복구하지 못할 수 있습니다.
         // 핵심 노트 백업은 계속 허용하되, 누락되는 항목을 명시하고 사용자가 부분 백업을 선택한 경우에만 저장합니다.
         const omittedBackupSections = [
+            !storedSettingsResult.ok ? '설정' : null,
             !habitTrackerResult.ok ? '습관 트래커 데이터' : null,
             !dietChallengeResult.ok ? '다이어트 챌린지 기록' : null,
             !dietChallengeSettingsResult.ok ? '다이어트 챌린지 설정' : null
@@ -2032,7 +2043,7 @@ export const handleExport = async (settings) => {
         // 백업이라는 뜻은 아닙니다. 손상된 원문을 백업 파일에 보존하더라도 정상
         // 가져오기에서는 그 섹션을 건너뛰므로, 완전 복원 가능한 백업으로 표시하면
         // 재설치/초기화 후 사용자 기록이 사라질 수 있습니다.
-        const unrestorableBackupSections = [];
+        const unrestorableBackupSections = settingsUnrestorable ? ['설정'] : [];
         const checkOptionalBackupSection = (result, label, validator) => {
             if (!result.ok || result.value === null) return;
             try {
@@ -2149,7 +2160,8 @@ export const handleExport = async (settings) => {
 
         const dataToExport = {
             mothNoteVersion: runtimeVersion, // 실제 설치된 확장 프로그램 버전
-            settings: settingsToExport,
+            // 설정을 읽을 수 없으면 현재 세션의 임시 기본값으로 가장하지 않습니다.
+            ...(storedSettingsResult.ok ? { settings: settingsToExport } : {}),
             folders: exportState.folders || [],
             trash: exportState.trash || [],
             favorites: Array.isArray(exportState.favorites) ? exportState.favorites : [],
