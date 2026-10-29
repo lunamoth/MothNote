@@ -82,6 +82,8 @@ import {
 
 // [기능 추가] 습관 트래커 데이터 키 상수
 const HABIT_TRACKER_DATA_KEY = 'habitTrackerDataV2_integrated';
+const LEGACY_HABIT_DATA_KEY = 'habitTrackerData';
+const LEGACY_HABIT_V2_DATA_KEY = 'habitTrackerDataV2';
 // [기능 추가] 다이어트 챌린지 데이터 키 상수
 const DIET_CHALLENGE_DATA_KEY = 'diet_pro_records'; // dietChallenge.js의 STORAGE_KEY와 일치해야 함
 const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 SETTINGS_KEY와 일치해야 함
@@ -2003,13 +2005,16 @@ export const handleExport = async (settings) => {
         // [기능 추가] localStorage에서 습관 트래커 데이터 가져오기
         const habitTrackerResult = readOptionalLocalStorageForExport(HABIT_TRACKER_DATA_KEY, '습관 트래커');
         const habitTrackerData = habitTrackerResult.value;
+        // 변환된 체크형 기록에는 이전 횟수형 원본이 모두 담기지 않을 수 있고,
+        // 두 구버전 키에 별개의 기록이 남아 있을 수도 있습니다. 통합 데이터와
+        // 별도로 원문을 백업해 재설치나 복원 뒤에도 복구할 수 있게 합니다.
+        const legacyHabitResult = readOptionalLocalStorageForExport(LEGACY_HABIT_DATA_KEY, '구버전 습관 원본');
+        const legacyHabitV2Result = readOptionalLocalStorageForExport(LEGACY_HABIT_V2_DATA_KEY, '구버전 습관 V2 원본');
         // 트래커를 아직 열지 않은 업그레이드 직후에는 구버전 키만 남아 있을 수 있습니다.
         // 이를 데이터 없음으로 백업하면 정상 기록이 빠진 파일이 완전 백업으로 표시됩니다.
         // 기존 트래커의 검증된 마이그레이션을 완료한 뒤 백업하도록 안내합니다.
         if (habitTrackerResult.ok && habitTrackerData === null) {
-            const legacyHabitResults = ['habitTrackerDataV2', 'habitTrackerData'].map(key =>
-                readOptionalLocalStorageForExport(key, '구버전 습관 트래커')
-            );
+            const legacyHabitResults = [legacyHabitV2Result, legacyHabitResult];
             if (legacyHabitResults.some(result => !result.ok)) {
                 showToast('구버전 습관 데이터의 존재 여부를 확인하지 못해 백업을 중단했습니다. 저장소 접근 상태를 확인한 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
                 return false;
@@ -2035,6 +2040,8 @@ export const handleExport = async (settings) => {
         const omittedBackupSections = [
             !storedSettingsResult.ok ? '설정' : null,
             !habitTrackerResult.ok ? '습관 트래커 데이터' : null,
+            !legacyHabitResult.ok ? '구버전 습관 원본' : null,
+            !legacyHabitV2Result.ok ? '구버전 습관 V2 원본' : null,
             !dietChallengeResult.ok ? '다이어트 챌린지 기록' : null,
             !dietChallengeSettingsResult.ok ? '다이어트 챌린지 설정' : null
         ].filter(Boolean);
@@ -2170,6 +2177,9 @@ export const handleExport = async (settings) => {
             // localStorage 읽기 자체가 실패한 항목은 null로 가장하지 않고 키를 생략합니다.
             // 그래야 이 백업을 다시 가져올 때 정상적인 기존 부가 데이터를 잘못 지우지 않습니다.
             ...(habitTrackerResult.ok ? { habitTrackerData: habitTrackerDataForExport } : {}),
+            // 원본이 없는 경우 필드를 생략하여 다른 기기의 기존 원본을 지우지 않습니다.
+            ...(legacyHabitResult.ok && legacyHabitResult.value !== null ? { legacyHabitTrackerData: legacyHabitResult.value } : {}),
+            ...(legacyHabitV2Result.ok && legacyHabitV2Result.value !== null ? { legacyHabitTrackerDataV2: legacyHabitV2Result.value } : {}),
             ...(dietChallengeResult.ok ? { dietChallengeData: dietChallengeData } : {}),
             ...(dietChallengeSettingsResult.ok ? { dietChallengeSettings: dietChallengeSettings } : {}),
             ...(isPartialBackup ? {
@@ -2670,11 +2680,20 @@ const normalizeDietSettingsImportValue = value => {
     });
 };
 
+// 레거시 원본은 현재 형식으로 해석할 수 없더라도 복구 가치가 있으므로
+// 내용을 정제하지 않고 localStorage가 저장할 수 있는 문자열로만 확인합니다.
+const normalizeLegacyHabitImportValue = value => {
+    if (value === null || typeof value === 'string') return value;
+    throw new Error('구버전 습관 원본은 문자열 또는 null이어야 합니다.');
+};
+
 const normalizeIntegratedImportFields = importedData => {
     const normalized = {};
     const skippedFields = [];
     const optionalFields = [
         ['habitTrackerData', '습관 트래커', normalizeHabitTrackerImportValue],
+        ['legacyHabitTrackerData', '구버전 습관 원본', normalizeLegacyHabitImportValue],
+        ['legacyHabitTrackerDataV2', '구버전 습관 V2 원본', normalizeLegacyHabitImportValue],
         ['dietChallengeData', '다이어트 기록', normalizeDietRecordsImportValue],
         ['dietChallengeSettings', '다이어트 설정', normalizeDietSettingsImportValue]
     ];
@@ -2717,6 +2736,20 @@ const INTEGRATED_IMPORT_TARGETS = Object.freeze([
             }
             return false;
         }
+    },
+    {
+        propertyName: 'legacyHabitTrackerData',
+        label: '구버전 습관 원본',
+        storageKey: LEGACY_HABIT_DATA_KEY,
+        isEmpty: value => value === null,
+        hasMeaningfulCurrentData: () => true
+    },
+    {
+        propertyName: 'legacyHabitTrackerDataV2',
+        label: '구버전 습관 V2 원본',
+        storageKey: LEGACY_HABIT_V2_DATA_KEY,
+        isEmpty: value => value === null,
+        hasMeaningfulCurrentData: () => true
     },
     {
         propertyName: 'dietChallengeData',
@@ -2944,6 +2977,8 @@ const restoreImportBackupPayload = async (backupPayload) => {
         ['session', CONSTANTS.LS_KEY],
         ['settings', CONSTANTS.LS_KEY_SETTINGS],
         ['habitTrackerData', HABIT_TRACKER_DATA_KEY],
+        ['legacyHabitTrackerData', LEGACY_HABIT_DATA_KEY],
+        ['legacyHabitTrackerDataV2', LEGACY_HABIT_V2_DATA_KEY],
         ['dietChallengeData', DIET_CHALLENGE_DATA_KEY],
         ['dietChallengeSettings', DIET_CHALLENGE_SETTINGS_KEY]
     ];
@@ -3809,6 +3844,8 @@ export const setupImportHandler = () => {
                         session: localStorage.getItem(CONSTANTS.LS_KEY),
                         settings: localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS),
                         habitTrackerData: localStorage.getItem(HABIT_TRACKER_DATA_KEY),
+                        legacyHabitTrackerData: localStorage.getItem(LEGACY_HABIT_DATA_KEY),
+                        legacyHabitTrackerDataV2: localStorage.getItem(LEGACY_HABIT_V2_DATA_KEY),
                         dietChallengeData: localStorage.getItem(DIET_CHALLENGE_DATA_KEY),
                         dietChallengeSettings: localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY)
                     };
@@ -3862,6 +3899,8 @@ export const setupImportHandler = () => {
                         }
 
                         restoreImportedLocalStorageValueIfPresent(HABIT_TRACKER_DATA_KEY, 'habitTrackerData');
+                        restoreImportedLocalStorageValueIfPresent(LEGACY_HABIT_DATA_KEY, 'legacyHabitTrackerData');
+                        restoreImportedLocalStorageValueIfPresent(LEGACY_HABIT_V2_DATA_KEY, 'legacyHabitTrackerDataV2');
                         restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_DATA_KEY, 'dietChallengeData');
                         restoreImportedLocalStorageValueIfPresent(DIET_CHALLENGE_SETTINGS_KEY, 'dietChallengeSettings');
 

@@ -997,7 +997,7 @@
         ], '다이어트 설정을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.');
     };
 
-    const persistDietStateSnapshot = (records, settings, { allowCorruptDataReplacement = false } = {}) => {
+    const persistDietStateSnapshot = (records, settings, { allowCorruptDataReplacement = false, includeSettings = true } = {}) => {
         if (AppState.state.recordsLoadFailed && !allowCorruptDataReplacement) {
             console.warn('Diet state import was blocked to preserve malformed stored records.');
             showToast(DIET_RECORD_RECOVERY_REQUIRED_MESSAGE);
@@ -1006,10 +1006,11 @@
 
         const safeRecords = sanitizeDietRecords(records);
         const safeSettings = sanitizeDietSettings(settings);
-        const didPersist = persistLocalStorageEntriesAtomically([
-            { key: AppState.STORAGE_KEY, value: JSON.stringify(safeRecords) },
-            { key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) }
-        ], '가져온 다이어트 데이터를 저장하지 못했습니다. 기존 데이터를 유지합니다.');
+        const entries = [{ key: AppState.STORAGE_KEY, value: JSON.stringify(safeRecords) }];
+        // 설정이 없는 기록 전용 백업은 현재 설정의 복구 가능한 원문까지
+        // 기본값 또는 정제된 메모리 값으로 덮어써서는 안 됩니다.
+        if (includeSettings) entries.push({ key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) });
+        const didPersist = persistLocalStorageEntriesAtomically(entries, '가져온 다이어트 데이터를 저장하지 못했습니다. 기존 데이터를 유지합니다.');
         if (didPersist && allowCorruptDataReplacement) AppState.state.recordsLoadFailed = false;
         return didPersist;
     };
@@ -1645,17 +1646,19 @@
                     : { ok: true, settings: AppState.settings, error: '' };
                 if (!settingsImportResult.ok) throw new Error(settingsImportResult.error);
 
-                const hasCurrentOrProtectedDietRecords = AppState.records.length > 0
-                    || AppState.state.recordsLoadFailed;
-                if (data.records.length === 0 && hasCurrentOrProtectedDietRecords) {
-                    const currentRecordDescription = AppState.state.recordsLoadFailed
-                        ? '현재 저장된 기록을 안전하게 읽지 못한 상태이며, 계속하면 복구 가능한 손상 원본까지 빈 기록으로 교체됩니다.'
-                        : `현재 기록 ${AppState.records.length}건이 모두 삭제됩니다.`;
-                    const shouldReplaceWithEmpty = confirm(`가져올 백업에 체중 기록이 없습니다. ${currentRecordDescription} 빈 백업으로 복원하시겠습니까?`);
-                    if (!shouldReplaceWithEmpty) {
-                        showToast('빈 백업 복원을 취소했습니다. 기존 데이터를 유지합니다.');
-                        return;
-                    }
+                // JSON 복원은 병합이 아니라 전체 교체입니다. 빈 백업뿐 아니라
+                // 이전 날짜의 기록이 일부만 있는 백업도 최신 기록을 지우므로,
+                // 실제 교체 범위를 안내하고 확인받은 뒤에만 저장합니다.
+                const currentRecordDescription = AppState.state.recordsLoadFailed
+                    ? '현재 저장된 기록을 안전하게 읽지 못했습니다. 복원하면 복구 가능한 원본도 교체됩니다.'
+                    : `현재 기록 ${AppState.records.length}건이 모두 교체됩니다.`;
+                const settingsDescription = hasSettings
+                    ? '백업에 포함된 설정도 적용됩니다.'
+                    : '백업에 설정이 없어 현재 설정은 유지됩니다.';
+                const shouldReplace = confirm(`JSON 백업의 기록 ${data.records.length}건으로 복원합니다. ${currentRecordDescription} ${settingsDescription} 계속하시겠습니까?`);
+                if (!shouldReplace) {
+                    showToast('JSON 복원을 취소했습니다. 기존 데이터를 유지합니다.');
+                    return;
                 }
 
                 const recordsChangedDuringRead = JSON.stringify(AppState.records) !== recordsAtReadStart
@@ -1669,7 +1672,7 @@
 
                 const nextRecords = importResult.records;
                 const nextSettings = settingsImportResult.settings;
-                if (!persistDietStateSnapshot(nextRecords, nextSettings, { allowCorruptDataReplacement: true })) return;
+                if (!persistDietStateSnapshot(nextRecords, nextSettings, { allowCorruptDataReplacement: true, includeSettings: hasSettings })) return;
 
                 AppState.records = nextRecords;
                 AppState.settings = nextSettings;

@@ -734,9 +734,38 @@ document.addEventListener('DOMContentLoaded', () => {
                     return number;
                 };
 
+                // 구버전 ID는 단순 순번일 수도 있으므로 생성 시각으로 무조건 사용하지 않습니다.
+                // 실제 생성 시각이 있으면 보존하고, 없으면 시간 기반 ID와 가장 오래된
+                // 유효 로그를 이용합니다. 어느 쪽도 알 수 없으면 로더의 기본값에 맡깁니다.
+                const getLegacyCreatedAt = habit => {
+                    if (hasOwn(habit, 'createdAt')) {
+                        const value = habit.createdAt;
+                        const timestamp = (typeof value === 'number' || (typeof value === 'string' && value.trim()))
+                            ? Number(value) : NaN;
+                        if (!Number.isFinite(timestamp) || timestamp <= 0 || Number.isNaN(new Date(timestamp).getTime())) {
+                            throw new Error('Legacy habit creation time is invalid.');
+                        }
+                        return timestamp;
+                    }
+                    let firstLogTime = null;
+                    for (const dateText of Object.keys(habit.logs || {})) {
+                        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+                        if (!match) continue;
+                        const year = Number(match[1]), month = Number(match[2]) - 1, day = Number(match[3]);
+                        const date = new Date(year, month, day);
+                        if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) continue;
+                        const timestamp = date.getTime();
+                        if (firstLogTime === null || timestamp < firstLogTime) firstLogTime = timestamp;
+                    }
+                    const idTimestamp = Number(habit.id);
+                    const looksLikeTimestamp = Number.isFinite(idTimestamp)
+                        && idTimestamp >= 946684800000 && idTimestamp <= Date.now();
+                    if (looksLikeTimestamp) return firstLogTime === null ? idTimestamp : Math.min(idTimestamp, firstLogTime);
+                    return firstLogTime === null ? undefined : firstLogTime;
+                };
+
                 // 아주 오래된 데이터 형식(V1)인지 확인
                 const isVeryOld = !oldState.version;
-                const legacyKeyToRemove = legacyKey || (isVeryOld ? 'habitTrackerData' : 'habitTrackerDataV2');
                 let migrationCandidate;
 
                 if (isVeryOld) {
@@ -752,15 +781,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ? readLegacyLogNumber(habit.goal)
                                 : 1;
                             if (goal <= 0) throw new Error('Legacy habit count goal must be positive.');
+                            const createdAt = getLegacyCreatedAt(habit);
                             return {
                                 id: habit.id || Date.now() + index,
                                 name: habit.name || 'Untitled',
                                 type: 'check',
                                 goal: 1,
-                                frequency: { type: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
-                                isArchived: false,
-                                order: index,
-                                createdAt: habit.id || Date.now() + index,
+                                frequency: hasOwn(habit, 'frequency')
+                                    ? habit.frequency
+                                    : { type: 'daily', days: [0, 1, 2, 3, 4, 5, 6] },
+                                isArchived: hasOwn(habit, 'isArchived') ? habit.isArchived : false,
+                                order: hasOwn(habit, 'order') ? habit.order : index,
+                                ...(createdAt === undefined ? {} : { createdAt }),
                                 logs: Object.entries(habit.logs || {}).reduce((acc, [date, value]) => {
                                     const numericValue = readLegacyLogNumber(value);
                                     const wasCompleted = habit.type === 'count' ? numericValue >= goal : numericValue > 0;
@@ -769,7 +801,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 }, {}),
                             };
                         }),
-                        settings: { ...this.state.settings, theme: oldState.settings?.theme || 'light' }
+                        settings: { ...this.state.settings, theme: oldState.settings?.theme || 'light' },
+                        achievements: oldState.achievements || {},
+                        visitedViews: oldState.visitedViews || {},
+                        filters: oldState.filters || { search: '', showArchived: false, sortBy: 'order' },
+                        reviewPeriod: oldState.reviewPeriod || this.state.reviewPeriod,
+                        reportPeriod: oldState.reportPeriod || this.state.reportPeriod
                     };
                 } else {
                     // V2 데이터 마이그레이션 (기존 로직 유지)
@@ -786,7 +823,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // [CRITICAL BUG FIX] 레거시 구조가 손상된 경우 빈 정제본을 새 통합 키에 저장한 뒤
                 // 유일한 구버전 원본까지 삭제하면 복구할 수 없는 데이터 유실이 발생합니다.
                 // 후보 상태를 메모리 밖에서 검증하고, 모든 레코드가 구조 검사를 통과한 경우에만
-                // 현재 상태 교체·신규 키 저장·레거시 키 삭제를 순서대로 수행합니다.
+                // 현재 상태 교체와 신규 키 저장을 수행하고 레거시 원본은 보존합니다.
                 let hasStructuralCorruption = false;
                 const sanitizedCandidate = this.sanitizeLoadedState(migrationCandidate, {
                     onStructuralCorruption: () => { hasStructuralCorruption = true; }
@@ -796,16 +833,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 this.state = { ...this.state, ...sanitizedCandidate, chartInstances: {} };
-                if (this.saveData()) { // 새 키로 저장이 끝난 뒤에만 기존 키 제거
+                if (this.saveData()) {
                     this._hasPersistedIntegratedData = true;
-                    try {
-                        // 두 레거시 키가 동시에 남아 있어도 향후 초기화 후 다시
-                        // 오래된 데이터를 부활시키지 않도록, 검증된 신규 저장 후 모두 정리합니다.
-                        localStorage.removeItem('habitTrackerDataV2');
-                        localStorage.removeItem('habitTrackerData');
-                    } catch (removeError) {
-                        console.warn(`Failed to remove legacy habit tracker data after successful migration (${legacyKeyToRemove}).`, removeError);
-                    }
+                    // V1의 횟수형 기록은 현재 체크형으로 변환되며, 다른 레거시 키가
+                    // 서로 다른 기록을 담을 수도 있습니다. 어느 원본도 삭제하지 않습니다.
+                    // 통합 키가 존재하는 동안에는 레거시 데이터가 다시 적용되지 않습니다.
                     this.showToast("데이터 구조가 최신 버전으로 업데이트되었습니다!", 'info');
                 } else {
                     this.state = previousState;
