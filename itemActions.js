@@ -485,9 +485,7 @@ export const performTransactionalUpdate = async (updateFn) => {
 
                 // 저장 직전의 기준 appState를 읽어 연속 작업 간 read-modify-write 안정성을 유지합니다.
                 const storedResult = await storageGet('appState');
-                const hasStoredAppState = Object.prototype.hasOwnProperty.call(storedResult || {}, 'appState')
-                    && storedResult.appState !== null
-                    && storedResult.appState !== undefined;
+                const hasStoredAppState = Object.prototype.hasOwnProperty.call(storedResult || {}, 'appState');
                 let baseData = memorySnapshot;
                 let baseDataIsDetachedFromLiveState = false;
 

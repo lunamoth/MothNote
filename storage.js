@@ -788,9 +788,9 @@ export const loadData = async () => {
         // 현재 문서 컨텍스트 안의 연속 작업 간 read-modify-write 안정성을 위한 처리입니다.
         const loadedResult = await withAppStateWriteLock(async () => {
             const mainStorageResult = await storageGet('appState');
-            const hasStoredAppState = Object.prototype.hasOwnProperty.call(mainStorageResult, 'appState')
-                && mainStorageResult.appState !== null
-                && mainStorageResult.appState !== undefined;
+            // 키가 없는 최초 실행과 키는 존재하지만 null 등으로 손상된 상태를 구별합니다.
+            // 손상 원본을 최초 실행으로 오인하면 기본 데이터를 덮어쓰게 됩니다.
+            const hasStoredAppState = Object.prototype.hasOwnProperty.call(mainStorageResult, 'appState');
             let loadedData = hasStoredAppState ? mainStorageResult.appState : null;
             let loadedFolderIdUpdateMap = new Map();
             let loadedNoteIdUpdateMap = new Map();
@@ -830,7 +830,26 @@ export const loadData = async () => {
 
         // --- BUG-C-02 FIX START ---
         // 비정상 종료 데이터 복구 로직 (안전한 '변경사항' 기반 복구)
-        const emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+        let emergencyBackupJSON = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+        if (emergencyBackupJSON !== null && !authoritativeData) {
+            // 주 저장소 자체가 없으면 대상 노트가 삭제된 것인지, 저장소만 손상된 것인지
+            // 구별할 수 없습니다. 사용자가 명시적으로 폐기한 경우에만 새로 시작합니다.
+            const discardOrphanBackup = await showConfirm({
+                title: '⚠️ 주 데이터 없이 비상 초안이 남아 있습니다',
+                message: '노트 주 데이터가 없지만 비상 백업이 남아 있어 자동으로 복원할 수 없습니다. 비상 백업을 영구적으로 버리고 새 데이터로 시작하시겠습니까? 취소하면 초안을 보존하고 앱 시작을 중단합니다.',
+                confirmText: '🗑️ 초안을 버리고 새로 시작',
+                cancelText: '초안 보존',
+                confirmButtonType: 'danger'
+            });
+            if (!discardOrphanBackup) {
+                throw createUnrecoverableAppStateError('주 노트 데이터가 없지만 비상 초안이 남아 있습니다. 초안을 보존했으니 해당 노트가 포함된 기존 백업을 가져와 주세요.');
+            }
+            if (localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP) !== emergencyBackupJSON) {
+                throw createUnrecoverableAppStateError('확인 중 비상 초안이 변경되어 보존했습니다. 새 탭을 다시 열어 주세요.');
+            }
+            localStorage.removeItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+            emergencyBackupJSON = null;
+        }
         if (emergencyBackupJSON) {
             let emergencyBackupValidated = false;
             let emergencyBackupRemoved = false;
@@ -859,6 +878,27 @@ export const loadData = async () => {
             try {
                 const backupChanges = parseEmergencyBackupChanges(emergencyBackupJSON);
                 emergencyBackupValidated = true;
+                const hadRecognizedRecoveryEntries = Boolean(backupChanges.noteUpdate || backupChanges.itemRename);
+                // 한 항목은 정상이고 다른 항목은 손상된 혼합 백업도 존재할 수 있습니다.
+                // 정규화 결과만 다시 쓰면 손상된 쪽의 원문이 확인 없이 사라지므로,
+                // 각 항목을 독립적으로 판별해 폐기 전에 사용자에게 선택권을 줍니다.
+                const rawBackupChanges = JSON.parse(emergencyBackupJSON);
+                const unrecognizedEntryKeys = ['noteUpdate', 'itemRename'].filter(key => (
+                    Object.prototype.hasOwnProperty.call(rawBackupChanges, key)
+                    && !parseEmergencyBackupChanges({ [key]: rawBackupChanges[key] })[key]
+                ));
+                if (unrecognizedEntryKeys.length) {
+                    const discardUnrecognizedEntries = await showConfirm({
+                        title: '⚠️ 일부 비상 변경사항을 읽을 수 없습니다',
+                        message: '비상 백업의 일부 항목이 손상되어 자동 복원할 수 없습니다. 해당 항목을 영구적으로 버리고 나머지를 확인하시겠습니까? 취소하면 전체 원본을 보존하고 앱 시작을 중단합니다.',
+                        confirmText: '🗑️ 손상 항목 버리기',
+                        cancelText: '전체 원본 보존',
+                        confirmButtonType: 'danger'
+                    });
+                    if (!discardUnrecognizedEntries) {
+                        throw createUnrecoverableAppStateError('일부 비상 백업을 해석하지 못해 전체 원본을 보존했습니다. 다시 시작할 때 직접 폐기 여부를 선택해 주세요.');
+                    }
+                }
                 
                 // --- [버그 수정 시작] ---
                 // 비상 복구를 실행하기 전에, 데이터 정제 과정에서 변경된 ID가 있다면 비상 백업 데이터의 ID를 먼저 업데이트합니다.
@@ -928,11 +968,11 @@ export const loadData = async () => {
                     return findNoteForEmergencyRecovery(normalizedId, data);
                 };
 
+                const missingRecoveryEntries = [];
                 if (backupChanges.noteUpdate) {
                     const recoveryTarget = findNoteForEmergencyRecovery(backupChanges.noteUpdate.noteId, authoritativeData);
                     if (!recoveryTarget) {
-                        console.warn('Emergency backup note target no longer exists. Dropping stale note recovery entry.');
-                        delete backupChanges.noteUpdate;
+                        missingRecoveryEntries.push('noteUpdate');
                     } else if (shouldDiscardEmergencyNoteUpdate(backupChanges.noteUpdate, recoveryTarget)) {
                         console.warn('Emergency backup note entry is already saved or older than the committed note. Dropping stale recovery entry.');
                         delete backupChanges.noteUpdate;
@@ -945,15 +985,42 @@ export const loadData = async () => {
                         authoritativeData
                     );
                     if (!recoveryTarget) {
-                        console.warn('Emergency backup rename target no longer exists. Dropping stale rename recovery entry.');
-                        delete backupChanges.itemRename;
+                        missingRecoveryEntries.push('itemRename');
                     } else if (shouldDiscardEmergencyItemRename(backupChanges.itemRename, recoveryTarget)) {
                         console.warn('Emergency backup rename entry is already saved or older than the committed item. Dropping stale recovery entry.');
                         delete backupChanges.itemRename;
                     }
                 }
 
+                if (missingRecoveryEntries.length) {
+                    // 더 오래된 백업을 복원한 경우 새로 만든 노트의 ID가 없을 수 있습니다.
+                    // 대상이 없다는 이유만으로 유일한 초안을 자동 삭제하지 않습니다.
+                    const discardMissingEntries = await showConfirm({
+                        title: '⚠️ 복구 대상이 없는 비상 변경사항',
+                        message: '현재 노트 데이터에 연결할 수 없는 비상 변경사항이 남아 있습니다. 더 오래된 백업을 복원한 경우에도 발생할 수 있습니다. 해당 변경사항을 영구적으로 버리고 계속하시겠습니까? 취소하면 초안을 보존하고 앱 시작을 중단합니다.',
+                        confirmText: '🗑️ 해당 변경사항 버리기',
+                        cancelText: '초안 보존',
+                        confirmButtonType: 'danger'
+                    });
+                    if (!discardMissingEntries) {
+                        throw createUnrecoverableAppStateError('연결할 수 없는 비상 초안을 보존했습니다. 해당 항목이 포함된 백업을 가져오거나, 다시 시작할 때 직접 폐기 여부를 선택해 주세요.');
+                    }
+                    missingRecoveryEntries.forEach(entryKey => { delete backupChanges[entryKey]; });
+                }
+
                 if (!backupChanges.noteUpdate && !backupChanges.itemRename) {
+                    if (!hadRecognizedRecoveryEntries && unrecognizedEntryKeys.length === 0) {
+                        const discardUnrecognizedBackup = await showConfirm({
+                            title: '⚠️ 비상 백업을 복원할 수 없습니다',
+                            message: '비상 백업에서 유효한 변경사항을 확인하지 못했습니다. 원본을 영구적으로 버리고 계속하시겠습니까? 취소하면 원본을 보존하고 앱 시작을 중단합니다.',
+                            confirmText: '🗑️ 비상 백업 버리기',
+                            cancelText: '원본 보존',
+                            confirmButtonType: 'danger'
+                        });
+                        if (!discardUnrecognizedBackup) {
+                            throw createUnrecoverableAppStateError('해석할 수 없는 비상 백업의 원본을 보존했습니다. 다시 시작할 때 직접 폐기 여부를 선택해 주세요.');
+                        }
+                    }
                     removeEmergencyBackup();
                     console.warn('Emergency backup had no applicable changes and was removed to prevent repeated recovery prompts.');
                 } else {
@@ -1187,7 +1254,9 @@ export const loadData = async () => {
                             // 적용되었거나 최신 저장본에 이미 반영된 항목만, 복구 시작 때의
                             // 정확한 스냅샷과 여전히 일치할 때 개별 정리합니다. 다른 항목의 실패나
                             // 저장 대기 중 생성된 더 최신 백업은 그대로 남깁니다.
-                            const clearableWithoutCommit = new Set(['missing', 'stale']);
+                            // 저장 경계에서 대상이 갑자기 사라진 경우도 미저장 초안이므로
+                            // 자동 폐기하지 않습니다. 이미 저장된 내용만 정리할 수 있습니다.
+                            const clearableWithoutCommit = new Set(['stale']);
                             const clearRecoveredEntry = entryKey => {
                                 const outcome = recoveryOutcome[entryKey];
                                 const wasCommitted = transactionResult.success && outcome === 'applied';
@@ -1228,12 +1297,24 @@ export const loadData = async () => {
                     }
                 }
             } catch (e) {
+                if (e?.name === 'UnrecoverableAppStateError') throw e;
                 if (!emergencyBackupValidated) {
-                    console.error("비상 백업 형식이 손상되어 안전하게 제거합니다.", e);
+                    console.error('비상 백업을 해석하지 못했습니다. 원본은 보존합니다.', e);
+                    const discardMalformedBackup = await showConfirm({
+                        title: '⚠️ 비상 백업을 읽을 수 없습니다',
+                        message: '비상 백업의 형식이 손상되어 자동 복원할 수 없습니다. 원본을 영구적으로 버리고 계속하시겠습니까? 취소하면 원본을 보존하고 앱 시작을 중단합니다.',
+                        confirmText: '🗑️ 비상 백업 버리기',
+                        cancelText: '원본 보존',
+                        confirmButtonType: 'danger'
+                    });
+                    if (!discardMalformedBackup) {
+                        throw createUnrecoverableAppStateError('읽을 수 없는 비상 백업의 원본을 보존했습니다. 다시 시작할 때 직접 폐기 여부를 선택해 주세요.');
+                    }
                     try { removeEmergencyBackup(); } catch (removeError) {
                         console.error('손상된 비상 백업을 제거하지 못했습니다.', removeError);
+                        throw createUnrecoverableAppStateError('비상 백업을 정리하지 못해 원본 보호를 위해 시작을 중단했습니다.');
                     }
-                    showToast("손상된 비상 백업을 읽을 수 없어 정리했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
+                    showToast('요청에 따라 읽을 수 없는 비상 백업을 버렸습니다.', CONSTANTS.TOAST_TYPE.ERROR);
                 } else if (!emergencyBackupRemoved) {
                     // 유효한 백업을 읽은 뒤 발생한 Storage API/모달/런타임 오류는 일시적일 수 있습니다.
                     // 유일한 미저장 데이터 사본을 삭제하지 않고 다음 실행에서 재시도합니다.
@@ -1244,6 +1325,12 @@ export const loadData = async () => {
                     console.error("비상 백업 처리 후 저장 데이터 확인 중 오류가 발생했습니다.", e);
                     showToast("비상 백업 처리 후 데이터를 확인하는 중 오류가 발생했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
                 }
+            }
+
+            // 복구 저장 실패나 충돌로 초안이 남았는데 편집을 허용하면, 다음 입력이
+            // 같은 비상 백업 항목을 덮어써 유일한 미저장 사본을 잃을 수 있습니다.
+            if (localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP) !== null) {
+                throw createUnrecoverableAppStateError('비상 변경사항 복구가 완료되지 않아 초안을 보존했습니다. 새 탭을 다시 열어 복구를 재시도해 주세요.');
             }
 
             // 복구가 저장된 뒤에는 복구 전 스냅샷으로 화면을 초기화하면 안 됩니다.
@@ -1468,9 +1555,7 @@ export const loadData = async () => {
             // 기본 노트가 생기는 문제도 방지합니다.
             const initializationResult = await withAppStateWriteLock(async () => {
                 const latestResult = await storageGet('appState');
-                const hasLatestAppState = Object.prototype.hasOwnProperty.call(latestResult, 'appState')
-                    && latestResult.appState !== null
-                    && latestResult.appState !== undefined;
+                const hasLatestAppState = Object.prototype.hasOwnProperty.call(latestResult, 'appState');
                 if (!hasLatestAppState) {
                     await storageSet({ appState: initialAppState });
                     return { appState: initialAppState, createdHere: true };
@@ -1946,9 +2031,7 @@ export const handleExport = async (settings) => {
         // 이를 통해 저장 직전의 기준 appState를 사용해 백업 누락 가능성을 줄입니다.
         const persistedResult = await withAppStateWriteLock(() => storageGet('appState'));
         const hasPersistedAppState = Boolean(persistedResult)
-            && Object.prototype.hasOwnProperty.call(persistedResult, 'appState')
-            && persistedResult.appState !== null
-            && persistedResult.appState !== undefined;
+            && Object.prototype.hasOwnProperty.call(persistedResult, 'appState');
         const rawExportState = hasPersistedAppState
             ? persistedResult.appState
             : {
@@ -2930,7 +3013,9 @@ const restoreImportBackupPayload = async (backupPayload) => {
         ? backupPayload.hadAppState
         : backupPayload.appState != null;
 
-    if (hadAppState && (!hasAppStateField || backupPayload.appState == null)) {
+    if (hadAppState && (!hasAppStateField
+        || backupPayload.appState === undefined
+        || (!isRawSnapshotBackup && backupPayload.appState === null))) {
         throw new Error('가져오기 백업에서 복원할 주 데이터를 찾을 수 없습니다.');
     }
     if (!hadAppState && hasAppStateField && backupPayload.appState != null) {
@@ -2959,8 +3044,7 @@ const restoreImportBackupPayload = async (backupPayload) => {
             } catch (error) {
                 throw new Error('가져오기 백업의 주 데이터 일관성을 확인할 수 없습니다.');
             }
-            if (appStateToRestore === null
-                || JSON.stringify(appStateToRestore) !== snapshotJson
+            if (JSON.stringify(appStateToRestore) !== snapshotJson
                 || storedObjectJson !== snapshotJson) {
                 throw new Error('가져오기 백업의 주 데이터 스냅샷이 서로 일치하지 않습니다.');
             }
@@ -3306,15 +3390,18 @@ const parseNotesnookZip = async (archiveBuffer) => {
         const dataStart = localOffset + 30 + localNameSize + localExtraSize;
         ensure(dataStart, compressedSize, 'ZIP 압축 데이터');
         if (dataStart + compressedSize > centralOffset) throw new Error('ZIP 압축 데이터 영역이 손상되었습니다.');
-        if (timestamps.creationSource !== 'ntfs') {
-            const localTimestamps = timestampFromExtra(localOffset + 30 + localNameSize, localExtraSize, dosModified);
+        // 중앙 디렉터리에 생성 시각은 있지만 수정 시각은 없는 경우도 있습니다.
+        // 생성 시각의 존재만으로 로컬 헤더 검사를 건너뛰면, 로컬에 존재하는
+        // 실제 수정 시각 대신 ZIP의 DOS 기본 시각을 사용하게 됩니다.
+        const localTimestamps = timestampFromExtra(localOffset + 30 + localNameSize, localExtraSize, dosModified);
+        if (timestamps.creationSource !== 'ntfs' && localTimestamps.creationSource === 'ntfs') {
             timestamps.createdAt = localTimestamps.createdAt;
             timestamps.creationSource = localTimestamps.creationSource;
-            if (localTimestamps.modificationSource === 'ntfs'
-                || (timestamps.modificationSource === 'dos' && localTimestamps.modificationSource === 'unix')) {
-                timestamps.updatedAt = localTimestamps.updatedAt;
-                timestamps.modificationSource = localTimestamps.modificationSource;
-            }
+        }
+        if ((localTimestamps.modificationSource === 'ntfs' && timestamps.modificationSource !== 'ntfs')
+            || (timestamps.modificationSource === 'dos' && localTimestamps.modificationSource === 'unix')) {
+            timestamps.updatedAt = localTimestamps.updatedAt;
+            timestamps.modificationSource = localTimestamps.modificationSource;
         }
         entries.push({ name, method, compressedSize, uncompressedSize, dataStart, expectedCrc, ...timestamps });
     }
@@ -3828,8 +3915,7 @@ export const setupImportHandler = () => {
                 // 실패 시 같은 경계 안에서 원본을 복원해 가져오기 실패 시 원본 복구 안정성을 유지합니다.
                 const importApplied = await withAppStateWriteLock(async () => {
                     const currentDataResult = await storageGet('appState');
-                    const hasCurrentAppState = Object.prototype.hasOwnProperty.call(currentDataResult, 'appState')
-                        && currentDataResult.appState != null;
+                    const hasCurrentAppState = Object.prototype.hasOwnProperty.call(currentDataResult, 'appState');
                     const appStateSnapshotJson = hasCurrentAppState
                         ? JSON.stringify(currentDataResult.appState)
                         : null;
