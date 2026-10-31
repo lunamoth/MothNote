@@ -3185,10 +3185,11 @@ const parseNotesnookZip = async (archiveBuffer) => {
         if (filetime === 0n) return null;
         return toValidTimestamp(Number(filetime / 10000n - 11644473600000n));
     };
-    const timestampFromExtra = (start, length, fallback) => {
+    const timestampFromExtra = (start, length, fallback, { isLocalHeader = false } = {}) => {
         let createdAt = null;
         let modifiedAt = null;
         let unixModifiedAt = null;
+        let unixCreatedAt = null;
         parseExtra(start, length, (id, dataStart, size) => {
             if (id === 0x000a && size >= 8) { // NTFS: mtime/atime/ctime (100ns, UTC)
                 for (let p = dataStart + 4; p + 4 <= dataStart + size;) {
@@ -3200,14 +3201,34 @@ const parseNotesnookZip = async (archiveBuffer) => {
                     }
                     p += 4 + tagLength;
                 }
-            } else if (id === 0x5455 && size >= 5 && (bytes[dataStart] & 1)) {
-                unixModifiedAt = toValidTimestamp(u32(dataStart + 1) * 1000);
+            } else if (id === 0x5455 && size >= 1) {
+                // Info-ZIP 확장 시각은 플래그에 따라 수정·접근·생성 시각이 순서대로
+                // 저장됩니다. 중앙 헤더에는 생성/접근 플래그가 켜져 있어도 해당 값이
+                // 없을 수 있으므로, 생성 시각은 로컬 헤더에서만 읽습니다.
+                const flags = bytes[dataStart];
+                const end = dataStart + size;
+                let cursor = dataStart + 1;
+                const readUnixTime = bit => {
+                    if (!(flags & bit)) return null;
+                    if (cursor + 4 > end) {
+                        cursor = end;
+                        return null;
+                    }
+                    const value = toValidTimestamp(u32(cursor) * 1000);
+                    cursor += 4;
+                    return value;
+                };
+                unixModifiedAt = readUnixTime(1) ?? unixModifiedAt;
+                if (isLocalHeader) {
+                    readUnixTime(2); // 접근 시각은 위치만 건너뜁니다.
+                    unixCreatedAt = readUnixTime(4) ?? unixCreatedAt;
+                }
             }
         });
         return {
-            createdAt,
+            createdAt: createdAt ?? unixCreatedAt,
             updatedAt: modifiedAt ?? unixModifiedAt ?? fallback,
-            creationSource: createdAt ? 'ntfs' : 'fallback',
+            creationSource: createdAt ? 'ntfs' : (unixCreatedAt ? 'unix' : 'fallback'),
             modificationSource: modifiedAt ? 'ntfs' : (unixModifiedAt ? 'unix' : 'dos')
         };
     };
@@ -3393,8 +3414,11 @@ const parseNotesnookZip = async (archiveBuffer) => {
         // 중앙 디렉터리에 생성 시각은 있지만 수정 시각은 없는 경우도 있습니다.
         // 생성 시각의 존재만으로 로컬 헤더 검사를 건너뛰면, 로컬에 존재하는
         // 실제 수정 시각 대신 ZIP의 DOS 기본 시각을 사용하게 됩니다.
-        const localTimestamps = timestampFromExtra(localOffset + 30 + localNameSize, localExtraSize, dosModified);
-        if (timestamps.creationSource !== 'ntfs' && localTimestamps.creationSource === 'ntfs') {
+        const localTimestamps = timestampFromExtra(
+            localOffset + 30 + localNameSize, localExtraSize, dosModified, { isLocalHeader: true }
+        );
+        if ((localTimestamps.creationSource === 'ntfs' && timestamps.creationSource !== 'ntfs')
+            || (timestamps.creationSource === 'fallback' && localTimestamps.creationSource === 'unix')) {
             timestamps.createdAt = localTimestamps.createdAt;
             timestamps.creationSource = localTimestamps.creationSource;
         }
@@ -3410,6 +3434,7 @@ const parseNotesnookZip = async (archiveBuffer) => {
 
     const notes = [];
     let fallbackCreationCount = 0;
+    let fallbackModificationCount = 0;
     let totalActualBytes = 0;
     for (const entry of entries) {
         const compressed = bytes.subarray(entry.dataStart, entry.dataStart + entry.compressedSize);
@@ -3471,12 +3496,13 @@ const parseNotesnookZip = async (archiveBuffer) => {
         const updatedAt = entry.updatedAt ?? Date.now();
         const createdAt = entry.createdAt ?? updatedAt;
         if (!entry.createdAt) fallbackCreationCount++;
+        if (entry.updatedAt == null) fallbackModificationCount++;
         notes.push({
             title, content, createdAt, updatedAt, isPinned: false,
             path: entry.name
         });
     }
-    return { notes, ignoredFiles, fallbackCreationCount };
+    return { notes, ignoredFiles, fallbackCreationCount, fallbackModificationCount };
 };
 
 export const setupImportHandler = () => {
@@ -3586,10 +3612,11 @@ export const setupImportHandler = () => {
                 const isZipArchive = header.length >= 4 && header[0] === 0x50 && header[1] === 0x4b
                     && (header[2] === 0x03 || header[2] === 0x05 || header[2] === 0x07);
                 if (isZipArchive || /\.zip$/i.test(file.name)) {
-                    const { notes, ignoredFiles, fallbackCreationCount } = await parseNotesnookZip(importedBuffer);
+                    const { notes, ignoredFiles, fallbackCreationCount, fallbackModificationCount } = await parseNotesnookZip(importedBuffer);
                     const warning = [
                         ignoredFiles ? `Markdown 이외 파일 ${ignoredFiles}개는 메모로 변환하지 않습니다. (첨부파일 원본은 보존하시기 바랍니다.)` : '',
-                        fallbackCreationCount ? `${fallbackCreationCount}개 노트에는 생성 시각이 없어 확인 가능한 수정 시각으로 작성 일시를 대신합니다.` : ''
+                        fallbackCreationCount ? `${fallbackCreationCount}개 노트에는 생성 시각이 없어 수정 시각으로 작성 일시를 대신합니다. 수정 시각도 없으면 가져오기 시각을 사용합니다.` : '',
+                        fallbackModificationCount ? `${fallbackModificationCount}개 노트에는 수정 시각이 없어 가져오기 시각을 수정 일시로 사용합니다.` : ''
                     ].filter(Boolean).join('<br>');
                     const confirmed = await showConfirm({
                         title: '📥 Notesnook Markdown ZIP 가져오기',
