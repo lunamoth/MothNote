@@ -24,7 +24,7 @@ import {
     // [기능 추가] 다이어트 챌린지 관련 요소
     dietChallengeBtn, dietChallengeContainer, dietChallengeIframe, closeDietChallengeBtn
 } from './components.js';
-import { renderAll, clearSortedNotesCache } from './renderer.js';
+import { renderAll, renderEditor, clearSortedNotesCache } from './renderer.js';
 // [버그 수정] itemActions.js에서 handleRestoreItem, handleTextareaKeyDown 함수를 가져옵니다.
 import { 
     handleAddFolder, handleAddNote, handleEmptyTrash, handlePinNote,
@@ -56,6 +56,10 @@ let weatherCitySearchRequestId = 0;
 let weatherCitySearchAbortController = null;
 
 const persistAppSettings = (settingsToPersist) => {
+    if (window.isInitializing || window.hasInitializationFailed) {
+        showToast('초기화 또는 복구가 완료되지 않아 설정을 저장하지 않았습니다. 새 탭에서 복구를 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return null;
+    }
     const sanitizedSettings = sanitizeSettings(settingsToPersist);
     try {
         localStorage.setItem(CONSTANTS.LS_KEY_SETTINGS, JSON.stringify(sanitizedSettings));
@@ -328,6 +332,10 @@ const openSettingsModal = async () => {
         showToast('노트 저장에 실패하여 설정을 열지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
+
+    // 초기화 실패 시에는 아래의 일반 설정 로드 단계에 도달하지 못합니다.
+    // 백업 복원을 위해 설정창을 열어도 기존 설정을 기본값처럼 표시하지 않습니다.
+    if (window.hasInitializationFailed) loadAndApplySettings();
 
     // [기능 추가] 모달이 열릴 때마다 저장소 사용량을 업데이트합니다.
     updateStorageUsageDisplay();
@@ -1275,6 +1283,8 @@ class Dashboard {
 }
 
 window.isInitializing = true;
+// 초기화 실패 후에도 미리 연결된 이벤트는 남아 있으므로 별도로 보호 상태를 유지합니다.
+window.hasInitializationFailed = false;
 window.isImporting = false;
 // 가져오기 적용이 끝난 뒤 예약된 재시작은 진행 중 가져오기와 구분합니다.
 // 완료된 가져오기의 자동 reload에는 이탈 경고를 띄우지 않되, 실제 화면 전환 전까지
@@ -2105,6 +2115,8 @@ const init = async () => {
 
     } catch (e) {
         // 핵심 경로 실패는 복구가 거의 불가능하므로 사용자에게 심각한 오류를 알립니다.
+        // 이후 일반 편집/저장과 세션 기록을 막고, 명시적인 백업 복원은 계속 허용합니다.
+        window.hasInitializationFailed = true;
         ensureThemeApplied();
         console.error("Critical initialization failed, app cannot start:", e);
         const errorMessage = e?.name === 'UnrecoverableAppStateError'
@@ -2116,6 +2128,8 @@ const init = async () => {
     } finally {
         // 성공하든 실패하든 초기화 상태 플래그는 해제합니다.
         window.isInitializing = false;
+        // 초기화 동안 읽기 전용이었던 편집기를 성공 시 다시 열고, 실패 시에는 잠급니다.
+        void renderEditor().catch(error => console.error('Editor refresh after initialization failed:', error));
         ensureThemeApplied();
     }
 

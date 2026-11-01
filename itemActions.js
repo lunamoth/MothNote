@@ -212,6 +212,7 @@ const EMERGENCY_BACKUP_CONTENT_KEYS = ['noteUpdate', 'itemRename'];
 // 구간에도 실제 복구 사본이 존재하도록 합니다. 두 편집 유형은 서로 덮어쓰지 않게 병합합니다.
 export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
     if (typeof localStorage === 'undefined'
+        || (typeof window !== 'undefined' && (window.isInitializing || window.hasInitializationFailed))
         || !EMERGENCY_BACKUP_CONTENT_KEYS.includes(entryKey)
         || !entryValue
         || typeof entryValue !== 'object'
@@ -272,6 +273,7 @@ export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
 export const TRANSACTION_FAILURE_REASON = Object.freeze({
     NO_CHANGE: 'no-change',
     ERROR: 'error',
+    INITIALIZATION_BLOCKED: 'initialization-blocked',
     IMPORT_IN_PROGRESS: 'import-in-progress',
     IMPORT_RECOVERY_PENDING: 'import-recovery-pending'
 });
@@ -398,7 +400,13 @@ const clearRenameEmergencyBackup = (id, type) => {
 // 현재 문서 컨텍스트 안의 연속 작업, 자동 저장, 이름 변경, 삭제/복원 흐름이
 // 서로 어긋나지 않도록 read-modify-write 순서를 명확히 합니다.
 // 멀티탭 동시 편집의 병합이나 상태 조정은 지원 범위가 아닙니다.
-export const performTransactionalUpdate = async (updateFn) => {
+export const performTransactionalUpdate = async (updateFn, { allowDuringInitialization = false } = {}) => {
+    const getInitializationBlockedResult = () => {
+        if (typeof window === 'undefined'
+            || (!window.hasInitializationFailed && (!window.isInitializing || allowDuringInitialization))) return null;
+        showToast('초기화 또는 복구가 완료되지 않아 변경 작업을 중단했습니다. 새 탭에서 복구를 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return { success: false, payload: null, failureReason: TRANSACTION_FAILURE_REASON.INITIALIZATION_BLOCKED };
+    };
     const getRecoveryBlockedResult = () => {
         let recoveryPending;
         try {
@@ -428,6 +436,9 @@ export const performTransactionalUpdate = async (updateFn) => {
             failureReason: TRANSACTION_FAILURE_REASON.IMPORT_IN_PROGRESS
         };
     };
+
+    const initializationBlockedResult = getInitializationBlockedResult();
+    if (initializationBlockedResult) return initializationBlockedResult;
 
     // 편집/삭제 작업이 가져오기 전에 시작됐더라도 저장 큐에서
     // 교체 가져오기 뒤로 밀리면 새 appState를 오래된 UI 스냅샷으로 변경할 수 있습니다.
@@ -462,6 +473,8 @@ export const performTransactionalUpdate = async (updateFn) => {
 
     try {
         return await withAppStateWriteLock(async () => {
+            const queuedInitializationBlockedResult = getInitializationBlockedResult();
+            if (queuedInitializationBlockedResult) return queuedInitializationBlockedResult;
             // 호출 시점에는 일반 작업이었어도 락 대기 중 가져오기가
             // 시작될 수 있으므로, 실제 저장 경계에 진입한 직후 다시 확인합니다.
             if (typeof window !== 'undefined' && window.isReplacementImportActive) {
@@ -1719,6 +1732,7 @@ export async function saveCurrentNoteIfChanged() {
 }
 
 export async function handleUserInput() {
+    if (typeof window !== 'undefined' && (window.isInitializing || window.hasInitializationFailed)) return;
     if (!state.activeNoteId) return;
 
     const { item: activeNote } = findNote(state.activeNoteId);

@@ -97,6 +97,9 @@ let importOperationInProgress = false;
 // 손상 원본도 바이트 의미상 최대한 그대로 보존해야 합니다. 새 형식은 동일 스냅샷의
 // JSON 직렬화본을 함께 기록해 내부 백업의 일관성을 확인한 뒤 원형 그대로 복원합니다.
 const IMPORT_BACKUP_FORMAT_VERSION = 2;
+// 비상 초안이 남은 상태에서 구버전 ID를 정리할 때, 복구가 중단되어도
+// 다음 시작에서 초안의 과거 ID를 새 ID에 다시 연결하기 위한 내부 기록입니다.
+const EMERGENCY_ID_REMAP_FIELD = '_mothnoteEmergencyIdRemap';
 
 // [CRITICAL FIX] 실제 데이터 ID가 가상 폴더 ID와 충돌하면 해당 항목을 선택/삭제/복원할 수 없게 됩니다.
 // 로드/가져오기 시 폴더·노트 ID 형식과 예약 ID를 엄격히 검증해 앱 내부 참조 무결성을 보장합니다.
@@ -255,7 +258,7 @@ const getFolderIdAfterSanitization = (folderId, folderIdUpdateMap = new Map()) =
 // 세션 상태(활성 폴더/노트 등) 저장
 // 초기화 중 임의의 중간 상태는 저장하지 않되, loadData()가 검증을 끝낸 최종 상태만 명시적으로 저장할 수 있습니다.
 export const saveSession = ({ allowDuringInitialization = false } = {}) => {
-    if (window.isInitializing && !allowDuringInitialization) return;
+    if (window.hasInitializationFailed || (window.isInitializing && !allowDuringInitialization)) return;
     try {
         localStorage.setItem(CONSTANTS.LS_KEY, JSON.stringify({
             f: state.activeFolderId,
@@ -806,6 +809,47 @@ export const loadData = async () => {
                 loadedNoteIdUpdateMap = verification.noteIdUpdateMap;
                 shouldShowRecoveryNotice = verification.shouldNotify;
 
+                // ID 보정은 주 데이터에 먼저 저장되지만 비상 초안은 별도 저장소에 있습니다.
+                // 그 사이 복구를 취소하거나 앱이 종료되면 다음 시작에는 보정 맵이 사라져
+                // 초안을 원래 노트에 연결할 수 없습니다. 주 데이터와 같은 쓰기에 보정 맵을
+                // 함께 기록하고, 초안이 남아 있는 동안 재시작 시 다시 읽습니다.
+                const pendingEmergencyBackup = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                if (pendingEmergencyBackup !== null) {
+                    const folderIds = new Set();
+                    const noteIds = new Set();
+                    const collectFolder = folder => {
+                        if (folder?.id) folderIds.add(String(folder.id));
+                        for (const note of Array.isArray(folder?.notes) ? folder.notes : []) {
+                            if (note?.id) noteIds.add(String(note.id));
+                        }
+                    };
+                    for (const folder of loadedData.folders) collectFolder(folder);
+                    for (const item of loadedData.trash) {
+                        if (getTrashItemKind(item) === CONSTANTS.ITEM_TYPE.FOLDER) collectFolder(item);
+                        else if (item?.id) noteIds.add(String(item.id));
+                    }
+                    const priorJournal = loadedData[EMERGENCY_ID_REMAP_FIELD];
+                    const mergePriorRemaps = (entries, targetMap, validIds) => {
+                        if (!Array.isArray(entries)) return;
+                        for (const pair of entries) {
+                            if (!Array.isArray(pair) || pair.length !== 2
+                                || typeof pair[0] !== 'string' || !pair[0]
+                                || typeof pair[1] !== 'string' || !pair[1]) continue;
+                            const currentId = targetMap.get(pair[1]) || pair[1];
+                            if (!targetMap.has(pair[0]) && validIds.has(currentId)) targetMap.set(pair[0], currentId);
+                        }
+                    };
+                    mergePriorRemaps(priorJournal?.folders, loadedFolderIdUpdateMap, folderIds);
+                    mergePriorRemaps(priorJournal?.notes, loadedNoteIdUpdateMap, noteIds);
+
+                    if (verification.wasSanitized && (loadedFolderIdUpdateMap.size || loadedNoteIdUpdateMap.size)) {
+                        loadedData[EMERGENCY_ID_REMAP_FIELD] = {
+                            folders: Array.from(loadedFolderIdUpdateMap),
+                            notes: Array.from(loadedNoteIdUpdateMap)
+                        };
+                    }
+                }
+
                 if (verification.wasSanitized) {
                     await storageSet({ appState: loadedData });
                     console.log('Sanitized data has been saved back to storage.');
@@ -1079,9 +1123,9 @@ export const loadData = async () => {
                                     // 사용자가 새 이름을 입력하면 백업 객체를 수정하여 복원을 계속합니다.
                                     backupChanges.itemRename.newName = resolvedName.trim();
                                 } else {
-                                    // 사용자가 취소하면 이름 변경 복원만 제외하고 나머지는 계속 진행합니다.
-                                    showToast(CONSTANTS.MESSAGES.ERROR.RENAME_RECOVERY_CANCELED, CONSTANTS.TOAST_TYPE.ERROR);
-                                    delete backupChanges.itemRename;
+                                    // 이름 입력 취소는 유일한 비상 초안의 영구 폐기에 대한 동의가 아닙니다.
+                                    // 다른 초안도 함께 보존하고 다음 시작에 다시 복구하도록 합니다.
+                                    throw createUnrecoverableAppStateError('이름 충돌 해결을 취소하여 비상 변경사항을 모두 보존했습니다. 새 탭에서 복구를 다시 시도해 주세요.');
                                 }
                             }
                         }
@@ -1249,7 +1293,7 @@ export const loadData = async () => {
                                     };
                                 }
                                 return null; // 적용할 변경이 없으면 업데이트 취소
-                            });
+                            }, { allowDuringInitialization: true });
 
                             // 적용되었거나 최신 저장본에 이미 반영된 항목만, 복구 시작 때의
                             // 정확한 스냅샷과 여전히 일치할 때 개별 정리합니다. 다른 항목의 실패나
@@ -2328,6 +2372,10 @@ export const handleExport = async (settings) => {
 
 export const handleImport = async () => {
     // 실제 동작은 app.js에서 처리하므로, 여기서는 클릭 이벤트만 트리거
+    if (window.isInitializing) {
+        showToast('초기화와 복구 확인이 끝난 뒤 백업을 가져와 주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return;
+    }
     if (!importFileInput) {
         console.error('Import failed: import file input element was not found.');
         showToast('가져오기 입력 요소를 찾을 수 없어 작업을 시작하지 못했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
@@ -3514,6 +3562,12 @@ export const setupImportHandler = () => {
     importFileInput.onchange = async e => {
         const file = e.target.files[0];
         if (!file) return;
+
+        if (window.isInitializing) {
+            showToast('초기화와 복구 확인이 끝난 뒤 백업을 가져와 주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+            e.target.value = '';
+            return;
+        }
 
         // 첫 번째 FileReader가 끝나기 전에 두 번째 파일이 선택되면
         // 서로 다른 확인 모달·롤백 백업·재시작 타이머가 겹칠 수 있습니다.

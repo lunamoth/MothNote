@@ -603,8 +603,9 @@ export const renderEditor = async () => {
     editorContainer.classList.toggle('markdown-view-mode', state.isMarkdownView);
 
     const isReadOnly = isInTrash;
-    noteTitleInput.readOnly = isReadOnly || state.isMarkdownView || state.isPerformingOperation;
-    noteContentTextarea.readOnly = isReadOnly || state.isPerformingOperation;
+    const initializationBlocked = window.isInitializing || window.hasInitializationFailed;
+    noteTitleInput.readOnly = isReadOnly || state.isMarkdownView || state.isPerformingOperation || initializationBlocked;
+    noteContentTextarea.readOnly = isReadOnly || state.isPerformingOperation || initializationBlocked;
     editorContainer.classList.toggle(CONSTANTS.CLASSES.READONLY, isReadOnly);
 
     // 저장 실패나 메타데이터 변경처럼 편집기와 무관한 상태 갱신도 전체 렌더를 유발합니다.
