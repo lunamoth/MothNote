@@ -2312,26 +2312,33 @@
                 const dailyLoss = lossKg / days;
                 const userIntake = AppState.settings.intake || 2000;
                 const estimatedTdee = userIntake + (dailyLoss * 7700);
-                AppState.getEl('estTdeeDisplay').innerText = `${Math.round(estimatedTdee)} kcal`;
-                AppState.getEl('estTdeeSubDisplay').innerText = `(섭취 ${userIntake}kcal 가정)`;
+                // 체중 변화를 단순 환산한 값이 0 이하이면 소모량 추정으로 사용할 수
+                // 없으며, 이를 분모로 쓰면 Infinity 또는 잘못된 효율이 표시됩니다.
+                const hasUsableTdee = Number.isFinite(estimatedTdee) && estimatedTdee > 0;
+                AppState.getEl('estTdeeDisplay').innerText = hasUsableTdee
+                    ? `${Math.round(estimatedTdee)} kcal`
+                    : '추정 불가';
+                AppState.getEl('estTdeeSubDisplay').innerText = hasUsableTdee
+                    ? `(섭취 ${userIntake}kcal 가정)`
+                    : '(체중 변화로 계산한 소모량이 유효하지 않음)';
                 
                 const calEffEl = AppState.getEl('calEfficiencyDisplay');
                 if(calEffEl) {
                     const actualDeficit = dailyLoss * 7700;
-                    const eff = (actualDeficit / estimatedTdee) * 100;
-                    calEffEl.innerText = `${eff.toFixed(1)}%`;
+                    const eff = hasUsableTdee ? (actualDeficit / estimatedTdee) * 100 : null;
+                    calEffEl.innerText = Number.isFinite(eff) ? `${eff.toFixed(1)}%` : '추정 불가';
                 }
 
                 const maEl = AppState.getEl('metabolicAdaptDisplay');
                 if(maEl) {
-                    const expectedLossKg = (estimatedTdee - userIntake) / 7700;
-                    const diff = dailyLoss - expectedLossKg; 
-                    if (diff < -0.05) maEl.innerText = "대사 저하 의심";
-                    else maEl.innerText = "정상 범위";
+                    // estimatedTdee 자체를 dailyLoss로 역산했으므로 다시 감량으로
+                    // 환산하면 같은 값입니다. 이 항등식으로 정상/저하를 판정하지 않습니다.
+                    maEl.innerText = '판단 불가';
                 }
 
             } else {
                 AppState.getEl('estTdeeDisplay').innerText = '-';
+                AppState.getEl('estTdeeSubDisplay').innerText = '(서로 다른 날짜의 기록 필요)';
                 const calEffEl = AppState.getEl('calEfficiencyDisplay');
                 if(calEffEl) calEffEl.innerText = '-';
                 const maEl = AppState.getEl('metabolicAdaptDisplay');
@@ -2339,6 +2346,7 @@
             }
         } else {
             AppState.getEl('estTdeeDisplay').innerText = '데이터 수집중';
+            AppState.getEl('estTdeeSubDisplay').innerText = '(기록 3개 이상 필요)';
             const calEffEl = AppState.getEl('calEfficiencyDisplay');
             if(calEffEl) calEffEl.innerText = '-';
             const maEl = AppState.getEl('metabolicAdaptDisplay');
@@ -2441,7 +2449,9 @@
              
              const ptEl = AppState.getEl('paperTowelDisplay');
              if(ptEl) {
-                 const dailyRate = Math.abs(wSpeed / 7);
+                 // 증량 속도의 절댓값을 감량 속도로 사용하면 증량 중에도
+                 // "1% 감량 소요 시간"이 계산됩니다. 실제 감소한 경우만 예측합니다.
+                 const dailyRate = -wSpeed / 7;
                  if (dailyRate > 0) {
                     const onePercent = s.current * 0.01;
                     const days = onePercent / dailyRate;

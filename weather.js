@@ -998,6 +998,10 @@
         if (diurnalRange !== null && diurnalRange >= 10) risks.push({ label: `일교차 ${formatWithUnit(diurnalRange, 1, '°C')}`, severity: 2 });
         if (humidity !== null && humidity >= 85) risks.push({ label: `높은 습도 ${formatWithUnit(humidity, 0, '%')}`, severity: 1 });
         if (minVisibility !== null && minVisibility < 5000) risks.push({ label: `시정 저하`, severity: minVisibility < 1000 ? 3 : 2 });
+        if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'precipitation', 'wind_gusts_10m'], startIndex, 24)
+            || !hasCompleteHourlyWindow(hourly, ['visibility'], startIndex, 12)) {
+            risks.push({ label: '기상 자료 확인', severity: 1 });
+        }
         if (!risks.length) risks.push({ label: '큰 위험 신호 없음', severity: 0 });
         return risks.sort((a, b) => b.severity - a.severity).slice(0, 3);
     }
@@ -1011,11 +1015,10 @@
         for (let start = startIndex; start <= lastStart; start += 1) {
             const end = start + windowSize;
             // 핵심 시간별 값이 빠진 구간은 0점 감점으로 100점 추천이 되지 않게 제외합니다.
-            const hasRequiredWeather = ['precipitation_probability', 'wind_speed_10m', 'apparent_temperature'].every((field) => {
-                const values = hourly[field]?.slice(start, end);
-                return Array.isArray(values) && values.length === windowSize
-                    && values.every((value) => toFiniteNumber(value) !== null);
-            });
+            const hasRequiredWeather = hasCompleteHourlyWindow(hourly, [
+                'precipitation_probability', 'wind_speed_10m', 'apparent_temperature',
+                'wind_gusts_10m', 'uv_index', 'visibility'
+            ], start, windowSize);
             if (!hasRequiredWeather) continue;
             const rain = average(hourly.precipitation_probability?.slice(start, end));
             const wind = average(hourly.wind_speed_10m?.slice(start, end));
@@ -1070,6 +1073,10 @@
         else if (air.hasAirQualityWarning) action = '대기질 주의 신호가 있어 외출 전 대기질을 확인하고 야외활동 강도를 조절하는 것이 좋습니다.';
         else if ((toFiniteNumber(air.uvValue) ?? 0) >= 6) action = `낮 시간대 ${uvText} 신호가 있어 자외선 차단을 챙기세요.`;
         else if (!air.hasAirQualityAssessment || toFiniteNumber(air.uvValue) === null) action = '대기질 또는 자외선 자료가 부족해 외출 적합 여부를 판단할 수 없습니다. 외출 전 최신 정보를 확인해 주세요.';
+        else if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'precipitation', 'wind_gusts_10m'], startIndex, 24)
+            || !hasCompleteHourlyWindow(hourly, ['visibility'], startIndex, 12)) {
+            action = '일부 시간대의 기상 자료가 부족해 외출 적합 여부를 판단할 수 없습니다. 외출 전 최신 예보를 확인해 주세요.';
+        }
         return { tag: topRisk?.severity ? topRisk.label : '무난', tone: getToneFromSeverity(topRisk?.severity ?? 0), text: `${base} ${action}` };
     }
 
@@ -1082,18 +1089,21 @@
         if ((toFiniteNumber(todaySnow) ?? 0) > 0) return { icon: '❄️', title: '강수·우산 판단', tag: '눈 가능', tone: 'warn', text: `눈 예보가 있습니다. 예상 적설 또는 강수 신호와 미끄럼, 시야 저하를 함께 확인해 주세요.` };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 65 || (toFiniteNumber(todayRain) ?? 0) >= 10 || (toFiniteNumber(currentPrecip) ?? 0) > 0) return { icon: '☔', title: '강수·우산 판단', tag: '우산 권장', tone: 'warn', text: `앞으로 24시간 최대 강수확률은 ${formatWithUnit(maxRainProb, 0, '%')}, 예상 강수량은 ${formatWithUnit(todayRain, 1, ' mm')}입니다. 이동 시간이 길다면 우산을 챙기시는 편이 안전합니다.` };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 40 || (toFiniteNumber(rainSum24) ?? 0) > 0) return { icon: '🌂', title: '강수·우산 판단', tag: '확률 확인', tone: 'info', text: `강수 가능성이 조금 있습니다. 앞으로 24시간 최대 강수확률은 ${formatWithUnit(maxRainProb, 0, '%')}입니다.` };
+        if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'precipitation'], startIndex, 24)) return { icon: '❔', title: '강수·우산 판단', tag: '자료 확인', tone: 'info', text: '앞으로 24시간의 강수 자료가 일부 부족해 비 가능성이 낮다고 판단할 수 없습니다. 최신 예보를 확인해 주세요.' };
         return { icon: '🌤️', title: '강수·우산 판단', tag: '강수 낮음', tone: 'good', text: `앞으로 24시간 최대 강수확률은 ${formatWithUnit(maxRainProb, 0, '%')}로 낮은 편입니다.` };
     }
 
     function getWindBriefing(current, hourly, dailyData, startIndex) {
         const maxWind = maxNextHourly(hourly, 'wind_speed_10m', startIndex, 24) ?? current?.windspeed ?? current?.wind_speed_10m;
-        const maxGust = Math.max(
-            toFiniteNumber(maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 24)) ?? 0,
-            toFiniteNumber(dailyData?.wind_gusts_10m_max?.[0]) ?? 0,
-            toFiniteNumber(current?.wind_gusts_10m) ?? 0
-        );
+        const gustValues = [
+            maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 24),
+            dailyData?.wind_gusts_10m_max?.[0],
+            current?.wind_gusts_10m
+        ].map(toFiniteNumber).filter(value => value !== null);
+        const maxGust = gustValues.length ? Math.max(...gustValues) : null;
         if (maxGust >= 50) return { tag: '강풍 유의', tone: 'danger', text: `최대 돌풍이 ${formatWithUnit(maxGust, 1, ' km/h')}까지 강해질 수 있습니다. 우산, 자전거, 해안가 이동에 유의하세요.` };
         if (maxGust >= 35 || (toFiniteNumber(maxWind) ?? 0) >= 30) return { tag: '바람 주의', tone: 'warn', text: `최대 풍속 ${formatWithUnit(maxWind, 1, ' km/h')}, 돌풍 ${formatWithUnit(maxGust, 1, ' km/h')} 수준입니다. 가벼운 물건은 고정하는 편이 좋습니다.` };
+        if (!hasCompleteHourlyWindow(hourly, ['wind_speed_10m', 'wind_gusts_10m'], startIndex, 24)) return { tag: '자료 확인', tone: 'info', text: '앞으로 24시간의 풍속 또는 돌풍 자료가 일부 부족해 바람이 무난하다고 판단할 수 없습니다. 최신 예보를 확인해 주세요.' };
         return { tag: '무난', tone: 'good', text: `바람은 대체로 무난합니다. 최대 풍속 ${formatWithUnit(maxWind, 1, ' km/h')}, 돌풍 ${formatWithUnit(maxGust, 1, ' km/h')} 수준입니다.` };
     }
 
@@ -1105,6 +1115,8 @@
         if (!air.hasAirQualityAssessment) return { tag: '자료 확인', tone: 'info', text: '대기질 자료가 부족합니다. 환기 전 실시간 대기질과 비·바람을 함께 확인해 주세요.' };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 60) return { tag: '비 확인', tone: 'info', text: `대기질은 큰 부담이 없지만 가까운 시간 강수 가능성이 있습니다. 창문을 열기 전 비 여부를 확인하세요.` };
         if ((toFiniteNumber(wind) ?? 0) >= 35) return { tag: '바람 확인', tone: 'info', text: `대기질은 무난하지만 바람이 다소 강할 수 있습니다. 짧은 환기가 적합합니다.` };
+        if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability'], startIndex, 6)
+            || toFiniteNumber(wind) === null) return { tag: '자료 확인', tone: 'info', text: '비 또는 바람 자료가 부족해 환기 조건을 판단할 수 없습니다. 창문을 열기 전 최신 예보를 확인해 주세요.' };
         return { tag: '환기 무난', tone: 'good', text: `대기질이 대체로 무난하고 강한 비·바람 신호가 크지 않아 짧은 환기에 큰 부담은 적습니다.` };
     }
 
@@ -1131,6 +1143,7 @@
         if (stormy) return { tag: '뇌우 주의', tone: 'danger', text: '뇌우 신호가 있어 이동 시 실시간 기상 알림과 도로 상황을 확인하는 편이 안전합니다.' };
         if ((toFiniteNumber(minVisibility) ?? Infinity) < 1000) return { tag: '시야 매우 낮음', tone: 'danger', text: `가까운 12시간 최저 시정이 ${formatWithUnit(minVisibility, 0, ' m')} 수준입니다. 운전 시 감속과 차간거리 확보가 필요합니다.` };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 60 || (toFiniteNumber(maxGust) ?? 0) >= 45 || (toFiniteNumber(minVisibility) ?? Infinity) < 5000) return { tag: '이동 주의', tone: 'warn', text: `강수확률 ${formatWithUnit(maxRainProb, 0, '%')}, 돌풍 ${formatWithUnit(maxGust, 1, ' km/h')}, 최저 시정 ${formatWithUnit(minVisibility, 0, ' m')}를 확인하세요.` };
+        if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'wind_gusts_10m', 'visibility'], startIndex, 12)) return { tag: '자료 확인', tone: 'info', text: '가까운 12시간의 강수·돌풍·시정 자료가 일부 부족해 이동 조건을 판단할 수 없습니다. 최신 예보를 확인해 주세요.' };
         return { tag: '이동 무난', tone: 'good', text: '강수, 강풍, 시정 저하 신호가 크지 않아 일반적인 이동은 대체로 무난합니다.' };
     }
 
@@ -1142,6 +1155,7 @@
         const windAvg = average(hourly?.wind_speed_10m?.slice(startIndex, startIndex + 12));
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 50 || (toFiniteNumber(precipitation) ?? 0) > 0.5) return { tag: '실내 권장', tone: 'warn', text: `강수 가능성이 있어 빨래·건조는 실내가 더 안전합니다. 12시간 최대 강수확률은 ${formatWithUnit(maxRainProb, 0, '%')}입니다.` };
         if ((toFiniteNumber(humidityAvg) ?? 0) >= 75 || (toFiniteNumber(cloudAvg) ?? 0) >= 80) return { tag: '건조 느림', tone: 'info', text: `평균 습도 ${formatWithUnit(humidityAvg, 0, '%')}, 구름량 ${formatWithUnit(cloudAvg, 0, '%')}로 건조 속도가 느릴 수 있습니다.` };
+        if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'precipitation', 'relative_humidity_2m', 'cloud_cover', 'wind_speed_10m'], startIndex, 12)) return { tag: '자료 확인', tone: 'info', text: '가까운 12시간의 기상 자료가 일부 부족해 실외 건조 조건을 판단할 수 없습니다. 최신 예보를 확인해 주세요.' };
         if ((toFiniteNumber(windAvg) ?? 0) >= 8 && (toFiniteNumber(cloudAvg) ?? 100) < 60) return { tag: '건조 양호', tone: 'good', text: `비 가능성이 낮고 바람도 약간 있어 빨래 건조 조건은 비교적 괜찮습니다.` };
         return { tag: '보통', tone: 'good', text: '강수 신호는 크지 않지만 습도와 구름량을 함께 보며 건조 시간을 넉넉히 잡는 편이 좋습니다.' };
     }
@@ -1212,6 +1226,19 @@
             .slice(startIndex, Math.min(startIndex + hours, hourly[variable].length))
             .map(toFiniteNumber)
             .filter((value) => value !== null);
+    }
+
+    // 일부 값만으로 최대/평균을 계산해 경고할 수는 있지만, 빠진 시간대까지
+    // 양호하다고 판단할 수는 없습니다. 긍정 안내에는 표시 기간 전체가 필요합니다.
+    function hasCompleteHourlyWindow(hourly, fields, startIndex, hours) {
+        if (!Array.isArray(hourly?.time) || !Number.isInteger(startIndex)
+            || startIndex < 0 || hourly.time.length < startIndex + hours) return false;
+        return fields.every(field => {
+            if (!Array.isArray(hourly[field])) return false;
+            const values = hourly[field].slice(startIndex, startIndex + hours);
+            return values.length === hours
+                && Array.from(values).every(value => toFiniteNumber(value) !== null);
+        });
     }
 
     function maxNextHourly(hourly, variable, startIndex, hours) {
@@ -1567,7 +1594,11 @@
         const minApparent = minNextHourlyEntry(hourly, 'apparent_temperature', startIndex, 24);
         const outdoorGusts = [maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 24), dailyData?.wind_gusts_10m_max?.[0]]
             .map(toFiniteNumber).filter((value) => value !== null);
-        const outdoor = getOutdoorActivityAdvice(air.uvValue, outdoorGusts.length ? Math.max(...outdoorGusts) : null, current.weathercode ?? current.weather_code, air);
+        let outdoor = getOutdoorActivityAdvice(air.uvValue, outdoorGusts.length ? Math.max(...outdoorGusts) : null, current.weathercode ?? current.weather_code, air);
+        if (outdoor.tone === 'good'
+            && !hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'precipitation', 'wind_gusts_10m'], startIndex, 24)) {
+            outdoor = { tag: '자료 확인', tone: 'info', text: '일부 시간대의 강수·돌풍 자료가 부족해 야외활동 적합 여부를 판단할 수 없습니다. 외출 전 최신 예보를 확인해 주세요.' };
+        }
         const ventilation = getVentilationAdvice(aqiData, dailyData, current, hourly, startIndex);
         const sensitive = getSensitiveGroupAdvice(aqiData, dailyData, current);
         const travel = getTravelAdvice(current, hourly, startIndex);
@@ -1576,9 +1607,12 @@
 
         const riskSummary = risks.map((risk, index) => `${index + 1}. ${risk.label}`).join(' · ');
         const riskTone = getToneFromSeverity(risks[0]?.severity ?? 0);
+        const hasRainWindowData = hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'precipitation', 'weather_code'], startIndex, 24);
         const rainWindowText = rainWindow
             ? `강수 신호가 잡히는 시간대는 ${rainWindow.label}입니다. 가장 높은 강수확률은 ${rainWindow.peak ? `${formatTime(rainWindow.peak.time)} ${formatWithUnit(rainWindow.peak.value, 0, '%')}` : '시간별 자료 확인 필요'}입니다.`
-            : '앞으로 24시간 안에 뚜렷한 강수 시간대는 크지 않습니다.';
+            : hasRainWindowData
+                ? '앞으로 24시간 안에 뚜렷한 강수 시간대는 크지 않습니다.'
+                : '앞으로 24시간의 강수 자료가 일부 부족해 비가 오는 시간대를 판단할 수 없습니다.';
         const apparentPeakText = maxApparent || minApparent
             ? `체감온도는 ${maxApparent ? `${formatTime(maxApparent.time)} 전후 ${formatWithUnit(maxApparent.value, 1, '°C')}로 가장 높고` : '최고값 확인이 어렵고'}, ${minApparent ? `${formatTime(minApparent.time)} 전후 ${formatWithUnit(minApparent.value, 1, '°C')}로 가장 낮습니다` : '최저값 확인이 어렵습니다'}.`
             : '체감온도 피크를 계산할 시간별 자료가 부족합니다.';
@@ -1591,7 +1625,7 @@
             briefingItem('🧭', '오늘 한 줄 총평', summary.text, summary.tag, summary.tone),
             briefingItem('🚦', '오늘의 위험 신호 순위', riskSummary, risks[0]?.severity ? '주의 신호' : '무난', riskTone),
             briefingItem(rain.icon, rain.title, rain.text, rain.tag, rain.tone),
-            briefingItem('⏰', '비가 온다면 언제 오는지', rainWindowText, rainWindow ? '시간대 확인' : '뚜렷한 비 없음', rainWindow ? 'info' : 'good'),
+            briefingItem('⏰', '비가 온다면 언제 오는지', rainWindowText, rainWindow ? '시간대 확인' : hasRainWindowData ? '뚜렷한 비 없음' : '자료 확인', rainWindow || !hasRainWindowData ? 'info' : 'good'),
             briefingItem('🧥', '옷차림·체감온도 판단', outfit.text, outfit.tag, outfit.tone),
             briefingItem('🌡️', '체감온도 피크', apparentPeakText, maxApparent && maxApparent.value >= 28 ? '더위 피크' : minApparent && minApparent.value <= 5 ? '추위 피크' : '체감 확인', maxApparent && maxApparent.value >= 32 ? 'danger' : maxApparent && maxApparent.value >= 28 ? 'warn' : 'info'),
             briefingItem('🌡️', '일교차 판단', diurnal.text, diurnal.tag, diurnal.tone),
