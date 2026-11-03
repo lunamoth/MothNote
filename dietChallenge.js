@@ -1730,6 +1730,7 @@
                 const csvRecords = splitCsvLogicalRecords(content);
                 let count = 0;
                 let rejectedCount = 0;
+                const overwrittenDates = [];
                 const nextRecords = cloneDietRecords(AppState.records);
                 // CSV 파일 자체에 동일 날짜가 여러 번 나타나면 기존에는 마지막 행이
                 // 앞선 행을 조용히 덮어써 어느 체중/체지방 기록이 원본인지 사라졌습니다.
@@ -1795,6 +1796,13 @@
                                 if (matches.length < 3 && Object.prototype.hasOwnProperty.call(nextRecords[idx], 'fat')) {
                                     rec.fat = nextRecords[idx].fat;
                                 }
+                                const previousRecord = nextRecords[idx];
+                                const hadFat = Object.prototype.hasOwnProperty.call(previousRecord, 'fat');
+                                const hasImportedFat = Object.prototype.hasOwnProperty.call(rec, 'fat');
+                                if (previousRecord.weight !== rec.weight || hadFat !== hasImportedFat
+                                    || (hadFat && previousRecord.fat !== rec.fat)) {
+                                    overwrittenDates.push(rec.date);
+                                }
                                 nextRecords[idx] = rec;
                             } else {
                                 nextRecords.push(rec);
@@ -1808,6 +1816,24 @@
                     }
                 }
                 const sanitizedRecords = sanitizeDietRecords(nextRecords);
+                if (overwrittenDates.length > 0) {
+                    // 같은 날짜의 기록을 조용히 덮어쓰면 오래된 CSV가 최신 측정값이나
+                    // 체지방률을 지울 수 있습니다. 전체 파일을 검증한 다음 실제로 값이
+                    // 달라지는 날짜만 안내하고, 사용자가 취소하면 저장하지 않습니다.
+                    const datePreview = overwrittenDates.slice(0, 5).join(', ');
+                    const remaining = overwrittenDates.length > 5 ? ` 외 ${overwrittenDates.length - 5}건` : '';
+                    const skipped = rejectedCount > 0 ? ` 유효하지 않은 행 ${rejectedCount}건은 제외됩니다.` : '';
+                    if (!confirm(`CSV 복원으로 기존 기록 ${overwrittenDates.length}건이 교체됩니다. (${datePreview}${remaining}) 체지방률 열이 있고 값이 비어 있으면 기존 체지방률이 삭제되며, 열 자체가 없으면 유지됩니다.${skipped} 계속하시겠습니까?`)) {
+                        showToast('CSV 복원을 취소했습니다. 기존 데이터를 유지합니다.');
+                        return;
+                    }
+                    // 확인창이 열린 동안 변경된 데이터는 오래된 병합본으로 덮어쓰지 않습니다.
+                    if (JSON.stringify(AppState.records) !== recordsAtReadStart
+                        || AppState.state.recordsLoadFailed !== recordsLoadFailedAtReadStart) {
+                        showToast('확인 중 기록이 변경되어 CSV 가져오기를 중단했습니다. 최신 데이터를 확인한 뒤 다시 시도해주세요.');
+                        return;
+                    }
+                }
                 if (!persistDietRecordsImmediate(sanitizedRecords)) return;
                 AppState.records = sanitizedRecords;
                 AppState.state.isDirty = true;
