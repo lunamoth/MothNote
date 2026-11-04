@@ -224,10 +224,22 @@ const getCurrentViewNotes = () => {
 
 // 휴지통 목록은 폴더/노트가 섞여 있어 표시 대상과 편집기 선택 대상이 다릅니다.
 // 검색 결과 자체에는 폴더를 남기되 activeNoteId 후보는 실제 노트만 허용합니다.
-const getSelectableNotes = items => (Array.isArray(items) ? items : []).filter(item => {
-    const itemId = String(item?.id ?? '');
-    return itemId && Boolean(findNote(itemId).item);
-});
+const getSelectableNotes = items => {
+    // findNote()는 노트 하나마다 폴더와 노트 배열에서 위치를 다시 찾습니다.
+    // 검색 결과 전체에 반복 호출하면 같은 폴더에 노트가 많을 때 제곱 시간으로 느려집니다.
+    // 활성 노트는 이미 구축된 noteMap을 사용하고, 휴지통 노트 ID도 한 번만 모읍니다.
+    const trashNoteIds = new Set();
+    for (const item of state.trash) {
+        if (!item || typeof item !== 'object' || item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes)) continue;
+        if (item.type === CONSTANTS.ITEM_TYPE.NOTE || 'title' in item || 'content' in item) {
+            trashNoteIds.add(item.id);
+        }
+    }
+    return (Array.isArray(items) ? items : []).filter(item => {
+        const itemId = String(item?.id ?? '');
+        return Boolean(itemId && (state.noteMap.has(itemId) || trashNoteIds.has(itemId)));
+    });
+};
 
 const handleSearch = (searchTerm) => {
     const previousSearchTerm = state.searchTerm;

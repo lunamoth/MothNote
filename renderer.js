@@ -21,6 +21,9 @@ let renderEditorRevision = 0;
 // 활성 노트가 바뀌면 포커스 여부와 관계없이 새 노트의 값으로 교체해야 합니다.
 let editorBoundNoteId = null;
 const HIGHLIGHT_TERM_MAX_LENGTH = 50; // [버그 수정] 하이라이트를 적용할 최대 검색어 길이 상수 추가
+// 한 제목의 검색 일치마다 DOM 노드를 무제한 생성하면 긴 제목 하나만으로도
+// 검색 화면이 멈출 수 있습니다. 나머지 텍스트는 강조 없이 그대로 표시합니다.
+const MAX_HIGHLIGHT_MATCHES = 200;
 const NOTE_SNIPPET_MAX_LENGTH = 180;
 
 // [MAJOR BUG FIX] 편집기 통계를 계산할 때 split()/match()로 단어·줄 수만큼의
@@ -127,9 +130,10 @@ const highlightText = (container, text, term) => {
     const regex = new RegExp(`(${escapedTerm})`, 'gi');
 
     let lastIndex = 0;
+    let highlightedCount = 0;
     let match;
 
-    while ((match = regex.exec(safeText)) !== null) {
+    while (highlightedCount < MAX_HIGHLIGHT_MATCHES && (match = regex.exec(safeText)) !== null) {
         // 마지막 인덱스와 현재 찾은 부분 사이의 텍스트 (일치하지 않는 부분)
         if (match.index > lastIndex) {
             fragment.appendChild(document.createTextNode(safeText.substring(lastIndex, match.index)));
@@ -141,6 +145,7 @@ const highlightText = (container, text, term) => {
         fragment.appendChild(mark);
 
         lastIndex = regex.lastIndex;
+        highlightedCount += 1;
     }
 
     // 마지막으로 찾은 부분 이후의 나머지 텍스트
@@ -333,7 +338,9 @@ const createListItemElement = (item, type) => {
 
     li.dataset.id = item.id;
     // [수정] 타입이 없는 레거시 데이터를 위해 타입을 유추해서 data-type에 설정
-    let effectiveType = item.type;
+    // 폴더 목록의 가상 폴더 정의에는 notes 배열이 없고 getNotes만 있습니다.
+    // 배열 유무로 타입을 추론하면 가상 폴더가 노트로 분류되어 키보드 이동에서 빠집니다.
+    let effectiveType = type === CONSTANTS.ITEM_TYPE.FOLDER ? CONSTANTS.ITEM_TYPE.FOLDER : item.type;
     if (!effectiveType) {
         effectiveType = Array.isArray(item.notes) ? 'folder' : 'note';
     }
