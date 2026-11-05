@@ -429,7 +429,9 @@ export const verifyAndSanitizeLoadedData = (data) => {
         || !hasOwn(note, 'title')
         || !hasOwn(note, 'content')
         || hasLossyTextField(note, 'title')
-        || hasLossyTextField(note, 'content')
+        // 본문은 빈 노트도 항상 문자열입니다. null, 숫자, 불리언을 빈 문자열이나
+        // 다른 문자열로 자동 변환하면 손상된 원본을 이후 저장에서 덮어쓸 수 있습니다.
+        || typeof note.content !== 'string'
     );
     const hasInvalidOptionalArray = key => hasOwn(data, key) && !Array.isArray(data[key]);
     // 현재 MothNote 폴더 스키마에서 notes는 필수 배열입니다. 백업/저장소의 해당
@@ -1828,6 +1830,11 @@ const sanitizeContentData = data => {
         if (!hasOwnDataField(rawNote, 'title') || !hasOwnDataField(rawNote, 'content')) {
             throw new Error('노트의 제목 또는 본문 필드가 누락되어 원본 보호를 위해 가져오기를 중단했습니다.');
         }
+        // 실제 MothNote 본문은 항상 문자열이며, 빈 본문은 빈 문자열로 표현합니다.
+        // null이나 숫자 등을 조용히 변환해 기존 데이터를 교체하지 않습니다.
+        if (typeof rawNote.content !== 'string') {
+            throw new Error('노트 본문 필드가 문자열이 아니어서 원본 보호를 위해 가져오기를 중단했습니다.');
+        }
         if (hasFolderDataShape(rawNote)) {
             throw new Error('노트 항목에 폴더 필드가 포함되어 있어 무손실로 가져올 수 없습니다.');
         }
@@ -2945,7 +2952,9 @@ const validateSimplenoteNotesCollection = (notes, fieldName, { optional = false 
             throw new Error(`Simplenote 백업의 ${fieldName}[${index}] 항목이 올바른 노트 객체가 아닙니다.`);
         }
 
-        if (note.content !== undefined && note.content !== null && typeof note.content === 'object') {
+        // 빈 노트는 content: ''로 가져올 수 있습니다. 본문이 누락됐거나 문자열이
+        // 아니면 변환 후 빈 노트로 성공 처리하지 않고 파일 전체를 보존합니다.
+        if (typeof note.content !== 'string') {
             throw new Error(`Simplenote 백업의 ${fieldName}[${index}].content 형식이 올바르지 않습니다.`);
         }
 

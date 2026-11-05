@@ -1909,15 +1909,111 @@
         const fileName = `${yy}${mm}${dd}_Diet_Challenge_Backup.json`;
         downloadFile(JSON.stringify(data, null, 2), fileName, "application/json");
     }
-	
+
+    // 모든 다운로드가 한 쌍의 리스너를 공유합니다. 완료되었거나 더 이상
+    // 재개할 수 없는 다운로드만 해제해, 저장 대화상자나 일시 중지 중인
+    // 다운로드의 Blob URL을 고정 시간 경과만으로 무효화하지 않습니다.
+    const pendingDownloadUrls = new Map();
+    const pendingDownloadIds = new Map();
+    let observedDownloads = null;
+
+    function releaseDownloadUrl(url) {
+        if (!pendingDownloadUrls.has(url)) return;
+        const id = pendingDownloadUrls.get(url);
+        pendingDownloadUrls.delete(url);
+        if (id !== null) pendingDownloadIds.delete(id);
+        URL.revokeObjectURL(url);
+
+        if (pendingDownloadUrls.size === 0 && observedDownloads) {
+            observedDownloads.onCreated?.removeListener?.(onDownloadCreated);
+            observedDownloads.onChanged?.removeListener?.(onDownloadChanged);
+            observedDownloads = null;
+        }
+    }
+
+    function releaseFinishedDownload(item) {
+        if (!item || !pendingDownloadIds.has(item.id)) return;
+        if (item.state === 'complete' || (item.state === 'interrupted' && item.canResume === false)) {
+            releaseDownloadUrl(pendingDownloadIds.get(item.id));
+        }
+    }
+
+    function inspectDownload(id) {
+        const downloads = observedDownloads;
+        if (!downloads || typeof downloads.search !== 'function') return;
+        try {
+            downloads.search({ id }, items => {
+                if (globalThis.chrome?.runtime?.lastError) return;
+                const item = Array.isArray(items) ? items.find(entry => entry.id === id) : null;
+                releaseFinishedDownload(item);
+            });
+        } catch (error) {
+            // 상태를 확인하지 못했다면 진행 중인 다운로드를 위해 URL을 보존합니다.
+            console.warn('다운로드 상태를 확인하지 못해 임시 주소를 유지합니다.', error);
+        }
+    }
+
+    function onDownloadCreated(item) {
+        if (!item || !pendingDownloadUrls.has(item.url) || !Number.isInteger(item.id)) return;
+        pendingDownloadUrls.set(item.url, item.id);
+        pendingDownloadIds.set(item.id, item.url);
+        releaseFinishedDownload(item);
+        // 생성과 상태 이벤트 사이에 작은 다운로드가 끝났을 수도 있습니다.
+        if (pendingDownloadIds.has(item.id)) inspectDownload(item.id);
+    }
+
+    function onDownloadChanged(delta) {
+        if (!delta || !pendingDownloadIds.has(delta.id)) return;
+        if (delta.state?.current === 'complete') {
+            releaseDownloadUrl(pendingDownloadIds.get(delta.id));
+        } else if (delta.state?.current === 'interrupted') {
+            if (delta.canResume?.current === false) releaseDownloadUrl(pendingDownloadIds.get(delta.id));
+            else inspectDownload(delta.id);
+        } else if (delta.canResume?.current === false) {
+            // 재개 가능 여부가 중단 상태보다 늦게 별도 이벤트로 바뀔 수 있습니다.
+            // 진행 중인 다운로드를 해제하지 않도록 현재 상태를 함께 조회합니다.
+            inspectDownload(delta.id);
+        }
+    }
+
+    function observeDownloadUrls() {
+        if (observedDownloads) return true;
+        const downloads = globalThis.chrome?.downloads;
+        if (!downloads?.onCreated?.addListener || !downloads?.onChanged?.addListener) return false;
+        try {
+            downloads.onCreated.addListener(onDownloadCreated);
+            downloads.onChanged.addListener(onDownloadChanged);
+            observedDownloads = downloads;
+            return true;
+        } catch (error) {
+            downloads.onCreated?.removeListener?.(onDownloadCreated);
+            downloads.onChanged?.removeListener?.(onDownloadChanged);
+            console.warn('다운로드 상태 감시를 시작하지 못했습니다.', error);
+            return false;
+        }
+    }
+
     function downloadFile(content, fileName, mimeType) {
         const blob = new Blob([content], { type: mimeType });
         const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const url = URL.createObjectURL(blob);
+        const isObserved = observeDownloadUrls();
+        if (isObserved) pendingDownloadUrls.set(url, null);
+        try {
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+        } catch (error) {
+            // 클릭 자체가 실패해 다운로드가 시작되지 않은 경우에는 즉시 해제합니다.
+            if (isObserved) releaseDownloadUrl(url);
+            else URL.revokeObjectURL(url);
+            throw error;
+        } finally {
+            link.remove();
+        }
+        // 다운로드 상태를 관찰할 수 없는 환경에서는 진행 중인 저장이 깨지지 않게
+        // URL을 문서 종료 시까지 유지합니다. 브라우저가 문서 종료 시 정리합니다.
     }
 
     // --- 4. 메인 렌더링 함수 ---

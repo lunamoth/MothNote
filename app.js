@@ -1205,11 +1205,20 @@ class Dashboard {
             this.renderCalendar();
         };
 
+        let datePickerPending = false;
         this.dom.calendarMonthYear.onclick = async () => {
-            const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate });
-            if (result) {
-                this.internalState.currentDate = new Date(result.year, result.month, 1);
-                this.renderCalendar();
+            // 팝오버가 열려 있을 때 제목을 다시 눌러도 document 리스너와
+            // 대기 중인 날짜 선택 작업을 중복 생성하지 않습니다.
+            if (datePickerPending) return;
+            datePickerPending = true;
+            try {
+                const result = await showDatePickerPopover({ initialDate: this.internalState.currentDate });
+                if (result) {
+                    this.internalState.currentDate = new Date(result.year, result.month, 1);
+                    this.renderCalendar();
+                }
+            } finally {
+                datePickerPending = false;
             }
         };
 

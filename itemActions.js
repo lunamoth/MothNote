@@ -104,6 +104,7 @@ let pendingRenameCompletionPromise = null;
 let resolvePendingRename = null;
 let pendingRenameCleanup = null;
 let pendingRenameDraft = null;
+let pendingRenameEditorElement = null;
 let isStartingRename = false;
 
 // beforeunload에서는 비동기 이름 변경을 끝낼 수 없습니다. 렌더 도중 편집 DOM이
@@ -140,6 +141,7 @@ export const forceResolvePendingRename = () => {
     pendingRenamePromise = null;
     pendingRenameCompletionPromise = null;
     pendingRenameDraft = null;
+    pendingRenameEditorElement = null;
 };
 
 // [BUG FIX] 이름 변경 중 다른 작업 실행 시, 변경 사항이 유실되는 'Major' 버그를 수정합니다.
@@ -152,6 +154,17 @@ export const finishPendingRename = async () => {
     // 현재 이름 변경 작업이 진행 중인지 확인합니다.
     if (state.renamingItemId && pendingRenamePromise) {
         const id = state.renamingItemId;
+        // 목록이 다시 그려지면 같은 ID의 새 요소에는 저장된 이전 이름이 표시됩니다.
+        // 새 요소를 편집기로 착각하면 입력된 이름과 비상 백업을 모두 지울 수 있으므로,
+        // 실제 편집에 사용한 요소(분리된 경우도 포함) 또는 마지막 입력 초안을 사용합니다.
+        if (pendingRenameDraft?.id === id) {
+            const editor = pendingRenameEditorElement || {
+                contentEditable: false,
+                isConnected: true,
+                textContent: pendingRenameDraft.newName
+            };
+            return await _handleRenameEnd(id, pendingRenameDraft.type, editor, true);
+        }
         // [CRITICAL BUG FIX] DOMException 방지를 위해 CSS.escape()를 사용하여 ID를 안전하게 만듭니다.
         const safeId = escapeCssAttributeValue(id);
         // DOM에서 이름 변경 중인 li 요소를 찾습니다.
@@ -1902,6 +1915,7 @@ const _handleRenameEnd = async (id, type, nameSpan, shouldSave) => {
             pendingRenamePromise = null;
             if (pendingRenameDraft?.id === id) {
                 pendingRenameDraft = null;
+                pendingRenameEditorElement = null;
             }
         }
     })();
@@ -1959,6 +1973,7 @@ export const startRename = async (liElement, type) => {
         // 반드시 이 작업을 인식하도록 Promise를 타이머보다 먼저 생성합니다.
         const originalName = type === CONSTANTS.ITEM_TYPE.FOLDER ? currentItem.name : currentItem.title;
         pendingRenameDraft = { id, type, newName: String(originalName ?? '') };
+        pendingRenameEditorElement = null;
         pendingRenamePromise = new Promise(resolve => { resolvePendingRename = resolve; });
         setState({ renamingItemId: id });
 
@@ -1976,6 +1991,8 @@ export const startRename = async (liElement, type) => {
                     forceResolvePendingRename();
                     return;
                 }
+
+                pendingRenameEditorElement = nameSpan;
 
                 const onInput = () => {
                     if (pendingRenameDraft?.id === id) {
