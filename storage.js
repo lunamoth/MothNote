@@ -1677,23 +1677,50 @@ export const loadData = async () => {
 // --- 데이터 가져오기/내보내기 및 정제 로직 ---
 
 // [BUG FIX] chrome.downloads API 실패 시 일반 웹 다운로드 방식으로 대체하는 헬퍼 함수
-const fallbackAnchorDownload = (url, filename, requestMessage) => {
+const fallbackAnchorDownload = (url, filename, requestMessage, successMessage) => {
+    const downloads = globalThis.chrome?.downloads;
+    let onCreated = null;
+    let observerTimeoutId = null;
+    const stopWatchingForCreation = () => {
+        if (onCreated) downloads?.onCreated?.removeListener?.(onCreated);
+        onCreated = null;
+        if (observerTimeoutId !== null) clearTimeout(observerTimeoutId);
+        observerTimeoutId = null;
+    };
     try {
+        // 다운로드 API 호출이 실패해도 링크로 시작한 다운로드를 관찰할 수 있으면
+        // 해당 URL의 완료/중단 상태에 맞춰 메모리를 정리합니다.
+        if (successMessage && downloads?.onCreated?.addListener && downloads?.onChanged?.addListener
+            && typeof downloads.search === 'function') {
+            try {
+                onCreated = item => {
+                    if (item?.url !== url || !Number.isInteger(item.id)) return;
+                    stopWatchingForCreation();
+                    monitorBackupDownload(item.id, url, successMessage, requestMessage, { announceRequest: false });
+                };
+                downloads.onCreated.addListener(onCreated);
+                observerTimeoutId = setTimeout(stopWatchingForCreation, 5 * 60 * 1000);
+            } catch (error) {
+                stopWatchingForCreation();
+                console.warn('Fallback download creation could not be observed.', error);
+            }
+        }
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
         document.body.appendChild(a);
         a.click();
         
-        // DOM 정리 및 URL 해제는 다운로드가 시작될 시간을 확보한 후 비동기적으로 수행
+        // 링크만 정리합니다. 완료 이벤트를 관찰하지 못한 경우에는 100ms 뒤
+        // URL을 해제하지 않으며, 문서가 닫힐 때 브라우저가 정리합니다.
         setTimeout(() => {
             document.body.removeChild(a);
-            URL.revokeObjectURL(url);
         }, 100);
         
         // 링크 클릭은 파일 저장 완료를 확인할 수 없으므로 완료로 표시하지 않습니다.
         showToast(requestMessage);
     } catch (e) {
+        stopWatchingForCreation();
         console.error("Fallback download failed:", e);
         showToast(CONSTANTS.MESSAGES.ERROR.EXPORT_FAILURE, CONSTANTS.TOAST_TYPE.ERROR);
         // 실패 시에도 메모리 누수 방지를 위해 URL을 즉시 해제
@@ -1703,9 +1730,11 @@ const fallbackAnchorDownload = (url, filename, requestMessage) => {
 
 // download() 콜백은 다운로드 시작만 확인합니다. 실제 완료/중단은 해당 ID의
 // 상태 변경으로 확인하고, 콜백 전에 완료된 작은 파일은 search()로 보완합니다.
-const monitorBackupDownload = (downloadId, url, successMessage, requestMessage) => {
+const monitorBackupDownload = (downloadId, url, successMessage, requestMessage, { announceRequest = true } = {}) => {
     const downloads = chrome.downloads;
     let finished = false;
+    let interruptionNotified = false;
+    let changeRevision = 0;
     let timeoutId = null;
     const finish = (message, type) => {
         if (finished) return;
@@ -1715,38 +1744,74 @@ const monitorBackupDownload = (downloadId, url, successMessage, requestMessage) 
         URL.revokeObjectURL(url);
         showToast(message, type);
     };
-    const checkState = (downloadState, error) => {
+    const checkState = (downloadState, error, canResume) => {
+        if (finished) return;
         if (downloadState === 'complete') {
             finish(successMessage, CONSTANTS.TOAST_TYPE.SUCCESS);
         } else if (downloadState === 'interrupted') {
-            const message = error === 'USER_CANCELED'
-                ? '📤 백업 다운로드가 취소되었습니다. 백업 파일이 저장되지 않았습니다.'
-                : '📤❌ 백업 파일 저장에 실패했습니다. 브라우저 다운로드 목록을 확인한 뒤 다시 시도해주세요.';
-            finish(message, CONSTANTS.TOAST_TYPE.ERROR);
+            if (canResume === false) {
+                const message = error === 'USER_CANCELED'
+                    ? '📤 백업 다운로드가 취소되었습니다. 백업 파일이 저장되지 않았습니다.'
+                    : '📤❌ 백업 파일 저장에 실패했습니다. 브라우저 다운로드 목록을 확인한 뒤 다시 시도해주세요.';
+                finish(message, CONSTANTS.TOAST_TYPE.ERROR);
+            } else if (!interruptionNotified) {
+                interruptionNotified = true;
+                showToast('📤 백업 다운로드가 중단되었습니다. 브라우저 다운로드 목록에서 재개 가능 여부를 확인해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+            }
+        } else if (downloadState === 'in_progress') {
+            interruptionNotified = false;
+        }
+    };
+    const inspectDownload = () => {
+        const revisionAtRequest = changeRevision;
+        try {
+            downloads.search({ id: downloadId }, items => {
+                // 조회 응답을 기다리는 동안 더 최신 상태 이벤트가 도착했다면
+                // 과거의 중단 상태로 진행 중인 다운로드를 종료하지 않습니다.
+                if (finished || revisionAtRequest !== changeRevision) return;
+                if (chrome.runtime.lastError) {
+                    console.warn('Backup download state query failed:', chrome.runtime.lastError);
+                    return; // 확인할 수 없다면 URL을 보존하고 다음 상태 이벤트를 기다립니다.
+                }
+                const item = items?.find(item => item.id === downloadId);
+                if (item) checkState(item.state, item.error, item.canResume);
+            });
+        } catch (error) {
+            console.warn('Backup download state query failed:', error);
         }
     };
     const onChanged = delta => {
-        if (delta.id === downloadId) checkState(delta.state?.current, delta.error?.current);
+        if (delta.id !== downloadId) return;
+        changeRevision += 1;
+        const downloadState = delta.state?.current;
+        if (downloadState === 'complete') {
+            checkState(downloadState);
+        } else if (downloadState === 'interrupted') {
+            if (typeof delta.canResume?.current === 'boolean') {
+                checkState(downloadState, delta.error?.current, delta.canResume.current);
+            } else {
+                // 중단과 재개 가능 여부가 별도 이벤트로 전달될 수 있습니다.
+                // 현재 항목을 다시 읽어 재개 가능한 백업의 URL을 보존합니다.
+                inspectDownload();
+            }
+        } else if (downloadState === 'in_progress') {
+            checkState(downloadState);
+        } else if (delta.canResume?.current === false) {
+            inspectDownload();
+        }
     };
 
-    // 일시정지·사용자 확인 대기 중인 다운로드는 실패로 단정하거나 취소하지 않습니다.
-    // 장기 대기 시 관찰 자원만 정리하고, 완료를 확인하지 못했다는 사실을 알립니다.
-    timeoutId = setTimeout(() => finish(
+    // 일시정지·사용자 확인 대기 또는 장시간 전송 중인 다운로드의 URL은
+    // 실패나 완료가 확인되기 전까지 유지합니다. 안내 후에도 완료 이벤트를 관찰합니다.
+    timeoutId = setTimeout(() => showToast(
         '📤 백업 파일의 저장 완료를 확인하지 못했습니다. 브라우저 다운로드 목록에서 상태를 확인해주세요.',
         CONSTANTS.TOAST_TYPE.ERROR
     ), 5 * 60 * 1000);
-    showToast(requestMessage);
+    if (announceRequest) showToast(requestMessage);
 
     try {
         downloads.onChanged.addListener(onChanged);
-        downloads.search({ id: downloadId }, items => {
-            if (chrome.runtime.lastError) {
-                console.warn('Backup download state query failed:', chrome.runtime.lastError);
-                return; // 상태 이벤트 또는 관찰 종료 안내를 기다립니다.
-            }
-            const item = items?.find(item => item.id === downloadId);
-            if (item) checkState(item.state, item.error);
-        });
+        inspectDownload();
     } catch (error) {
         // 다운로드는 이미 시작됐습니다. 관찰 오류 때문에 중복 다운로드하지 않습니다.
         console.warn('Backup download monitoring could not be started:', error);
@@ -2355,14 +2420,14 @@ export const handleExport = async (settings) => {
                 if (chrome.runtime.lastError) {
                     console.warn(`chrome.downloads.download API 실패: ${chrome.runtime.lastError.message}. 일반 다운로드로 전환합니다.`);
                     // API 실패 시, 권한이 없어도 동작하는 폴백(fallback) 함수를 호출합니다.
-                    fallbackAnchorDownload(url, filename, exportRequestMessage);
+                    fallbackAnchorDownload(url, filename, exportRequestMessage, exportSuccessMessage);
                 } else {
                     monitorBackupDownload(downloadId, url, exportSuccessMessage, exportRequestMessage);
                 }
             });
         } else {
             // chrome.downloads API를 사용할 수 없는 환경(예: 일반 웹페이지)일 경우 즉시 폴백을 사용합니다.
-            fallbackAnchorDownload(url, filename, exportRequestMessage);
+            fallbackAnchorDownload(url, filename, exportRequestMessage, exportSuccessMessage);
         }
 
         return true;
