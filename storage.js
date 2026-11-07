@@ -2138,6 +2138,15 @@ const flushPendingChangesForDataOperation = async (operationName) => {
 
 // [BUG FIX & 기능 추가] 습관 트래커 및 다이어트 챌린지 데이터를 포함하도록 handleExport 함수 수정
 export const handleExport = async (settings) => {
+    // 초기화가 실패했거나 비상 복구가 아직 끝나지 않은 경우 메모리 상태는
+    // 빈 초기값이거나 마지막 저장본일 수 있습니다. 그대로 내보내면 유일한
+    // 미저장 초안 또는 미완료 가져오기 복구본이 빠진 파일을 완전 백업으로
+    // 오인할 수 있으므로 복구를 마칠 때까지 백업을 시작하지 않습니다.
+    if (window.isInitializing || window.hasInitializationFailed) {
+        showToast('초기화 또는 데이터 복구가 완료되지 않아 백업을 중단했습니다. 새 탭에서 복구를 완료한 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+
     if (!(await flushPendingChangesForDataOperation('백업'))) {
         return false;
     }
