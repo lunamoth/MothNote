@@ -179,10 +179,11 @@ export const changeActiveFolder = async (newFolderId, options = {}) => {
     const notesInFolder = Array.isArray(folder.notes) ? folder.notes : [];
     // 휴지통 가상 폴더는 삭제된 폴더/노트를 한 배열에 보관합니다. 자동 선택은 실제 노트만
     // 대상으로 해야 activeNoteId가 폴더 ID로 오염되지 않습니다.
-    const selectableNotesInFolder = notesInFolder.filter(item => {
-        const itemId = String(item?.id ?? '');
-        return itemId && Boolean(findNote(itemId).item);
-    });
+    // findNote()는 호출할 때마다 해당 폴더에서 노트의 위치를 다시 찾습니다.
+    // 모든 항목에 반복하면 큰 폴더를 열 때 제곱 시간으로 화면이 멈출 수 있습니다.
+    // 검색에서 사용하는 동일한 일괄 판별을 재사용해 활성 노트와 휴지통 노트를
+    // 각각 한 번 만든 인덱스로 확인합니다.
+    const selectableNotesInFolder = getSelectableNotes(notesInFolder);
     
     let nextActiveNoteId = null;
     const lastActiveNoteId = state.lastActiveNotePerFolder[newFolderId];
