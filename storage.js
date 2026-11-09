@@ -3698,6 +3698,7 @@ export const setupImportHandler = () => {
             const keepImportProtectedUntilRestart = () => {
                 window.isImporting = true;
                 window.isReplacementImportActive = true;
+                window.isTrackerReplacementPending = true;
                 importOperationInProgress = true;
                 // 진행 중인 쓰기는 종료됐으므로 사용자가 직접 새로고침할 수 있게 합니다.
                 // 편집 차단은 그대로 유지해 오래된 화면의 저장이나 추가 가져오기를 막습니다.
@@ -3976,6 +3977,11 @@ export const setupImportHandler = () => {
                 }
                 
                 // [기존 로직] MothNote 백업 파일 처리
+                // 트래커가 열린 상태에서도 설정 창에서 전체 복원을 시작할 수 있습니다.
+                // 확인 대기 중 끝난 트래커 파일 읽기나 재시작 전에 전달된 테마 메시지가
+                // 기존 메모리 상태를 다시 저장하지 않도록, 교체 범위를 계산하기 전에
+                // 같은 탭의 트래커 쓰기를 잠그고 취소/실패 시 finally에서 해제합니다.
+                window.isTrackerReplacementPending = true;
                 // 통합 백업의 부가 데이터도 주 노트 데이터와 동일하게 쓰기 전에 검증합니다.
                 // 잘못된 선택 필드 하나가 정상 습관·다이어트 데이터를 빈 상태로 덮어쓴 뒤
                 // 완료 백업까지 삭제하는 데이터 유실을 방지합니다.
@@ -4277,6 +4283,7 @@ export const setupImportHandler = () => {
                     window.isImportReloadPending = false;
                     window.isImporting = false;
                     window.isReplacementImportActive = false;
+                    window.isTrackerReplacementPending = false;
                     importOperationInProgress = false;
                     if (overlay?.parentElement) overlay.remove();
                 }

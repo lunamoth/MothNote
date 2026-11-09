@@ -7,6 +7,17 @@
         return element && typeof element.closest === 'function' ? element.closest(selector) : null;
     };
 
+    const isParentTrackerReplacementPending = () => {
+        try {
+            return window.parent !== window
+                && (window.parent.isTrackerReplacementPending === true
+                    || window.parent.isReplacementImportActive === true);
+        } catch (_) {
+            // 독립 실행이나 다른 출처의 부모는 MothNote의 복원 화면이 아닙니다.
+            return false;
+        }
+    };
+
     // --- 0. 설정 및 상수 (CONFIG) ---
     const CONFIG = {
         // 한국인 기준 (대한비만학회 2020)
@@ -957,6 +968,10 @@
     };
 
     const persistLocalStorageEntriesAtomically = (entries, errorMessage = '데이터를 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.') => {
+        if (isParentTrackerReplacementPending()) {
+            showToast('전체 데이터 복원이 진행 중이어서 다이어트 변경을 저장하지 않았습니다.');
+            return false;
+        }
         const previousEntries = [];
         try {
             entries.forEach(({ key }) => {
@@ -1020,6 +1035,10 @@
     ], errorMessage);
 
     const removeLocalStorageItemSafely = (key, errorMessage) => {
+        if (isParentTrackerReplacementPending()) {
+            showToast('전체 데이터 복원이 진행 중이어서 다이어트 데이터를 삭제하지 않았습니다.');
+            return false;
+        }
         let previousValue = null;
         try {
             previousValue = localStorage.getItem(key);

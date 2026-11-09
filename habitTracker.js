@@ -29,6 +29,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return element && typeof element.closest === 'function' ? element.closest(selector) : null;
     };
 
+    const isParentTrackerReplacementPending = () => {
+        try {
+            return window.parent !== window
+                && (window.parent.isTrackerReplacementPending === true
+                    || window.parent.isReplacementImportActive === true);
+        } catch (_) {
+            // 독립 실행이나 다른 출처의 부모는 MothNote의 복원 화면이 아닙니다.
+            return false;
+        }
+    };
+
     const getPreviousCalendarYearRangeStart = (endDate) => {
         const sourceDate = endDate instanceof Date ? new Date(endDate.getTime()) : new Date(endDate);
         if (Number.isNaN(sourceDate.getTime())) return null;
@@ -280,6 +291,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // ----- DATA & STATE MANAGEMENT -----
         saveData({ allowCorruptDataReplacement = false } = {}) {
+            // 전체 백업을 교체하는 동안 이전 iframe의 상태로 복원된 기록을
+            // 덮어쓰지 않습니다. 실패를 반환해 호출자가 기존 메모리도 되돌리게 합니다.
+            if (isParentTrackerReplacementPending()) {
+                this.showToast('전체 데이터 복원이 진행 중이어서 습관 변경을 저장하지 않았습니다.', 'error');
+                return false;
+            }
             // 파싱 또는 구조 검증에 실패한 통합 데이터는 사용자가 명시적으로 초기화하기 전까지 보존합니다.
             // 테마 메시지나 일반 UI 작업이 빈 안전 상태를 자동 저장해 원본과 복구본을
             // 덮어쓰는 일을 막습니다.

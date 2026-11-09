@@ -1302,6 +1302,9 @@ window.isImportReloadPending = false;
 // 교체 가져오기의 최종 flush 이후에 대기 중이던 기존 appState 쓰기를 차단합니다.
 // 기존 데이터에 병합하는 Simplenote 가져오기는 이 플래그를 사용하지 않습니다.
 window.isReplacementImportActive = false;
+// 통합 백업의 교체 확인부터 재시작까지 같은 탭의 트래커가 오래된 상태를
+// 저장하지 않도록 자식 화면에서도 확인하는 별도 보호 상태입니다.
+window.isTrackerReplacementPending = false;
 
 let keyboardNavDebounceTimer, draggedItemInfo = { id: null, type: null, sourceFolderId: null }, isListNavigating = false, dashboard;
 
