@@ -3055,9 +3055,9 @@
             }
         }
 
-        // 21. 후시 효과 예측 (Whoosh Prediction)
+        // 21. 과거 정체 구간 요약
         if (maxPlateau > 10) {
-             htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">⚠️ 후시(Whoosh) 효과 예측:</span> "장기간 정체기가 지속되고 있습니다. 이는 지방세포가 수분을 머금고 버티는 현상일 수 있으며, 곧 급격한 수분 배출과 함께 체중이 뚝 떨어질(Whoosh) 가능성이 높습니다."</li>`);
+             htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">⏳ 과거 유지 구간:</span> "전체 기록에는 하루 체중 변화가 0.2kg 미만인 상태가 ${maxPlateau}일 연속 이어진 구간이 있습니다. 이 기록만으로 현재 상태나 이후의 체중 변화를 단정할 수 없습니다."</li>`);
         }
 
         // 22. 추세 반전 감지 (Head & Shoulders)
@@ -3121,7 +3121,7 @@
             htmlLines.push(`<li class="insight-item"><span class="insight-label">🕵️ 주말의 공격:</span> " 주로 <strong>토요일</strong>에 체중이 늘어나고, 이를 복구하는 데 평균 <strong>${avgRec.toFixed(1)}일</strong>이 걸립니다. 주말 식단을 조절하면 목표 달성이 빨라집니다."</li>`);
         }
 
-        // 26. 가짜 살 판독기 (Fake Weight Detector)
+        // 26. 마지막 기록과 최근 평균의 변화
         // const lastRec = ... (상단 공통 변수 lastRec 사용)
         if (AppState.records.length > 7 && isConsecutiveDailyRecordRange(AppState.records.slice(-8))) {
             const lastRecVal = AppState.records[AppState.records.length-1].weight;
@@ -3131,7 +3131,7 @@
                 const last7Avg = AppState.records.slice(-7).reduce((a,b)=>a+b.weight,0)/7;
                 const prev7Avg = AppState.records.slice(-8, -1).reduce((a,b)=>a+b.weight,0)/7;
                 if (last7Avg < prev7Avg) {
-                     htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 가짜 살 판독기:</span> "오늘 체중이 +${diffLast.toFixed(1)}kg 늘었지만, 최근 7일 평균선은 여전히 하락세입니다. 이는 단순 수분/변비일 확률이 95%입니다. 멘탈 잡으세요!"</li>`);
+                     htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 최근 체중 추세:</span> "마지막 기록은 전날보다 +${diffLast.toFixed(1)}kg 늘었지만, 최근 7일 평균은 이전 7일 평균보다 낮습니다. 체중 기록만으로 단기 변화의 원인이나 확률을 판단할 수는 없습니다."</li>`);
                 }
             }
         }
@@ -3143,12 +3143,13 @@
              const timeNew = remaining / (rate + (300/7700));
              const saved = timeOld - timeNew;
              const targetDate = new Date(); targetDate.setDate(targetDate.getDate() + timeNew);
-             htmlLines.push(`<li class="insight-item"><span class="insight-label">🔮 시뮬레이션 예측:</span> "만약 오늘부터 매일 300kcal씩 덜 먹는다면, 예상 목표 달성일은 <strong>${DateUtil.format(targetDate)}</strong>로 <strong>${Math.round(saved)}일</strong> 앞당겨집니다."</li>`);
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">🔮 단순 시뮬레이션:</span> "하루 300kcal 감소와 1kg당 7,700kcal를 가정한 계산에서는 목표일이 <strong>${DateUtil.format(targetDate)}</strong>로 약 <strong>${Math.round(saved)}일</strong> 달라집니다. 신체 적응과 개인차를 반영하지 않은 수치 예시이며, 식사량을 줄이라는 권고나 실제 달성일 예측은 아닙니다."</li>`);
         }
 
-        // 28. 정체기 타파 솔루션 (Plateau Solution)
-        if (maxPlateau >= 10 && Math.abs(s.current - s.lastRec.weight) < 0.2) {
-             htmlLines.push(`<li class="insight-item"><span class="insight-label">💡 정체기 타파 솔루션:</span> "현재 10일째 체중 변화가 없습니다. 지금은 <strong>운동 종류</strong>를 바꿔 대사에 충격을 줄 타이밍일 수 있습니다."</li>`);
+        // 28. 현재 유지 구간은 과거 최장 구간이 아닌 마지막 연속 기록으로 판정합니다.
+        const currentPlateau = calcPlateauStatus().current;
+        if (currentPlateau >= 10) {
+             htmlLines.push(`<li class="insight-item"><span class="insight-label">💡 최근 체중 유지 구간:</span> "최근 ${currentPlateau + 1}개 연속 기록에서 하루 체중 변화가 0.2kg 미만이었습니다. 체중 기록만으로 변화의 원인을 판단할 수는 없습니다."</li>`);
         }
 
         // 29. 심리적 저항선 판독 (Psychological Resistance)
@@ -3244,7 +3245,7 @@
         // [추가] 36 ~ 85: 심층 분석 알고리즘 (Deep Insights)
         // ---------------------------------------------------------
 
-        // 36. 스퀴즈 (Whoosh Effect 전조)
+        // 36. 최근 기록의 변동성 비교
         if (AppState.records.length >= 30 && isConsecutiveDailyRecordRange(AppState.records.slice(-30))) {
             const last7 = AppState.records.slice(-7).map(r => r.weight);
             const std7 = MathUtil.stdDev(last7);
@@ -3252,7 +3253,7 @@
             const std30 = MathUtil.stdDev(last30);
             
             if (std7 < std30 * 0.5) {
-                htmlLines.push(`<li class="insight-item"><span class="insight-label">💧 폭풍전야 (Whoosh 대기):</span> "최근 7일간 체중 변화가 거의 없습니다. 지방은 탔지만 수분이 그 자리를 채우고 있을 가능성이 높습니다(Whoosh 효과). 포기하지 않으면 곧 급격한 감량이 찾아옵니다."</li>`);
+                htmlLines.push(`<li class="insight-item"><span class="insight-label">📊 최근 기록의 변동성:</span> "최근 7개 기록의 표준편차가 30개 기록의 절반보다 작습니다. 이 비교만으로 체지방·수분 변화나 앞으로의 감량을 예측할 수는 없습니다."</li>`);
             }
         }
 
@@ -3265,13 +3266,15 @@
                 if (change > 0) gain += change;
                 else loss -= change;
             }
-            const rs = loss === 0 ? 100 : gain / loss;
-            const rsi = 100 - (100 / (1 + rs));
+            // 상승과 하락이 모두 없으면 중립입니다. 이를 상승으로 계산하면
+            // 체중이 15일 내내 같아도 상승 경고가 나타납니다.
+            const rsi = gain === 0 && loss === 0 ? 50
+                : loss === 0 ? 100 : 100 - (100 / (1 + gain / loss));
             
             if (rsi > 70) {
-                htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">⏰ 급찐살 골든타임:</span> "최근 체중이 급격히 늘었습니다(과열). 의학적으로 이것은 지방보다 '수분과 글리코겐'일 확률이 높습니다. 지금 당장 조절하면 지방이 되기 전에 뺄 수 있습니다!"</li>`);
+                htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">📈 최근 체중 상승:</span> "최근 기록에서 체중 상승이 관찰되었습니다. 단기간 체중 변화만으로 수분이나 체지방 등 변화의 원인을 판단할 수는 없습니다."</li>`);
             } else if (rsi < 30) {
-                htmlLines.push(`<li class="insight-item text-danger"><span class="insight-label">🚨 항상성 반발 경고:</span> "최근 감량 속도가 너무 빠릅니다. 우리 몸은 급격한 변화를 싫어해 식욕을 폭발시킬 수 있습니다(요요 현상). 오늘은 조금 더 드셔도 괜찮습니다."</li>`);
+                htmlLines.push(`<li class="insight-item"><span class="insight-label">📉 최근 체중 하락:</span> "최근 연속 기록에서는 체중이 내려간 변화의 합이 올라간 변화보다 컸습니다. 이 비교만으로 필요한 식사량이나 식욕 변화를 판단할 수는 없습니다."</li>`);
             }
         }
 
@@ -4050,6 +4053,18 @@
         });
     }
 
+    // 마지막 측정이 오래됐으면 현재 체중을 알 수 없습니다. 추세 계산에 사용한
+    // 기록이 90일 안에 있더라도 마지막 값을 오늘의 체중처럼 예측에 쓰지 않습니다.
+    const MAX_FORECAST_MEASUREMENT_AGE_DAYS = 7;
+    function hasRecentForecastMeasurement() {
+        const lastRecord = AppState.records[AppState.records.length - 1];
+        if (!lastRecord || !DateUtil.isValidDateString(lastRecord.date)) return false;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const age = DateUtil.daysBetween(DateUtil.parse(lastRecord.date), today);
+        return Number.isFinite(age) && age >= 0 && age <= MAX_FORECAST_MEASUREMENT_AGE_DAYS;
+    }
+
     function calcWindowMetric(days) {
         const rel = getRecentRecordsByDays(days);
         if (rel.length < 2) return null;
@@ -4220,6 +4235,9 @@
     }
 
     function calcForecastContext(currentWeight, goalWeight) {
+        if (!hasRecentForecastMeasurement()) {
+            return { available: false, trend: null, reason: 'stale-record' };
+        }
         const recent30 = getRecentRecordsByDays(30);
         const recent90 = getRecentRecordsByDays(90);
         // 현재 목표일 예측에 오래된 전체 기록을 폴백으로 사용하지 않습니다.
@@ -4229,8 +4247,10 @@
             return { available: false, trend };
         }
         const daysToGoal = (currentWeight - goalWeight) / Math.abs(trend.slopeKgPerDay);
-        const lastDate = DateUtil.parse(AppState.records[AppState.records.length - 1].date);
-        const eta = new Date(lastDate);
+        // 대시보드와 상세 분석 모두 마지막 측정값이 현재도 대표값이라는 가정 아래
+        // 오늘부터 남은 기간을 계산합니다. 오래된 측정은 위에서 이미 보류했습니다.
+        const eta = new Date();
+        eta.setHours(0, 0, 0, 0);
         eta.setDate(eta.getDate() + Math.round(daysToGoal));
         let confidence = '낮음';
         if (trend.count >= 20 && trend.r2 >= 0.55) confidence = '보통~높음';
@@ -4360,8 +4380,10 @@
             ? `체지방량 변화 ${formatSignedKg(ctx.bodyComp.fatChange, 1)}, 제지방량 변화 ${formatSignedKg(ctx.bodyComp.leanChange, 1)}`
             : `체지방률 기록 ${ctx.bodyComp.fatRecordCount}개로 정밀한 체성분 해석은 보류`;
         const forecastText = ctx.forecast.available
-            ? `${ctx.forecast.eta} 전후, 약 ${Math.round(ctx.forecast.daysToGoal)}일, 신뢰도 ${ctx.forecast.confidence}`
-            : '현재 추세만으로는 목표일 예측 보류';
+            ? `${ctx.forecast.eta} 전후, 약 ${Math.round(ctx.forecast.daysToGoal)}일, 기록·추세 지표 ${ctx.forecast.confidence}`
+            : (ctx.forecast.reason === 'stale-record'
+                ? '최근 체중 기록이 없어 목표일 예측 보류'
+                : '현재 추세만으로는 목표일 예측 보류');
         const warningText = ctx.flags.length ? ctx.flags.join(' ') : '현재 기록만으로 즉시 중단이 필요한 위험 신호는 뚜렷하지 않습니다. 다만 앱 데이터는 진단이 아니므로 증상이나 기저질환이 있으면 의료진 판단이 우선입니다.';
         const calorieText = ctx.energyDailyDeficit > 0
             ? `최근 추세를 7,700kcal/kg의 단순 환산으로 보면 하루 약 ${Math.round(ctx.energyDailyDeficit)}kcal의 에너지 부족에 해당합니다.`
@@ -4760,13 +4782,15 @@
                     { label: '목표 체중', value: formatKg(ctx.goalWeight, 1) },
                     { label: '남은 체중', value: formatKg(ctx.remaining, 1) },
                     { label: '예상일', value: ctx.forecast.available ? ctx.forecast.eta : '보류' },
-                    { label: '예측 신뢰도', value: ctx.forecast.available ? ctx.forecast.confidence : '낮음' }
+                    { label: '기록·추세 지표', value: ctx.forecast.available ? ctx.forecast.confidence : '산출 불가' }
                 ],
                 paragraphs: [
                     `예측일은 동기부여에는 도움이 되지만, 몸은 직선으로 변하지 않습니다. 앱은 최근 30일 또는 충분한 최근 기록을 바탕으로 선형 추세를 계산하고, 현재 체중에서 목표 체중까지의 거리를 나누어 예상일을 산출합니다.`,
                     ctx.forecast.available
-                        ? `현재 추세가 유지된다면 목표 체중 ${formatKg(ctx.goalWeight, 1)}까지 약 ${Math.round(ctx.forecast.daysToGoal)}일이 필요하고, 예상일은 ${ctx.forecast.eta} 전후입니다. 다만 추세 설명력, 기록 수, 생활 변화에 따라 실제 결과는 크게 달라질 수 있습니다.`
-                        : `현재는 목표일을 신뢰 있게 계산하기 어렵습니다. 이유는 최근 감량 기울기가 충분히 뚜렷하지 않거나, 기록 수가 부족하거나, 체중이 이미 목표에 가까워졌기 때문입니다.`,
+                        ? `마지막 측정값을 현재 체중의 대표값으로 가정하고 추세가 유지된다면 목표 체중 ${formatKg(ctx.goalWeight, 1)}까지 약 ${Math.round(ctx.forecast.daysToGoal)}일이 필요하며, 예상일은 ${ctx.forecast.eta} 전후입니다. 기록·추세 지표는 기록 수와 직선 적합도를 나눈 자체 기준으로, 예측 정확도나 통계적 신뢰구간을 뜻하지 않습니다. 실제 결과는 크게 달라질 수 있습니다.`
+                        : (ctx.forecast.reason === 'stale-record'
+                            ? `마지막 체중 기록이 7일을 넘었거나 확인할 수 없어 목표일 예측을 보류했습니다. 새 체중 기록을 입력한 뒤 다시 확인할 수 있습니다.`
+                            : `현재는 목표일을 신뢰 있게 계산하기 어렵습니다. 이유는 최근 감량 기울기가 충분히 뚜렷하지 않거나, 기록 수가 부족하거나, 체중이 이미 목표에 가까워졌기 때문입니다.`),
                     `목표가 가까워질수록 감량 속도는 느려지는 것이 자연스럽습니다. 체중이 줄면 필요한 에너지도 줄고, 무의식적 활동량이 감소할 수 있습니다. 따라서 초반 속도를 그대로 끝까지 기대하기보다, 2~4주 단위로 목표 속도를 재설정해야 합니다.`,
                     `안전 계획의 핵심은 중단 기준을 정하는 것입니다. 어지러움, 실신, 흉통, 호흡곤란, 심한 피로, 식사 통제 상실, 폭식·구토, 무월경, 급격한 탈모, 기존 질환 악화, 약물 복용 중 저혈당 증상이 나타나면 감량 목표보다 의료 평가가 우선입니다.`,
                     `목표 달성 후에는 유지 단계가 시작됩니다. 유지 단계에서는 감량기보다 작은 칼로리 결손을 없애고, 체중 허용 범위를 정하고, 기록 빈도를 낮추더라도 주간 평균을 계속 확인하는 방식이 유리합니다.`
@@ -4931,6 +4955,9 @@
     }
 
     function calculateScenarios(currentW) {
+        if (AppState.records.length > 0 && !hasRecentForecastMeasurement()) {
+            return { avg: '최근 기록 필요', range: '마지막 체중 기록이 7일을 넘었습니다. 새 기록을 입력해주세요.' };
+        }
         if(currentW <= AppState.settings.goal1) return { avg: "달성 완료! 🎉", range: "" };
         if(AppState.records.length < 5) return { avg: "데이터 수집 중...", range: "" };
         
