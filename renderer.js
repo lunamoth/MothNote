@@ -535,18 +535,28 @@ export const renderNotes = () => {
         
     if (viewData.isSortable) noteSortSelect.value = state.noteSortOrder;
 
+    // 현재 목록은 활성 노트 또는 휴지통의 최상위 항목으로 구성됩니다.
+    // 휴지통 폴더마다 findNote()를 호출하면 매번 휴지통 전체를 다시 검색하므로,
+    // 폴더가 많은 상태에서 선택된 노트가 삭제될 때 화면 갱신이 제곱 시간으로 느려집니다.
+    const isSelectableRenderedNote = item => {
+        if (!item || !item.id) return false;
+        if (!viewData.isTrashView) return state.noteMap.has(item.id);
+        if (item.type === CONSTANTS.ITEM_TYPE.FOLDER || Array.isArray(item.notes)) return false;
+        return item.type === CONSTANTS.ITEM_TYPE.NOTE || 'title' in item || 'content' in item;
+    };
+
     const activeEditorOwnsUnsavedDraft = state.isDirty
         && state.dirtyNoteId
         && state.activeNoteId === state.dirtyNoteId;
     const activeNoteIsSelectable = !state.activeNoteId || sortedNotes.some(item => (
-        item?.id === state.activeNoteId && Boolean(findNote(state.activeNoteId).item)
+        item?.id === state.activeNoteId && isSelectableRenderedNote(item)
     ));
     if (state.activeNoteId
         && !activeNoteIsSelectable
         && !activeEditorOwnsUnsavedDraft) {
         // 휴지통 목록에는 폴더도 섞여 있으므로 첫 '항목'이 아니라 실제 노트를 대체 선택합니다.
         // activeNoteId 보정은 setState()를 통해 즉시 재렌더를 유발하므로 현재 렌더는 여기서 중단합니다.
-        const fallbackNoteId = sortedNotes.find(item => item?.id && Boolean(findNote(item.id).item))?.id ?? null;
+        const fallbackNoteId = sortedNotes.find(isSelectableRenderedNote)?.id ?? null;
         setState({ activeNoteId: fallbackNoteId });
         return;
     }

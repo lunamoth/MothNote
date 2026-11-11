@@ -667,7 +667,8 @@
             calendarViewDate: new Date(),
             medicalNarrativePlainText: '',
             hasRenderedNonEmptyRecords: false,
-            recordsLoadFailed: false
+            recordsLoadFailed: false,
+            settingsLoadFailed: false
         }
     };
 
@@ -1007,9 +1008,11 @@
 
     const persistDietSettingsImmediate = (settings = AppState.settings) => {
         const safeSettings = sanitizeDietSettings(settings);
-        return persistLocalStorageEntriesAtomically([
+        const didPersist = persistLocalStorageEntriesAtomically([
             { key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) }
         ], '다이어트 설정을 저장하지 못했습니다. 저장 공간 또는 브라우저 권한을 확인해주세요.');
+        if (didPersist) AppState.state.settingsLoadFailed = false;
+        return didPersist;
     };
 
     const persistDietStateSnapshot = (records, settings, { allowCorruptDataReplacement = false, includeSettings = true } = {}) => {
@@ -1027,6 +1030,7 @@
         if (includeSettings) entries.push({ key: AppState.SETTINGS_KEY, value: JSON.stringify(safeSettings) });
         const didPersist = persistLocalStorageEntriesAtomically(entries, '가져온 다이어트 데이터를 저장하지 못했습니다. 기존 데이터를 유지합니다.');
         if (didPersist && allowCorruptDataReplacement) AppState.state.recordsLoadFailed = false;
+        if (didPersist && includeSettings) AppState.state.settingsLoadFailed = false;
         return didPersist;
     };
 
@@ -1059,6 +1063,7 @@
         let records = [];
         let settings = sanitizeDietSettings(currentSettings);
         let recordsLoadFailed = false;
+        let settingsLoadFailed = false;
 
         // 기록과 설정을 독립적으로 읽습니다. 설정 JSON 하나가 손상됐다는 이유로
         // 정상적인 전체 체중 기록까지 빈 배열로 교체하면 다음 저장 시 실제 데이터가 유실될 수 있습니다.
@@ -1090,18 +1095,26 @@
         try {
             storedSettings = storage.getItem(AppState.SETTINGS_KEY);
         } catch (settingsReadError) {
+            settingsLoadFailed = true;
             console.error('Diet settings storage read error. Continuing with safe defaults.', settingsReadError);
         }
-        if (storedSettings) {
+        if (storedSettings !== null) {
             try {
-                settings = sanitizeDietSettings(JSON.parse(storedSettings));
+                const parsedSettings = JSON.parse(storedSettings);
+                const normalizedSettings = normalizeImportedDietSettings(parsedSettings, settings);
+                // 일부 필드만 손상된 경우 화면에는 나머지 정상 값을 계속 표시합니다.
+                settings = sanitizeDietSettings(parsedSettings);
+                if (!normalizedSettings.ok) throw new Error(normalizedSettings.error);
+                settings = normalizedSettings.settings;
             } catch (settingsError) {
                 // 설정만 기본값으로 되돌리고, 위에서 정상 로드한 기록은 그대로 보존합니다.
+                // 이 표시가 없으면 대체 설정이 원본인 것처럼 JSON 백업에 들어갑니다.
+                settingsLoadFailed = true;
                 console.error('Diet settings load error. Falling back to safe defaults without clearing records.', settingsError);
             }
         }
 
-        return { records, settings, recordsLoadFailed };
+        return { records, settings, recordsLoadFailed, settingsLoadFailed };
     };
 
     // --- 2. 초기화 ---
@@ -1226,6 +1239,7 @@
         AppState.records = persistedDietState.records;
         AppState.settings = persistedDietState.settings;
         AppState.state.recordsLoadFailed = persistedDietState.recordsLoadFailed;
+        AppState.state.settingsLoadFailed = persistedDietState.settingsLoadFailed;
         restoreInlineEditDraftFromSession();
 
         try {
@@ -1370,6 +1384,9 @@
         updateUI();
         if (AppState.state.recordsLoadFailed) {
             showToast(DIET_RECORD_RECOVERY_REQUIRED_MESSAGE);
+        }
+        if (AppState.state.settingsLoadFailed) {
+            showToast('다이어트 설정 일부를 안전하게 읽지 못해 대체값을 표시합니다. 설정을 확인하기 전에는 JSON 백업이 중단됩니다.');
         }
     }
 	
@@ -1660,6 +1677,15 @@
                 if (!importResult.ok) throw new Error(importResult.error);
 
                 const hasSettings = Object.prototype.hasOwnProperty.call(data, 'settings');
+                if (hasSettings && AppState.state.settingsLoadFailed
+                    && (!isPlainObject(data.settings)
+                        || ['height', 'startWeight', 'goal1', 'intake'].some(key => (
+                            !Object.prototype.hasOwnProperty.call(data.settings, key)
+                        )))) {
+                    // 현재 설정 원문을 읽지 못했다면 빠진 필드의 실제 값도 알 수 없습니다.
+                    // 대체 기본값을 기존 값인 것처럼 병합해 원문을 덮어쓰지 않습니다.
+                    throw new Error('현재 설정을 안전하게 읽지 못해 일부 설정만 포함된 백업은 복원할 수 없습니다. 모든 설정이 포함된 백업을 사용하거나 설정을 먼저 확인해주세요.');
+                }
                 const settingsImportResult = hasSettings
                     ? normalizeImportedDietSettings(data.settings, AppState.settings)
                     : { ok: true, settings: AppState.settings, error: '' };
@@ -1914,6 +1940,10 @@
 
 	function exportJSON() {
         if (!ensureDietRecordsReadyForExport()) return;
+        if (AppState.state.settingsLoadFailed) {
+            showToast('저장된 다이어트 설정을 안전하게 읽지 못해 JSON 백업을 중단했습니다. MothNote 통합 백업에서 원본을 확인하거나 설정을 다시 저장한 뒤 시도해주세요.');
+            return;
+        }
         const data = {
             settings: AppState.settings,
             records: AppState.records,

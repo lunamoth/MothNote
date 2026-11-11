@@ -2835,15 +2835,16 @@ const normalizeDietSettingsImportValue = value => {
     sanitizeObjectForPrototypePollution(parsed);
     const defaults = { height: 179, startWeight: 78.5, goal1: 70, intake: 1862 };
     let currentSettings = { ...defaults };
+    let currentSettingsUnreadable = false;
     const storedCurrentSettings = localStorage.getItem(DIET_CHALLENGE_SETTINGS_KEY);
-    if (storedCurrentSettings) {
+    if (storedCurrentSettings !== null) {
         try {
             const currentParsed = JSON.parse(storedCurrentSettings);
-            if (isPlainImportObject(currentParsed)) {
-                currentSettings = { ...currentSettings, ...currentParsed };
-            }
+            if (!isPlainImportObject(currentParsed)) throw new Error('현재 다이어트 설정이 객체가 아닙니다.');
+            currentSettings = { ...currentSettings, ...currentParsed };
         } catch (error) {
-            console.warn('현재 다이어트 설정을 읽지 못해 유효한 기본값을 기준으로 가져옵니다.', error);
+            currentSettingsUnreadable = true;
+            console.warn('현재 다이어트 설정을 읽지 못했습니다. 백업에 없는 설정은 보존할 수 없습니다.', error);
         }
     }
 
@@ -2870,9 +2871,14 @@ const normalizeDietSettingsImportValue = value => {
 
     // [MAJOR BUG FIX] 통합 백업이 구버전/부분 백업이라 일부 설정 키가 없을 때
     // 누락 항목을 내장 기본값으로 되돌리지 않고 현재 사용자의 유효한 값을 유지합니다.
-    // 현재 값이 자체적으로 손상된 경우에만 해당 키의 안전한 기본값으로 폴백합니다.
+    // 현재 값이 손상되었더라도 백업에 해당 키가 있으면 그 값으로 교체할 수 있습니다.
+    // 두 곳 모두 값을 알 수 없다면 기본값으로 원본을 덮어쓰지 않고 이 항목만 건너뜁니다.
     const normalizedCurrent = {};
     for (const propertyName of Object.keys(rules)) {
+        const importedValueExists = Object.prototype.hasOwnProperty.call(parsed, propertyName);
+        if (currentSettingsUnreadable && !importedValueExists) {
+            throw new Error(`현재 다이어트 설정을 읽지 못해 백업에 없는 ${propertyName} 값을 보존할 수 없습니다.`);
+        }
         try {
             normalizedCurrent[propertyName] = getValidatedNumber(
                 currentSettings,
@@ -2880,6 +2886,9 @@ const normalizeDietSettingsImportValue = value => {
                 defaults[propertyName]
             );
         } catch (error) {
+            if (!importedValueExists) {
+                throw new Error(`현재 다이어트 설정의 ${propertyName} 값이 손상되어 백업에 없는 값을 보존할 수 없습니다.`);
+            }
             normalizedCurrent[propertyName] = defaults[propertyName];
         }
     }
@@ -2918,7 +2927,7 @@ const normalizeIntegratedImportFields = importedData => {
         } catch (error) {
             // 선택 모듈 하나가 손상됐다는 이유로 정상 노트 백업 전체를 사용할 수 없게 하지 않습니다.
             // 건너뛴 필드는 적용 단계에서 현재 localStorage 값을 그대로 유지합니다.
-            console.warn(`${label} 백업이 손상되어 해당 항목만 건너뜁니다.`, error);
+            console.warn(`${label} 백업 또는 현재 저장값을 안전하게 확인하지 못해 해당 항목만 건너뜁니다.`, error);
             skippedFields.push(label);
         }
     });
@@ -4013,7 +4022,7 @@ export const setupImportHandler = () => {
                 }
 
                 const skippedImportFieldsWarning = skippedImportFields.length > 0
-                    ? `<br><br><strong>⚠️ 손상된 부가 데이터는 건너뜁니다.</strong><br>${skippedImportFields.map(escapeHtml).join(', ')} 항목은 복원하지 않고 현재 데이터를 유지합니다.`
+                    ? `<br><br><strong>⚠️ 안전하게 복원할 수 없는 부가 데이터는 건너뜁니다.</strong><br>${skippedImportFields.map(escapeHtml).join(', ')} 항목은 복원하지 않고 현재 데이터를 유지합니다.`
                     : '';
                 const overwriteTargetLabels = [
                     '모든 노트',

@@ -910,16 +910,40 @@
     }
 
     function calculateRollingHourlyAverage(hourly, variable, currentTime, hours = 24) {
-        if (!hourly?.time?.length || !Array.isArray(hourly[variable])) return null;
+        if (!hourly?.time?.length || !Array.isArray(hourly[variable]) || !Number.isInteger(hours) || hours < 1) return null;
+        // API 시각은 대상 지역의 시간대 오프셋이 없는 ISO 문자열입니다.
+        // 컴퓨터 시간대/DST 보정에 영향받지 않도록 표기된 시각끼리 비교합니다.
+        const parseTimestamp = value => {
+            if (typeof value !== 'string' || !value.trim()) return NaN;
+            const text = value.trim();
+            const isLocalIsoTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text);
+            return Date.parse(isLocalIsoTime ? `${text}Z` : text);
+        };
+        const referenceTime = parseTimestamp(currentTime);
+        if (!Number.isFinite(referenceTime)) return null;
         let currentIndex = -1;
-        const key = String(currentTime || hourly.time[0]);
+        let latestTime = -Infinity;
         for (let index = 0; index < hourly.time.length; index += 1) {
-            if (String(hourly.time[index]) <= key) currentIndex = index;
+            const timestamp = parseTimestamp(hourly.time[index]);
+            if (Number.isFinite(timestamp) && timestamp <= referenceTime && timestamp > latestTime) {
+                currentIndex = index;
+                latestTime = timestamp;
+            }
         }
-        if (currentIndex < 0) currentIndex = getClosestHourlyIndex(currentTime, hourly);
-        const start = Math.max(0, currentIndex - hours + 1);
-        const values = hourly[variable].slice(start, currentIndex + 1).map(toFiniteNumber).filter((value) => value !== null);
-        return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+        const start = currentIndex - hours + 1;
+        // 한두 개의 값이나 오래된 자료를 '24시간 평균'으로 표시하지 않습니다.
+        if (start < 0 || referenceTime - latestTime >= 3600000) return null;
+        let sum = 0;
+        let previousTime = null;
+        for (let index = start; index <= currentIndex; index += 1) {
+            const timestamp = parseTimestamp(hourly.time[index]);
+            const value = toFiniteNumber(hourly[variable][index]);
+            if (!Number.isFinite(timestamp) || value === null || value < 0
+                || (previousTime !== null && timestamp - previousTime !== 3600000)) return null;
+            sum += value;
+            previousTime = timestamp;
+        }
+        return sum / hours;
     }
 
     function getAirQualityMetrics(aqiData, dailyData, currentTime) {
@@ -927,8 +951,8 @@
         const hourly = aqiData?.hourly || null;
         const pm10Current = current?.pm10 ?? null;
         const pm25Current = current?.pm2_5 ?? null;
-        const pm10Avg24 = calculateRollingHourlyAverage(hourly, 'pm10', current?.time || currentTime, 24) ?? pm10Current;
-        const pm25Avg24 = calculateRollingHourlyAverage(hourly, 'pm2_5', current?.time || currentTime, 24) ?? pm25Current;
+        const pm10Avg24 = calculateRollingHourlyAverage(hourly, 'pm10', current?.time || currentTime, 24);
+        const pm25Avg24 = calculateRollingHourlyAverage(hourly, 'pm2_5', current?.time || currentTime, 24);
         const usAqi = current?.us_aqi ?? null;
         const uvCurrent = current?.uv_index ?? null;
         const uvDailyMax = dailyData?.uv_index_max?.[0] ?? null;
@@ -940,9 +964,14 @@
         // 지표가 있어야 긍정 판정을 하되, 확인된 나쁜 지표의 경고는 항상 유지합니다.
         const hasAirQualityAssessment = toFiniteNumber(usAqi) !== null
             || (toFiniteNumber(pm10Avg24) !== null && toFiniteNumber(pm25Avg24) !== null);
+        // 평균이 없더라도 현재 농도가 높은 경우 주의 신호는 유지합니다.
+        // 현재 값은 24시간 평균으로 표기하거나 좋은 대기질의 근거로 쓰지 않습니다.
+        const hasCurrentParticulateWarning = (pm10Avg24 === null && ['나쁨', '매우 나쁨'].includes(getAqiLevel('pm10', pm10Current).level))
+            || (pm25Avg24 === null && ['나쁨', '매우 나쁨'].includes(getAqiLevel('pm2_5', pm25Current).level));
         const hasAirQualityWarning = (toFiniteNumber(usAqi) ?? 0) > 100
             || ['나쁨', '매우 나쁨'].includes(pm10Info.level)
-            || ['나쁨', '매우 나쁨'].includes(pm25Info.level);
+            || ['나쁨', '매우 나쁨'].includes(pm25Info.level)
+            || hasCurrentParticulateWarning;
         return {
             pm10Current,
             pm25Current,
@@ -952,6 +981,7 @@
             pm25Info,
             hasAirQualityAssessment,
             hasAirQualityWarning,
+            hasCurrentParticulateWarning,
             usAqi,
             usAqiInfo: getUsAqiLevel(usAqi),
             uvValue,
@@ -1111,7 +1141,12 @@
         const air = getAirQualityMetrics(aqiData, dailyData, current?.time);
         const maxRainProb = maxNextHourly(hourly, 'precipitation_probability', startIndex, 6);
         const wind = current?.windspeed ?? current?.wind_speed_10m ?? getHourlyValue(hourly, 'wind_speed_10m', startIndex);
-        if (air.hasAirQualityWarning) return { tag: '짧게 환기', tone: 'warn', text: `PM10 ${air.pm10Info.level}, PM2.5 ${air.pm25Info.level}, US AQI ${formatNumber(air.usAqi, 0, '--')}입니다. 환기는 짧게 하고 민감하시면 창문을 오래 열어두지 않는 편이 좋습니다.` };
+        if (air.hasAirQualityWarning) {
+            const currentWarning = air.hasCurrentParticulateWarning
+                ? ` 현재 농도 PM10 ${formatNumber(air.pm10Current, 1, '--')}, PM2.5 ${formatNumber(air.pm25Current, 1, '--')} µg/m³에도 주의가 필요합니다.`
+                : '';
+            return { tag: '짧게 환기', tone: 'warn', text: `PM10 ${air.pm10Info.level}, PM2.5 ${air.pm25Info.level}, US AQI ${formatNumber(air.usAqi, 0, '--')}입니다.${currentWarning} 환기는 짧게 하고 민감하시면 창문을 오래 열어두지 않는 편이 좋습니다.` };
+        }
         if (!air.hasAirQualityAssessment) return { tag: '자료 확인', tone: 'info', text: '대기질 자료가 부족합니다. 환기 전 실시간 대기질과 비·바람을 함께 확인해 주세요.' };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 60) return { tag: '비 확인', tone: 'info', text: `대기질은 큰 부담이 없지만 가까운 시간 강수 가능성이 있습니다. 창문을 열기 전 비 여부를 확인하세요.` };
         if ((toFiniteNumber(wind) ?? 0) >= 35) return { tag: '바람 확인', tone: 'info', text: `대기질은 무난하지만 바람이 다소 강할 수 있습니다. 짧은 환기가 적합합니다.` };
