@@ -1433,7 +1433,9 @@ const setupDragAndDrop = (listElement, type) => {
         const dropNextElId = indicator.nextElementSibling?.dataset.id;
         indicator.remove();
 
-        if (originalNextElId === dropNextElId) {
+        // 표시선이 드래그 중인 폴더 바로 앞에 있으면 실제 순서는 바뀌지 않습니다.
+        // 이 경우 폴더를 배열에서 먼저 제거하면 dropNextElId를 찾지 못해 맨 뒤로 이동합니다.
+        if (dropNextElId === draggedId || originalNextElId === dropNextElId) {
             return;
         }
 
