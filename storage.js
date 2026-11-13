@@ -2537,15 +2537,58 @@ const normalizeAppSettingsImportValue = value => {
     sanitizeObjectForPrototypePollution(value);
 
     let currentSettings = JSON.parse(JSON.stringify(CONSTANTS.DEFAULT_SETTINGS));
+    let rawCurrentSettings = null;
+    let currentSettingsUnreadable = false;
     const storedCurrentSettings = localStorage.getItem(CONSTANTS.LS_KEY_SETTINGS);
-    if (storedCurrentSettings) {
+    if (storedCurrentSettings !== null) {
         try {
             const currentParsed = JSON.parse(storedCurrentSettings);
-            if (isPlainImportObject(currentParsed)) {
-                currentSettings = sanitizeSettings(currentParsed);
-            }
+            if (!isPlainImportObject(currentParsed)) throw new Error('현재 설정이 객체가 아닙니다.');
+            rawCurrentSettings = currentParsed;
+            currentSettings = sanitizeSettings(currentParsed);
         } catch (error) {
-            console.warn('현재 설정을 읽지 못해 기본 설정을 기준으로 가져옵니다.', error);
+            currentSettingsUnreadable = true;
+            console.warn('현재 설정을 읽지 못했습니다. 백업에 없는 설정은 보존할 수 없습니다.', error);
+        }
+    }
+
+    // 불완전한 백업은 현재 값을 유지해야 합니다. 현재 원문이 손상됐는데도
+    // sanitizeSettings가 만든 기본값을 기존 값처럼 병합하면 복구 가능한 설정
+    // 원문을 덮어씁니다. 정상 백업이 해당 값을 제공할 때만 대체를 허용합니다.
+    const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+    const isValidCurrentNumber = (number, min, max) => {
+        const parsed = parseFiniteImportNumber(number);
+        return parsed !== null && parsed >= min && parsed <= max;
+    };
+    const currentFieldValidators = {
+        layout: {
+            col1: value => isValidCurrentNumber(value, 10, 50),
+            col2: value => isValidCurrentNumber(value, 10, 50)
+        },
+        editor: {
+            fontFamily: font => typeof font === 'string' && font.trim().length > 0
+                && font.length <= 300
+                && (typeof CSS === 'undefined' || typeof CSS.supports !== 'function'
+                    || CSS.supports('font-family', font)),
+            fontSize: value => isValidCurrentNumber(value, 10, 30)
+        },
+        weather: {
+            lat: value => isValidCurrentNumber(value, -90, 90),
+            lon: value => isValidCurrentNumber(value, -180, 180)
+        },
+        zenMode: { maxWidth: value => isValidCurrentNumber(value, 500, 2000) }
+    };
+    for (const [sectionName, validators] of Object.entries(currentFieldValidators)) {
+        const importedSection = isPlainImportObject(value[sectionName]) ? value[sectionName] : null;
+        const currentHasSection = rawCurrentSettings && hasOwn(rawCurrentSettings, sectionName);
+        const currentSection = currentHasSection ? rawCurrentSettings[sectionName] : null;
+        for (const [fieldName, isValid] of Object.entries(validators)) {
+            if (importedSection && hasOwn(importedSection, fieldName)) continue;
+            if (currentSettingsUnreadable
+                || (currentHasSection && !isPlainImportObject(currentSection))
+                || (currentHasSection && hasOwn(currentSection, fieldName) && !isValid(currentSection[fieldName]))) {
+                throw new Error(`현재 설정의 ${sectionName}.${fieldName} 값을 보존할 수 없어 설정 가져오기를 건너뜁니다.`);
+            }
         }
     }
 
