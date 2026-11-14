@@ -96,21 +96,9 @@ export const parseEmergencyBackupChanges = rawBackup => {
         }
     }
 
-    // 이름 변경 저장에 실패한 뒤 같은 노트를 다시 편집하면 두 종류의 초안이 함께
-    // 남을 수 있습니다. 더 최신인 전체 노트 초안에는 제목도 포함되므로, 그보다
-    // 오래된 이름 변경을 나중에 적용하면 최신 제목이 유실됩니다. 저장본과 대조해
-    // 항목을 정리하기 전에 이 중복을 해소해야 최신 노트 초안이 이미 저장된 경우도
-    // 예전 이름으로 되돌아가지 않습니다. 시각이 없거나 같으면 순서를 단정하지 않습니다.
-    const { noteUpdate, itemRename } = normalized;
-    if (noteUpdate && itemRename
-        && itemRename.type === 'note'
-        && itemRename.id === noteUpdate.noteId
-        && Number.isFinite(noteUpdate.capturedAt)
-        && Number.isFinite(itemRename.capturedAt)
-        && noteUpdate.capturedAt > itemRename.capturedAt) {
-        delete normalized.itemRename;
-    }
-
+    // 노트 본문만 편집해도 noteUpdate에는 당시 저장된 제목이 포함됩니다.
+    // 시간만 비교해 더 오래된 이름 변경 초안을 제거하면 실패한 이름 변경이
+    // 사라질 수 있으므로, 두 초안은 보존하고 실제 저장본과 함께 판단합니다.
     return normalized;
 };
 
@@ -136,9 +124,10 @@ export const shouldDiscardEmergencyNoteUpdate = (noteUpdate, targetNote) => {
         && capturedAt < updatedAt;
 };
 
-// 이름 변경도 노트 본문과 같은 방식으로, 이미 반영되었거나 저장본보다 오래된 비상
-// 백업이면 폐기합니다. capturedAt이 없는 구버전 백업은 선후 관계를 증명할 수 없으므로
-// 이름이 다른 경우에는 실제 미저장 입력일 가능성을 보존합니다.
+// 이름이 이미 반영된 경우에만 이름 변경 초안을 자동 정리합니다.
+// updatedAt은 이름 변경뿐 아니라 고정·즐겨찾기·폴더 순서 변경 등에서도 갱신되므로,
+// 저장 시각이 더 최신이라는 이유만으로 이름 초안이 저장됐거나 취소됐다고 단정할 수 없습니다.
+// 이름이 다르면 오래된 초안일 가능성도 사용자에게 보여주고 직접 복원 여부를 선택하게 합니다.
 export const shouldDiscardEmergencyItemRename = (itemRename, targetItem) => {
     if (!isRecord(itemRename) || !isRecord(targetItem)) return false;
 
@@ -148,15 +137,7 @@ export const shouldDiscardEmergencyItemRename = (itemRename, targetItem) => {
     const currentName = itemRename.type === 'folder'
         ? String(targetItem.name ?? '').trim()
         : String(targetItem.title ?? '').trim();
-    if (currentName === newName) return true;
-
-    const capturedAt = Number(itemRename.capturedAt);
-    const updatedAt = Number(targetItem.updatedAt);
-    return Number.isFinite(capturedAt)
-        && capturedAt > 0
-        && Number.isFinite(updatedAt)
-        && updatedAt > 0
-        && capturedAt < updatedAt;
+    return currentName === newName;
 };
 
 // 적용할 대상이 없어 트랜잭션이 의도적으로 no-op이 된 경우만 오래된 백업으로 봅니다.

@@ -1014,6 +1014,24 @@ export const loadData = async () => {
                     return findNoteForEmergencyRecovery(normalizedId, data);
                 };
 
+                // 이름 변경 실패 후 같은 노트의 본문만 수정한 경우에도 더 최신
+                // noteUpdate에 기존 제목이 들어 있습니다. 시각만으로 이름 초안을
+                // 버리지 말고 저장된 제목과 비교합니다. 최신 노트 초안의 제목 자체가
+                // 바뀐 경우에만 사용자의 새 제목을 우선합니다.
+                const noteDraft = backupChanges.noteUpdate;
+                const renameDraft = backupChanges.itemRename;
+                if (noteDraft && renameDraft
+                    && renameDraft.type === CONSTANTS.ITEM_TYPE.NOTE
+                    && String(renameDraft.id) === String(noteDraft.noteId)
+                    && Number.isFinite(noteDraft.capturedAt)
+                    && Number.isFinite(renameDraft.capturedAt)
+                    && noteDraft.capturedAt > renameDraft.capturedAt) {
+                    const target = findNoteForEmergencyRecovery(noteDraft.noteId, authoritativeData);
+                    if (target && String(noteDraft.title).trim() !== String(target.title ?? '').trim()) {
+                        delete backupChanges.itemRename;
+                    }
+                }
+
                 const missingRecoveryEntries = [];
                 if (backupChanges.noteUpdate) {
                     const recoveryTarget = findNoteForEmergencyRecovery(backupChanges.noteUpdate.noteId, authoritativeData);
@@ -1083,8 +1101,22 @@ export const loadData = async () => {
                     }
                     if(backupChanges.itemRename) {
                         const itemTypeStr = backupChanges.itemRename.type === 'folder' ? '📁 폴더' : '📝 노트';
-                        const safeNewName = escapeHtml(String(backupChanges.itemRename.newName ?? '').slice(0, 20));
-                        confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr} → '${safeNewName}...'<br>`;
+                        const displayName = value => {
+                            const name = String(value ?? '');
+                            return escapeHtml(name.length > 200 ? `${name.slice(0, 200)}…` : name);
+                        };
+                        const renameTarget = findItemForEmergencyRecovery(
+                            backupChanges.itemRename.id,
+                            backupChanges.itemRename.type,
+                            authoritativeData
+                        );
+                        const currentName = backupChanges.itemRename.type === CONSTANTS.ITEM_TYPE.FOLDER
+                            ? renameTarget?.name
+                            : renameTarget?.title;
+                        confirmMessage += `<strong>✏️ 이름 변경:</strong> ${itemTypeStr}<br>`
+                            + `현재 저장된 이름: '${displayName(currentName)}'<br>`
+                            + `복원할 이름: '${displayName(backupChanges.itemRename.newName)}'<br>`
+                            + '저장된 이름이 더 최근에 변경된 경우 복원하면 해당 이름을 덮어씁니다.<br>';
                     }
                     confirmMessage += "<br>이 변경사항을 복원하시겠습니까?";
 
