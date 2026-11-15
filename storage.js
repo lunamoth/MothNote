@@ -1022,13 +1022,65 @@ export const loadData = async () => {
                 const renameDraft = backupChanges.itemRename;
                 if (noteDraft && renameDraft
                     && renameDraft.type === CONSTANTS.ITEM_TYPE.NOTE
-                    && String(renameDraft.id) === String(noteDraft.noteId)
-                    && Number.isFinite(noteDraft.capturedAt)
-                    && Number.isFinite(renameDraft.capturedAt)
-                    && noteDraft.capturedAt > renameDraft.capturedAt) {
+                    && String(renameDraft.id) === String(noteDraft.noteId)) {
                     const target = findNoteForEmergencyRecovery(noteDraft.noteId, authoritativeData);
-                    if (target && String(noteDraft.title).trim() !== String(target.title ?? '').trim()) {
-                        delete backupChanges.itemRename;
+                    const draftTitle = String(noteDraft.title).trim();
+                    const renameTitle = String(renameDraft.newName).trim();
+                    const titleWasEdited = target && draftTitle !== String(target.title ?? '').trim();
+                    const bothTimesKnown = Number.isFinite(noteDraft.capturedAt)
+                        && Number.isFinite(renameDraft.capturedAt);
+                    // 저장본에 이미 반영됐거나 오래된 노트 초안은 다른 이름 초안의
+                    // 삭제 근거가 될 수 없습니다. 실제 적용 대상인 두 초안만 비교합니다.
+                    const bothDraftsNeedRecovery = target
+                        && !shouldDiscardEmergencyNoteUpdate(noteDraft, target)
+                        && !shouldDiscardEmergencyItemRename(renameDraft, target);
+                    if (bothDraftsNeedRecovery && titleWasEdited
+                        && bothTimesKnown && noteDraft.capturedAt > renameDraft.capturedAt) {
+                        delete backupChanges.itemRename; // 더 나중에 편집한 제목이 우선입니다.
+                    } else if (bothDraftsNeedRecovery && draftTitle !== renameTitle
+                        && (!bothTimesKnown || noteDraft.capturedAt === renameDraft.capturedAt)) {
+                        // 구버전 백업 또는 미래의 저장 시각에 맞춘 두 초안은 순서를
+                        // 알 수 없습니다. 복구 순서에 맡기면 한 제목이 다른 제목을
+                        // 덮어쓰므로 사용자가 명시적으로 선택하기 전에는 둘 다 보존합니다.
+                        const editorTitleText = String(noteDraft.title ?? '');
+                        const renameTitleText = String(renameDraft.newName ?? '');
+                        let firstDifference = 0;
+                        while (firstDifference < Math.min(editorTitleText.length, renameTitleText.length)
+                            && editorTitleText[firstDifference] === renameTitleText[firstDifference]) {
+                            firstDifference += 1;
+                        }
+                        const displayRecoveryTitle = value => {
+                            const text = String(value ?? '');
+                            if (!text) return '(빈 제목)';
+                            if (text.length <= 200) return escapeHtml(text);
+                            // 앞부분이 같은 긴 제목도 차이가 나는 부분을 보여줘야
+                            // 사용자가 두 초안을 구별해 선택할 수 있습니다.
+                            const start = Math.max(0, Math.min(firstDifference - 80, text.length - 200));
+                            const excerpt = `${start > 0 ? '…' : ''}${text.slice(start, start + 200)}${start + 200 < text.length ? '…' : ''}`;
+                            return `${escapeHtml(excerpt)} (총 ${text.length}자)`;
+                        };
+                        const useEditorTitle = await showConfirm({
+                            title: '⚠️ 노트 복구 제목 선택',
+                            message: `같은 노트에 서로 다른 두 제목 초안이 있고 입력 순서를 확인할 수 없습니다.<br><br>편집기 제목: '${displayRecoveryTitle(noteDraft.title)}'<br>이름 변경 제목: '${displayRecoveryTitle(renameDraft.newName)}'<br><br>편집기 제목을 복원하시겠습니까?`,
+                            isHtml: true,
+                            confirmText: '✏️ 편집기 제목 복원',
+                            cancelText: '다른 선택'
+                        });
+                        if (useEditorTitle) {
+                            delete backupChanges.itemRename;
+                        } else {
+                            const useRenameTitle = await showConfirm({
+                                title: '⚠️ 이름 변경 제목 복원',
+                                message: `이름 변경 제목 '${displayRecoveryTitle(renameDraft.newName)}'을 복원하시겠습니까?<br><br>취소하면 두 초안을 모두 보존하고 복구를 중단합니다.`,
+                                isHtml: true,
+                                confirmText: '✏️ 이름 변경 제목 복원',
+                                cancelText: '두 초안 보존',
+                                confirmButtonType: 'danger'
+                            });
+                            if (!useRenameTitle) {
+                                throw createUnrecoverableAppStateError('복구할 제목 선택을 취소하여 두 비상 초안을 모두 보존했습니다. 새 탭에서 복구를 다시 시도해 주세요.');
+                            }
+                        }
                     }
                 }
 

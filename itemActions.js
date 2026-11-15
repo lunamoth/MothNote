@@ -272,6 +272,21 @@ export const persistEmergencyChangesBackupEntry = (entryKey, entryValue) => {
             currentEntry.capturedAt = committedAt;
         }
 
+        // 실패한 목록 이름 변경의 복구 초안이 남아 있더라도, 사용자가 같은
+        // 노트의 제목을 편집기에서 다시 변경했다면 방금 입력한 제목이 우선입니다.
+        // 두 시각이 미래의 updatedAt으로 같은 값에 맞춰질 수 있으므로 시각만으로
+        // 선후를 판정하지 않습니다. 새 노트 초안과 오래된 이름 초안 제거를 한 번의
+        // localStorage 쓰기에 담아, 쓰기에 실패하면 기존 복구본도 그대로 남깁니다.
+        const pendingRename = backup.itemRename;
+        if (entryKey === 'noteUpdate'
+            && targetItem
+            && typeof currentEntry.title === 'string'
+            && currentEntry.title.trim() !== String(targetItem.title ?? '').trim()
+            && pendingRename?.type === CONSTANTS.ITEM_TYPE.NOTE
+            && String(pendingRename.id ?? '') === String(currentEntry.noteId ?? '')) {
+            delete backup.itemRename;
+        }
+
         backup[entryKey] = currentEntry;
         localStorage.setItem(backupKey, JSON.stringify(backup));
         return true;
