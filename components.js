@@ -112,7 +112,7 @@ export const showToast = (message, type = CONSTANTS.TOAST_TYPE.SUCCESS, duration
 // 이벤트 리스너와 UI 상태가 서로 덮어써져 Promise가 끝나지 않을 수 있습니다.
 let modalQueue = Promise.resolve();
 
-const _showSingleModal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm' }) => {
+const _showSingleModal = ({ type, title, message = '', placeholder = '', initialValue = '', confirmText = '✅ 확인', cancelText = '❌ 취소', isHtml = false, hideConfirmButton = false, hideCancelButton = false, validationFn = null, confirmButtonType = 'confirm', cancelResult = null }) => {
     const elementToFocusOnClose = document.activeElement;
 
     return new Promise((resolve, reject) => {
@@ -181,10 +181,9 @@ const _showSingleModal = ({ type, title, message = '', placeholder = '', initial
         };
 
         const handleCancelRequest = (event) => {
-            // ESC/플랫폼 뒤로가기를 언제나 명시적인 취소로 정규화합니다.
-            // 기본 동작을 막지 않으면 이전 returnValue가 남아 확인으로 오판될 수 있습니다.
+            // 창을 닫는 동작과 사용자가 취소 버튼의 선택지를 고른 동작을 구분합니다.
             event.preventDefault();
-            closeWithValue('cancel');
+            closeWithValue('dismiss');
         };
 
         const handleKeydown = (event) => {
@@ -199,7 +198,7 @@ const _showSingleModal = ({ type, title, message = '', placeholder = '', initial
         const cleanup = () => {
             modalConfirmBtn.removeEventListener('click', handleConfirmClick);
             modalCancelBtn.removeEventListener('click', handleCancelClick);
-            modalCloseBtn.removeEventListener('click', handleCancelClick);
+            modalCloseBtn.removeEventListener('click', handleCancelRequest);
             modalInput.removeEventListener('input', handleInput);
             modalInput.removeEventListener('keydown', handleKeydown);
             modal.removeEventListener('cancel', handleCancelRequest);
@@ -217,7 +216,7 @@ const _showSingleModal = ({ type, title, message = '', placeholder = '', initial
                 console.warn('Failed to restore focus to the previous element.', error);
             }
 
-            let result = null;
+            let result = modal.returnValue === 'cancel' ? cancelResult : null;
             if (modal.returnValue === 'confirm') {
                 if (type === CONSTANTS.MODAL_TYPE.PROMPT) result = modalInput.value;
                 else if (message instanceof Node && message.querySelector('select')) result = message.querySelector('select').value;
@@ -228,7 +227,7 @@ const _showSingleModal = ({ type, title, message = '', placeholder = '', initial
 
         modalConfirmBtn.addEventListener('click', handleConfirmClick);
         modalCancelBtn.addEventListener('click', handleCancelClick);
-        modalCloseBtn.addEventListener('click', handleCancelClick);
+        modalCloseBtn.addEventListener('click', handleCancelRequest);
         modal.addEventListener('cancel', handleCancelRequest);
         modal.addEventListener('close', handleClose);
 

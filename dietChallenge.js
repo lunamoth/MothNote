@@ -705,17 +705,18 @@
         return Number.isFinite(number) ? number : null;
     };
 
+    const hasDietFatValue = value => value != null && (typeof value !== 'string' || value.trim() !== '');
+
     const sanitizeDietRecord = (raw) => {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-        const date = String(raw.date ?? '').trim();
+        const date = typeof raw.date === 'string' ? raw.date.trim() : '';
         if (!DateUtil.isValidDateString(date) || DateUtil.isFuture(date)) return null;
 
         const weight = parseFiniteNumericScalar(raw.weight);
         if (weight === null || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) return null;
 
         const record = { date, weight: MathUtil.round(weight) };
-        const hasFat = raw.fat !== undefined && raw.fat !== null && String(raw.fat).trim() !== '';
-        if (hasFat) {
+        if (hasDietFatValue(raw.fat)) {
             const fat = parseFiniteNumericScalar(raw.fat);
             if (fat !== null && fat >= CONFIG.LIMITS.MIN_FAT && fat <= CONFIG.LIMITS.MAX_FAT) {
                 record.fat = MathUtil.round(fat);
@@ -755,10 +756,7 @@
                 return { ok: false, records: [], error: `${index + 1}번째 기록의 날짜 또는 체중이 유효하지 않습니다.` };
             }
 
-            const hasFatValue = rawRecord.fat !== undefined
-                && rawRecord.fat !== null
-                && String(rawRecord.fat).trim() !== '';
-            if (hasFatValue && !Object.prototype.hasOwnProperty.call(normalizedRecord, 'fat')) {
+            if (hasDietFatValue(rawRecord.fat) && !Object.prototype.hasOwnProperty.call(normalizedRecord, 'fat')) {
                 return { ok: false, records: [], error: `${index + 1}번째 기록의 체지방률이 유효하지 않습니다.` };
             }
 
@@ -1321,10 +1319,7 @@
                 const input = getClosestElement(e.target, 'input[data-inline-field][data-date]');
                 const draft = AppState.state.inlineEditDraft;
                 if (!input || !draft || input.dataset.date !== draft.date) return;
-
-                if (input.dataset.inlineField === 'weight') draft.weight = input.value;
-                if (input.dataset.inlineField === 'fat') draft.fat = input.value;
-                persistInlineEditDraftToSession();
+                captureInlineEditDraftFromDom();
             });
 
             histList.addEventListener('click', (e) => {
@@ -1493,7 +1488,7 @@
         if (isNaN(weight) || weight < CONFIG.LIMITS.MIN_WEIGHT || weight > CONFIG.LIMITS.MAX_WEIGHT) {
             return showToast(`유효한 체중을 입력해주세요 (${CONFIG.LIMITS.MIN_WEIGHT}~${CONFIG.LIMITS.MAX_WEIGHT}kg).`);
         }
-        if (fatStr && (isNaN(fat) || fat < CONFIG.LIMITS.MIN_FAT || fat > CONFIG.LIMITS.MAX_FAT)) {
+        if (fatInput.validity.badInput || (fatStr && (isNaN(fat) || fat < CONFIG.LIMITS.MIN_FAT || fat > CONFIG.LIMITS.MAX_FAT))) {
             return showToast(`유효한 체지방률을 입력해주세요 (${CONFIG.LIMITS.MIN_FAT}~${CONFIG.LIMITS.MAX_FAT}%).`);
         }
 
@@ -1750,6 +1745,25 @@
         }
     }
 
+    function getDietCsvHeader(fields, lineNumber) {
+        const columns = { date: -1, weight: -1, fat: -1 };
+        fields.forEach((field, index) => {
+            const name = field.trim().toLowerCase().replace(/[\s_()\[\]-]/g, '');
+            let key;
+            if (/^(?:date|날짜|측정일)$/.test(name)) key = 'date';
+            else if (/^(?:weight(?:kg|kilograms?)?|체중(?:kg)?)$/.test(name)) key = 'weight';
+            else if (/^(?:(?:body)?fat(?:percentage|percent)?|체지방률|체지방율)%?$/.test(name)) key = 'fat';
+            else return;
+            if (columns[key] >= 0) throw new Error(`${lineNumber}번째 행의 CSV 열 이름이 중복됩니다.`);
+            columns[key] = index;
+        });
+        if (Object.values(columns).every(index => index < 0)) return null;
+        if (columns.date < 0 || columns.weight < 0) {
+            throw new Error(`${lineNumber}번째 행에서 날짜와 체중(kg) 열 이름을 확인해주세요.`);
+        }
+        return columns;
+    }
+
     function importCSV() {
         const file = AppState.getEl('csvImportInput').files[0];
         if (!file) return showToast('CSV 파일을 선택해주세요.');
@@ -1781,6 +1795,7 @@
                 // 앞선 행을 조용히 덮어써 어느 체중/체지방 기록이 원본인지 사라졌습니다.
                 // 파일 안의 충돌은 가져오기 전체를 중단하여 기존 저장값을 보존합니다.
                 const importedDates = new Map();
+                let columns = { date: 0, weight: 1, fat: 2 };
                 
                 for (const { text: rawLine, lineNumber } of csvRecords) {
                     const line = rawLine.trim();
@@ -1792,15 +1807,21 @@
                         // 오인할 수 있으므로, 구문 오류에서는 파일 전체를 적용하지 않습니다.
                         throw new Error(`${lineNumber}번째 행의 CSV 따옴표 구조가 올바르지 않습니다. 기존 데이터를 유지합니다.`);
                     }
-                    // 헤더도 구문 검증 후 건너뛰어, 열린 따옴표 안의 다음 줄을 기록으로 적용하지 않습니다.
-                    if (line.toLowerCase().startsWith('date')) continue;
+                    const d = (matches[columns.date] ?? '').trim().replace(/^'(.*)'$/, '$1');
+                    if (!DateUtil.isValidDateString(d)) {
+                        const header = getDietCsvHeader(matches, lineNumber);
+                        if (header) {
+                            columns = header;
+                            continue;
+                        }
+                    }
                     
                     if(matches.length >= 2) {
                         // CSV의 바깥 큰따옴표는 파서가 제거합니다. 날짜 안의 실제 따옴표를
                         // 모두 지우면 손상된 날짜가 정상 날짜로 바뀌어 기존 기록을 덮어씁니다.
-                        const d = matches[0].trim().replace(/^'(.*)'$/, '$1');
-                        const weightText = String(matches[1] ?? '').trim();
-                        const fatText = String(matches[2] ?? '').trim();
+                        const weightText = (matches[columns.weight] ?? '').trim();
+                        const hasFatColumn = columns.fat >= 0 && columns.fat < matches.length;
+                        const fatText = hasFatColumn ? matches[columns.fat].trim() : '';
                         const w = Number(weightText);
                         const hasFat = fatText !== '';
                         const fat = hasFat ? Number(fatText) : undefined;
@@ -1817,11 +1838,11 @@
                         // CSV에 값이 있었는데 정제 후 사라졌다면 행 전체를 건너뛰어,
                         // 같은 날짜의 정상 체중·체지방률을 부분 데이터로 덮어쓰지 않습니다.
                         if(rec && (!hasFat || Object.prototype.hasOwnProperty.call(rec, 'fat'))) {
-                            // 세 번째 열이 아예 없는 경우와 명시적으로 빈 경우는
+                            // 체지방률 열이 아예 없는 경우와 명시적으로 빈 경우는
                             // 기존 체지방률 유지/삭제의 의미가 다르므로 구별합니다.
                             const signature = JSON.stringify([
                                 rec.weight,
-                                matches.length >= 3,
+                                hasFatColumn,
                                 Object.prototype.hasOwnProperty.call(rec, 'fat') ? rec.fat : null
                             ]);
                             if (importedDates.has(rec.date)) {
@@ -1837,8 +1858,8 @@
                                 // Date,Weight 두 열만 제공하는 CSV로 기존 날짜를 갱신할 때,
                                 // 파일에 존재하지 않는 체지방률 열을 '삭제'로 해석하면
                                 // 과거에 직접 입력한 유일한 체지방 기록이 사라집니다.
-                                // 세 번째 열이 실제로 들어온 경우에만 그 값(빈 값 포함)을 적용합니다.
-                                if (matches.length < 3 && Object.prototype.hasOwnProperty.call(nextRecords[idx], 'fat')) {
+                                // 체지방률 열이 실제로 들어온 경우에만 그 값(빈 값 포함)을 적용합니다.
+                                if (!hasFatColumn && Object.prototype.hasOwnProperty.call(nextRecords[idx], 'fat')) {
                                     rec.fat = nextRecords[idx].fat;
                                 }
                                 const previousRecord = nextRecords[idx];
@@ -7021,8 +7042,12 @@
 
         const weightInput = document.getElementById(`inline-weight-${draft.date}`);
         const fatInput = document.getElementById(`inline-fat-${draft.date}`);
-        if (weightInput) draft.weight = weightInput.value;
-        if (fatInput) draft.fat = fatInput.value;
+        if (weightInput && !weightInput.validity.badInput) draft.weight = weightInput.value;
+        if (fatInput) {
+            // 숫자 입력 중 브라우저가 반환하는 빈 문자열을 명시적 삭제로 저장하지 않습니다.
+            if (!fatInput.validity.badInput) draft.fat = fatInput.value;
+            else if (!draft.fat && draft.sourceFat != null) draft.fat = String(draft.sourceFat);
+        }
         if (weightInput || fatInput) persistInlineEditDraftToSession();
     }
 
@@ -7707,7 +7732,7 @@
             if (!weightText || !Number.isFinite(newWeight) || newWeight < CONFIG.LIMITS.MIN_WEIGHT || newWeight > CONFIG.LIMITS.MAX_WEIGHT) {
                 return showToast(`유효한 체중을 입력해주세요 (${CONFIG.LIMITS.MIN_WEIGHT}~${CONFIG.LIMITS.MAX_WEIGHT}kg).`);
             }
-            if (hasFatInput && (!Number.isFinite(newFat) || newFat < CONFIG.LIMITS.MIN_FAT || newFat > CONFIG.LIMITS.MAX_FAT)) {
+            if (fInput?.validity.badInput || (hasFatInput && (!Number.isFinite(newFat) || newFat < CONFIG.LIMITS.MIN_FAT || newFat > CONFIG.LIMITS.MAX_FAT))) {
                  return showToast(`유효한 체지방률을 입력해주세요 (${CONFIG.LIMITS.MIN_FAT}~${CONFIG.LIMITS.MAX_FAT}%).`);
             }
 

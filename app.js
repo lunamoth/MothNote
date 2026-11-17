@@ -2132,6 +2132,10 @@ const init = async () => {
         // 이후 일반 편집/저장과 세션 기록을 막고, 명시적인 백업 복원은 계속 허용합니다.
         window.hasInitializationFailed = true;
         ensureThemeApplied();
+        if (e?.recoveryDeferred) {
+            showToast(e.message, CONSTANTS.TOAST_TYPE.SUCCESS, 8000);
+            return;
+        }
         console.error("Critical initialization failed, app cannot start:", e);
         const errorMessage = e?.name === 'UnrecoverableAppStateError'
             ? `원본 보호를 위해 앱 시작을 중단했습니다. ${e.message} 재설치하거나 새 데이터를 만들지 말고 설정의 데이터 가져오기에서 정상 백업을 복원해 주세요.`

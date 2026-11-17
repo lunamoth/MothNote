@@ -2000,28 +2000,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             
-            let currentStreak = 0;
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            const createdDate = this.getHabitCreatedLocalDate(habit);
-
-            for (let i = 0; i < 365 * 5; i++) { 
-                let dateToCheck = new Date(today);
-                dateToCheck.setDate(today.getDate() - i);
-
-                if (createdDate && dateToCheck < createdDate) break;
-                
-                if (this.isHabitCountableOnDate(habit, dateToCheck)) {
-                    if (this.isHabitCompletedOn(habit, this.getDateString(dateToCheck))) {
-                        currentStreak++;
-                    } else {
-                        if(i > 0) break;
-                    }
+            // 마지막 완료 이후 어제까지 예정일을 놓쳤을 때만 연속 기록이 끊깁니다.
+            // 이미 전체 완료 기록에서 구한 마지막 연속 구간을 그대로 사용합니다.
+            let currentStreak = currentLongestStreak;
+            if (lastCompletionDate) {
+                const nextDate = new Date(lastCompletionDate);
+                nextDate.setDate(nextDate.getDate() + 1);
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                if (this.getHabitOpportunityCountsByWeekday(habit, nextDate, yesterday).some(count => count > 0)) {
+                    currentStreak = 0;
                 }
             }
-
-            const firstDate = this.parseDateString(sortedDates[0]);
-            const totalDays = Math.ceil((new Date() - firstDate) / (1000 * 60 * 60 * 24));
             const completionRate = totalCompletions === 0 ? 0 : Math.round((totalCompletions / Math.max(1, totalCompletions + (this.getMissedCount(habit)))) * 100);
             return { currentStreak, longestStreak, totalCompletions, completionRate };
         },

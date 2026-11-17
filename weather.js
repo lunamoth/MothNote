@@ -13,7 +13,7 @@
         REQUEST_TIMEOUT_MS: 15 * 1000,
         WEATHER_DETAIL_CACHE_KEY: 'weather_detail_cache_v8_trend_precip_priority_notice_fit',
         AIR_QUALITY_CACHE_KEY: 'air_quality_cache_v4',
-        WMO_MAP: {0:{description:"맑음",icon:"☀️",effect:null},1:{description:"대체로 맑음",icon:"🌤️",effect:null},2:{description:"부분적 흐림",icon:"🌥️",effect:null},3:{description:"흐림",icon:"☁️",effect:null},45:{description:"안개",icon:"🌫️",effect:null},48:{description:"서리 안개",icon:"🌫️❄️",effect:null},51:{description:"가벼운 가랑비",icon:"💧",effect:"rain"},53:{description:"보통 가랑비",icon:"💧",effect:"rain"},55:{description:"강한 가랑비",icon:"💧",effect:"rain"},56:{description:"가벼운 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},57:{description:"강한 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},61:{description:"가벼운 비",icon:"🌧️",effect:"rain"},63:{description:"보통 비",icon:"🌧️",effect:"rain"},65:{description:"강한 비",icon:"🌧️",effect:"rain"},66:{description:"가벼운 어는 비",icon:"🥶🌧️",effect:"rain_snow"},67:{description:"강한 어는 비",icon:"🥶🌧️",effect:"rain_snow"},71:{description:"가벼운 눈",icon:"❄️",effect:"snow"},73:{description:"보통 눈",icon:"❄️",effect:"snow"},75:{description:"강한 눈",icon:"❄️",effect:"snow"},77:{description:"싸락눈",icon:"❄️",effect:"snow"},80:{description:"가벼운 소나기",icon:"🌦️",effect:"rain"},81:{description:"보통 소나기",icon:"🌦️",effect:"rain"},82:{description:"강한 소나기",icon:"⛈️",effect:"rain"},85:{description:"가벼운 소낙눈",icon:"🌨️",effect:"snow"},86:{description:"강한 소낙눈",icon:"🌨️",effect:"snow"},95:{description:"뇌우",icon:"⛈️",effect:"rain"},96:{description:"가벼운 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"},99:{description:"강한 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"}},
+        WMO_MAP: {0:{description:"맑음",icon:"☀️",effect:null},1:{description:"대체로 맑음",icon:"🌤️",effect:null},2:{description:"부분적 흐림",icon:"🌥️",effect:null},3:{description:"흐림",icon:"☁️",effect:null},45:{description:"안개",icon:"🌫️",effect:null},48:{description:"서리 안개",icon:"🌫️❄️",effect:null},51:{description:"가벼운 가랑비",icon:"💧",effect:"rain"},53:{description:"보통 가랑비",icon:"💧",effect:"rain"},55:{description:"강한 가랑비",icon:"💧",effect:"rain"},56:{description:"가벼운 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},57:{description:"강한 어는 가랑비",icon:"🥶💧",effect:"rain_snow"},61:{description:"가벼운 비",icon:"🌧️",effect:"rain"},63:{description:"보통 비",icon:"🌧️",effect:"rain"},65:{description:"강한 비",icon:"🌧️",effect:"rain"},66:{description:"가벼운 어는 비",icon:"🥶🌧️",effect:"rain_snow"},67:{description:"강한 어는 비",icon:"🥶🌧️",effect:"rain_snow"},71:{description:"가벼운 눈",icon:"❄️",effect:"snow"},73:{description:"보통 눈",icon:"❄️",effect:"snow"},75:{description:"강한 눈",icon:"❄️",effect:"snow"},77:{description:"싸락눈",icon:"❄️",effect:"snow"},80:{description:"가벼운 소나기",icon:"🌦️",effect:"rain"},81:{description:"보통 소나기",icon:"🌦️",effect:"rain"},82:{description:"강한 소나기",icon:"⛈️",effect:"rain"},85:{description:"가벼운 소낙눈",icon:"🌨️",effect:"snow"},86:{description:"강한 소낙눈",icon:"🌨️",effect:"snow"},95:{description:"뇌우",icon:"⛈️",effect:"rain"},96:{description:"가벼운 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"},97:{description:"강한 뇌우",icon:"⛈️",effect:"rain"},99:{description:"강한 우박 동반 뇌우",icon:"⛈️🧊",effect:"rain"}},
         // [수정] WHO 기준으로 미세먼지 등급 기준을 변경합니다.
         AQI_WHO_STANDARDS: {
             pm2_5: [
@@ -389,9 +389,9 @@
         }
     ]);
 
-    const OUTFIT_WET_CODES = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]);
-    const OUTFIT_SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
-    const OUTFIT_STORM_CODES = new Set([95, 96, 99]);
+    const THUNDERSTORM_CODES = new Set([95, 96, 97, 99]);
+    const WET_WEATHER_CODES = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, ...THUNDERSTORM_CODES]);
+    const SNOW_WEATHER_CODES = new Set([71, 73, 75, 77, 85, 86]);
     const OUTFIT_SUNNY_CODES = new Set([0, 1]);
 
     // --- UTILITY FUNCTIONS ---
@@ -574,9 +574,9 @@
 
     function scoreOutfitWeatherProtection({ code, precipitation, precipitationProbability, wind, gust, snowfall }) {
         let score = 10;
-        if (OUTFIT_WET_CODES.has(Number(code)) || (toFiniteNumber(precipitation) ?? 0) > 0 || (toFiniteNumber(precipitationProbability) ?? 0) >= 60) score += 45;
-        if (OUTFIT_SNOW_CODES.has(Number(code)) || (toFiniteNumber(snowfall) ?? 0) > 0) score += 22;
-        if (OUTFIT_STORM_CODES.has(Number(code))) score += 25;
+        if (WET_WEATHER_CODES.has(Number(code)) || (toFiniteNumber(precipitation) ?? 0) > 0 || (toFiniteNumber(precipitationProbability) ?? 0) >= 60) score += 45;
+        if (SNOW_WEATHER_CODES.has(Number(code)) || (toFiniteNumber(snowfall) ?? 0) > 0) score += 22;
+        if (THUNDERSTORM_CODES.has(Number(code))) score += 25;
         if ((toFiniteNumber(wind) ?? 0) >= 18) score += 18;
         if ((toFiniteNumber(gust) ?? 0) >= 30) score += 18;
         return clampOutfitScore(score);
@@ -639,7 +639,7 @@
         const tips = [...band.tips];
         const tags = [`🌡️ 체감 ${formatNumber(feels, 1, '--')}°C`, `🧮 추천 기준 ${formatNumber(comfortTemp, 1, '--')}°C`];
 
-        const hasWetSignal = OUTFIT_WET_CODES.has(code) || precipitation > 0 || precipitationProbability >= 55;
+        const hasWetSignal = WET_WEATHER_CODES.has(code) || precipitation > 0 || precipitationProbability >= 55;
         if (hasWetSignal) {
             pieces.push('umbrella', feels <= 20 ? 'raincoat' : 'cap');
             const probabilityText = precipitationProbability > 0 ? `앞으로 24시간 최대 강수확률이 ${formatWithUnit(precipitationProbability, 0, '%')} 수준입니다.` : '강수 신호가 잡혀 있습니다.';
@@ -648,14 +648,14 @@
             tags.push('☔ 강수 대비');
         }
 
-        if (OUTFIT_SNOW_CODES.has(code) || snowfall > 0) {
+        if (SNOW_WEATHER_CODES.has(code) || snowfall > 0) {
             pieces.push('boots', 'gloves', 'scarf');
             advice.push('눈 신호가 있어 미끄럼 적고 물이 덜 스며드는 신발을 추천합니다.');
             tips.push('눈이 녹은 길에서는 발이 젖기 쉬우니 방수 신발이나 여분 양말을 고려하세요.');
             tags.push('❄️ 눈 대비');
         }
 
-        if (OUTFIT_STORM_CODES.has(code)) {
+        if (THUNDERSTORM_CODES.has(code)) {
             advice.push('뇌우가 잡힌 상태라면 우산만 믿기보다 가능한 실내 이동 동선을 우선해 주세요.');
             tips.push('강풍과 낙뢰 가능성이 있으면 넓게 열린 공간은 피하는 편이 안전합니다.');
             tags.push('⛈️ 뇌우 주의');
@@ -778,12 +778,19 @@
         renderOutfitScores(rec);
     }
 
+    function getOutdoorWeatherWarning(gust, weatherCode) {
+        const gustValue = toFiniteNumber(gust);
+        if (THUNDERSTORM_CODES.has(Number(weatherCode))) return { tag: '뇌우 유의', tone: 'danger', text: '천둥·번개 가능성이 있으므로 개활지, 산행, 수상 활동은 피하는 것이 좋습니다. ⚡' };
+        if (gustValue !== null && gustValue >= 50) return { tag: '강풍 유의', tone: 'danger', text: '돌풍이 강할 수 있습니다. 간판, 우산, 자전거, 해안가 활동에 주의하세요. 🌬️' };
+        if (Number(weatherCode) === 82) return { tag: '강한 소나기', tone: 'warn', text: '강한 소나기 신호가 있습니다. 이동 전 시간별 강수 예보를 확인하세요.' };
+        return null;
+    }
+
     function getOutdoorActivityAdvice(uv, gust, weatherCode, air) {
         const uvValue = toFiniteNumber(uv);
         const gustValue = toFiniteNumber(gust);
-        const stormy = [82, 95, 96, 99].includes(Number(weatherCode));
-        if (stormy) return { tag: '뇌우 유의', tone: 'danger', text: '천둥·번개 가능성이 있으므로 개활지, 산행, 수상 활동은 피하는 것이 좋습니다. ⚡' };
-        if (gustValue !== null && gustValue >= 50) return { tag: '강풍 유의', tone: 'danger', text: '돌풍이 강할 수 있습니다. 간판, 우산, 자전거, 해안가 활동에 주의하세요. 🌬️' };
+        const warning = getOutdoorWeatherWarning(gustValue, weatherCode);
+        if (warning) return warning;
         if (uvValue !== null && uvValue >= 8) return { tag: '자외선 강함', tone: 'warn', text: '자외선이 매우 강합니다. 모자, 선글라스, 자외선 차단제를 준비하세요. 🧴' };
         if (uvValue !== null && uvValue >= 6) return { tag: '차단 권장', tone: 'warn', text: '낮 시간대 햇볕이 강할 수 있습니다. 긴 야외활동은 그늘 휴식을 섞어주세요. 🕶️' };
         if (air?.hasAirQualityWarning) return { tag: '대기질 주의', tone: 'warn', text: '대기질 주의 신호가 있습니다. 기온이나 바람이 무난해도 야외활동에 적합하다고 판단할 수 없으므로 외출 전 대기질을 확인해 주세요.' };
@@ -849,7 +856,7 @@
     }
 
     function isPrecipitationWeatherCode(code) {
-        return [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99].includes(Number(code));
+        return WET_WEATHER_CODES.has(Number(code)) || SNOW_WEATHER_CODES.has(Number(code));
     }
 
     function addHoursToIsoLikeString(iso, hours = 1) {
@@ -1039,7 +1046,18 @@
     function findBestOutdoorWindow(hourly, startIndex, aqiData, dailyData, hours = 24, windowSize = 3) {
         if (!hourly?.time?.length || startIndex < 0) return null;
         const air = getAirQualityMetrics(aqiData, dailyData, hourly.time[startIndex]);
-        const aqiPenalty = (toFiniteNumber(air.usAqi) ?? 50) > 100 ? 18 : (toFiniteNumber(air.usAqi) ?? 50) > 50 ? 8 : 0;
+        // 대기질 응답에는 과거 시간도 포함되므로 기상 예보와 시각으로 연결합니다.
+        const aqiByTime = new Map();
+        const airHourly = aqiData?.hourly;
+        if (Array.isArray(airHourly?.time) && Array.isArray(airHourly.us_aqi)) {
+            airHourly.time.forEach((time, index) => {
+                const raw = airHourly.us_aqi[index];
+                const value = typeof raw === 'number' || typeof raw === 'string' ? toFiniteNumber(raw) : null;
+                if (value !== null && value >= 0) {
+                    aqiByTime.set(time, Math.max(value, aqiByTime.get(time) ?? 0));
+                }
+            });
+        }
         let best = null;
         const lastStart = Math.min(startIndex + hours - windowSize, hourly.time.length - windowSize);
         for (let start = startIndex; start <= lastStart; start += 1) {
@@ -1047,7 +1065,7 @@
             // 핵심 시간별 값이 빠진 구간은 0점 감점으로 100점 추천이 되지 않게 제외합니다.
             const hasRequiredWeather = hasCompleteHourlyWindow(hourly, [
                 'precipitation_probability', 'wind_speed_10m', 'apparent_temperature',
-                'wind_gusts_10m', 'uv_index', 'visibility'
+                'wind_gusts_10m', 'uv_index', 'visibility', 'weather_code'
             ], start, windowSize);
             if (!hasRequiredWeather) continue;
             const rain = average(hourly.precipitation_probability?.slice(start, end));
@@ -1066,17 +1084,32 @@
             }
             if (uv !== null && uv >= 6) score -= (uv - 5) * 4;
             if (visibility !== null && visibility < 5000) score -= 12;
-            score -= aqiPenalty;
-            if (!best || score > best.score) best = { score, start, end: end - 1, rain, wind, apparent, uv };
+            const aqiValues = hourly.time.slice(start, end).map(time => aqiByTime.get(time));
+            const peakAqi = Math.max(-Infinity, ...aqiValues.filter(value => value !== undefined));
+            const aqiComplete = aqiValues.every(value => value !== undefined);
+            score -= peakAqi > 100 ? 18 : peakAqi > 50 ? 8 : 0;
+            const codes = hourly.weather_code.slice(start, end).map(Number);
+            const warningCode = codes.find(code => THUNDERSTORM_CODES.has(code)) ?? codes.find(code => code === 82);
+            const weatherWarning = getOutdoorWeatherWarning(gust, warningCode);
+            const canRecommend = !weatherWarning && aqiComplete && peakAqi <= 100 && score >= 58;
+            if (!best || (canRecommend && !best.canRecommend) || (canRecommend === best.canRecommend && score > best.score)) {
+                best = { score, start, end: end - 1, rain, wind, apparent, uv, peakAqi, aqiComplete, canRecommend, weatherWarning };
+            }
         }
         if (!best) return null;
         const label = formatHourRange(hourly, best.start, best.end);
         const weatherText = `평균 강수확률 ${formatWithUnit(best.rain, 0, '%')}, 바람 ${formatWithUnit(best.wind, 1, ' km/h')}, 체감 ${formatWithUnit(best.apparent, 1, '°C')} 수준입니다.`;
+        if (best.weatherWarning) {
+            return { label, ...best.weatherWarning, text: `${label} 구간에 해당하는 예보입니다. ${best.weatherWarning.text} ${weatherText}` };
+        }
         // 상대적으로 높은 기상 점수가 이미 확인된 대기질 경고를 상쇄해서는 안 됩니다.
         if (air.hasAirQualityWarning) {
             return { label, tag: '대기질 주의', tone: 'warn', text: `${label} 구간의 기상 조건을 비교했지만 현재 대기질 주의 신호가 있어 외출 추천으로 판단할 수 없습니다. 외출 전 해당 시간대의 대기질을 다시 확인해 주세요. ${weatherText}` };
         }
-        if (!air.hasAirQualityAssessment) {
+        if (best.peakAqi > 100) {
+            return { label, tag: '대기질 주의', tone: 'warn', text: `${label} 구간의 예보 US AQI 최댓값은 ${formatNumber(best.peakAqi)}입니다. ${weatherText}` };
+        }
+        if (!air.hasAirQualityAssessment || !best.aqiComplete) {
             return { label, tag: '자료 확인', tone: best.score >= 58 ? 'info' : 'warn', text: `${label} 구간은 기상 조건만 비교한 결과입니다. 대기질 자료가 부족해 외출 적합 여부를 판단할 수 없습니다. ${weatherText}` };
         }
         return {
@@ -1174,9 +1207,10 @@
         const maxRainProb = maxNextHourly(hourly, 'precipitation_probability', startIndex, 12);
         const minVisibility = minNextHourly(hourly, 'visibility', startIndex, 12);
         const maxGust = maxNextHourly(hourly, 'wind_gusts_10m', startIndex, 12);
-        const stormy = [82, 95, 96, 99].includes(Number(current?.weathercode ?? current?.weather_code));
-        if (stormy) return { tag: '뇌우 주의', tone: 'danger', text: '뇌우 신호가 있어 이동 시 실시간 기상 알림과 도로 상황을 확인하는 편이 안전합니다.' };
+        const code = Number(current?.weathercode ?? current?.weather_code);
+        if (THUNDERSTORM_CODES.has(code)) return { tag: '뇌우 주의', tone: 'danger', text: '뇌우 신호가 있어 이동 시 실시간 기상 알림과 도로 상황을 확인하는 편이 안전합니다.' };
         if ((toFiniteNumber(minVisibility) ?? Infinity) < 1000) return { tag: '시야 매우 낮음', tone: 'danger', text: `가까운 12시간 최저 시정이 ${formatWithUnit(minVisibility, 0, ' m')} 수준입니다. 운전 시 감속과 차간거리 확보가 필요합니다.` };
+        if (code === 82) return { tag: '강한 소나기', tone: 'warn', text: '강한 소나기 신호가 있습니다. 이동 전 시간별 강수와 도로 상황을 확인하세요.' };
         if ((toFiniteNumber(maxRainProb) ?? 0) >= 60 || (toFiniteNumber(maxGust) ?? 0) >= 45 || (toFiniteNumber(minVisibility) ?? Infinity) < 5000) return { tag: '이동 주의', tone: 'warn', text: `강수확률 ${formatWithUnit(maxRainProb, 0, '%')}, 돌풍 ${formatWithUnit(maxGust, 1, ' km/h')}, 최저 시정 ${formatWithUnit(minVisibility, 0, ' m')}를 확인하세요.` };
         if (!hasCompleteHourlyWindow(hourly, ['precipitation_probability', 'wind_gusts_10m', 'visibility'], startIndex, 12)) return { tag: '자료 확인', tone: 'info', text: '가까운 12시간의 강수·돌풍·시정 자료가 일부 부족해 이동 조건을 판단할 수 없습니다. 최신 예보를 확인해 주세요.' };
         return { tag: '이동 무난', tone: 'good', text: '강수, 강풍, 시정 저하 신호가 크지 않아 일반적인 이동은 대체로 무난합니다.' };
@@ -1888,13 +1922,12 @@
         const rainCodes = [61, 63, 65, 66, 67];
         const showerCodes = [80, 81, 82];
         const snowCodes = [71, 73, 75, 77, 85, 86];
-        const stormCodes = [95, 96, 99];
         const freezingRainCodes = [56, 57, 66, 67];
 
         const drizzleLike = drizzleCodes.includes(code);
         const rainLike = rainCodes.includes(code) || showerCodes.includes(code) || drizzleLike;
         const snowy = snowCodes.includes(code) || (snowfallSum ?? 0) > 0;
-        const stormy = stormCodes.includes(code) || code === 82;
+        const stormy = THUNDERSTORM_CODES.has(code) || code === 82;
         const freezing = freezingRainCodes.includes(code);
         const hasPrecipAmount = (precipitation ?? 0) > 0 || (rainSum ?? 0) > 0 || (showersSum ?? 0) > 0 || (precipHours ?? 0) > 0;
         const hasPrecipSignal = rainLike || hasPrecipAmount;

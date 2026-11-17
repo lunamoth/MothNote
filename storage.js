@@ -194,6 +194,21 @@ const toValidTimestamp = value => {
     return Number.isNaN(new Date(timestamp).getTime()) ? null : timestamp;
 };
 
+const readRecoveryDrafts = rawBackup => {
+    try {
+        return rawBackup ? parseEmergencyBackupChanges(rawBackup) : {};
+    } catch {
+        // 손상 원본의 처리 여부는 시작 시 전용 복구 화면에서 결정합니다.
+        return {};
+    }
+};
+
+const getNoteFallbackTime = (originalId, noteDraft, fallback) => {
+    if (!noteDraft || String(originalId ?? '') !== noteDraft.noteId) return fallback;
+    const capturedAt = toValidTimestamp(noteDraft.capturedAt);
+    return capturedAt === null ? fallback : Math.min(fallback, capturedAt);
+};
+
 const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
 
 const normalizeFolderName = (value, fallback = '새 폴더') => {
@@ -382,7 +397,7 @@ const createUnrecoverableAppStateError = message => {
  * @param {object} data - chrome.storage.local에서 로드한 appState 객체
  * @returns {{sanitizedData: object, wasSanitized: boolean, shouldNotify: boolean, isTopLevelInvalid: boolean, idUpdateMap: Map<string, string>, folderIdUpdateMap: Map<string, string>, noteIdUpdateMap: Map<string, string>}}
  */
-export const verifyAndSanitizeLoadedData = (data) => {
+export const verifyAndSanitizeLoadedData = (data, noteDraft = null) => {
     const emptyMaps = {
         idUpdateMap: new Map(),
         folderIdUpdateMap: new Map(),
@@ -575,10 +590,12 @@ export const verifyAndSanitizeLoadedData = (data) => {
         }
 
         const note = rawNote;
+        const originalId = note.id;
         normalizeId(note, CONSTANTS.ID_PREFIX.NOTE, CONSTANTS.ITEM_TYPE.NOTE);
         assignNormalizedValue(note, 'title', normalizeText(note.title, '제목 없음') || '제목 없음');
         assignNormalizedValue(note, 'content', String(note.content ?? ''));
-        assignNormalizedValue(note, 'createdAt', normalizeTimestamp(note.createdAt));
+        // 정제 시각이 마지막 편집 시각으로 둔갑해 유일한 미저장 초안을 폐기하지 않게 합니다.
+        assignNormalizedValue(note, 'createdAt', normalizeTimestamp(note.createdAt, getNoteFallbackTime(originalId, noteDraft, now)));
         assignNormalizedValue(note, 'updatedAt', normalizeTimestamp(note.updatedAt, note.createdAt));
         assignNormalizedValue(note, 'isPinned', Boolean(note.isPinned));
 
@@ -744,7 +761,10 @@ export const loadData = async () => {
                         && importedResult.appState !== null
                         && importedResult.appState !== undefined;
                     const verification = hasImportedAppState
-                        ? verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(importedResult.appState)))
+                        ? verifyAndSanitizeLoadedData(
+                            JSON.parse(JSON.stringify(importedResult.appState)),
+                            readRecoveryDrafts(localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP)).noteUpdate
+                        )
                         : null;
 
                     if (!verification || verification.isTopLevelInvalid) {
@@ -802,7 +822,10 @@ export const loadData = async () => {
             let shouldShowRecoveryNotice = false;
 
             if (hasStoredAppState) {
-                const verification = verifyAndSanitizeLoadedData(JSON.parse(JSON.stringify(loadedData)));
+                const pendingEmergencyBackup = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
+                const verification = verifyAndSanitizeLoadedData(
+                    JSON.parse(JSON.stringify(loadedData)), readRecoveryDrafts(pendingEmergencyBackup).noteUpdate
+                );
                 if (verification.isTopLevelInvalid) {
                     throw createUnrecoverableAppStateError('저장된 노트 데이터의 최상위 구조가 손상되었습니다. 원본을 보존하기 위해 자동 초기화를 중단했습니다.');
                 }
@@ -815,7 +838,6 @@ export const loadData = async () => {
                 // 그 사이 복구를 취소하거나 앱이 종료되면 다음 시작에는 보정 맵이 사라져
                 // 초안을 원래 노트에 연결할 수 없습니다. 주 데이터와 같은 쓰기에 보정 맵을
                 // 함께 기록하고, 초안이 남아 있는 동안 재시작 시 다시 읽습니다.
-                const pendingEmergencyBackup = localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP);
                 if (pendingEmergencyBackup !== null) {
                     const folderIds = new Set();
                     const noteIds = new Set();
@@ -1170,16 +1192,21 @@ export const loadData = async () => {
                             + `복원할 이름: '${displayName(backupChanges.itemRename.newName)}'<br>`
                             + '저장된 이름이 더 최근에 변경된 경우 복원하면 해당 이름을 덮어씁니다.<br>';
                     }
-                    confirmMessage += "<br>이 변경사항을 복원하시겠습니까?";
+                    confirmMessage += "<br>이 변경사항을 복원하시겠습니까? 창을 닫으면 초안을 보관하고 다음 실행에서 다시 확인합니다.";
 
                     const userConfirmed = await showConfirm({
                         title: '📝 저장되지 않은 변경사항 복원',
                         message: confirmMessage,
                         isHtml: true,
                         confirmText: '✅ 예, 복원합니다',
-                        cancelText: '❌ 아니요, 버립니다'
+                        cancelText: '❌ 아니요, 버립니다',
+                        cancelResult: false
                     });
-
+                    if (userConfirmed === null) {
+                        const deferred = createUnrecoverableAppStateError('비상 초안을 보관했습니다. 새 탭을 다시 열면 복원을 이어갈 수 있습니다.');
+                        deferred.recoveryDeferred = true;
+                        throw deferred;
+                    }
                     if (userConfirmed) {
                         // --- [CRITICAL BUG FIX] START ---
                         // 트랜잭션 실행 전, 이름 변경 충돌을 미리 확인하고 사용자에게 해결을 요청합니다.
@@ -1903,7 +1930,7 @@ const monitorBackupDownload = (downloadId, url, successMessage, requestMessage, 
 };
 
 
-const sanitizeContentData = data => {
+const sanitizeContentData = (data, recoveryDrafts = {}) => {
     if (!data || !Array.isArray(data.folders)) {
         throw new Error("유효하지 않은 파일 구조입니다.");
     }
@@ -1990,7 +2017,7 @@ const sanitizeContentData = data => {
         assertSafeTextField(rawNote, 'title', '노트 제목');
         assertSafeTextField(rawNote, 'content', '노트 본문');
         const noteId = getUniqueId(CONSTANTS.ID_PREFIX.NOTE, rawNote.id, noteIdMap);
-        const createdAt = normalizeTimestamp(rawNote.createdAt);
+        const createdAt = normalizeTimestamp(rawNote.createdAt, getNoteFallbackTime(rawNote.id, recoveryDrafts.noteUpdate, now));
         const updatedAt = normalizeTimestamp(rawNote.updatedAt, createdAt);
         const note = {
             id: noteId,
@@ -2120,10 +2147,19 @@ const sanitizeContentData = data => {
         { folderIdUpdateMap: folderIdMap, noteIdUpdateMap: noteIdMap }
     );
 
-    return {
-        ...sanitizedPayloadForReferences,
-        lastActiveNotePerFolder: sanitizedLastActiveNotePerFolder
+    const payload = { ...sanitizedPayloadForReferences, lastActiveNotePerFolder: sanitizedLastActiveNotePerFolder };
+    // 정상 백업으로 주 데이터를 복구할 때도 기존 초안의 구버전 ID를 다음 시작까지 연결합니다.
+    const remaps = { folders: [], notes: [] };
+    const remember = (id, map, entries) => {
+        const newId = map.get(id);
+        if (newId && newId !== id && !entries.some(([oldId]) => oldId === id)) entries.push([id, newId]);
     };
+    remember(recoveryDrafts.noteUpdate?.noteId, noteIdMap, remaps.notes);
+    const rename = recoveryDrafts.itemRename;
+    if (rename?.type === 'folder') remember(rename.id, folderIdMap, remaps.folders);
+    else if (rename?.type === 'note') remember(rename.id, noteIdMap, remaps.notes);
+    if (remaps.folders.length || remaps.notes.length) payload[EMERGENCY_ID_REMAP_FIELD] = remaps;
+    return payload;
 };
 export const sanitizeSettings = (settingsData) => {
     const defaults = CONSTANTS.DEFAULT_SETTINGS;
@@ -2894,7 +2930,7 @@ const normalizeHabitTrackerImportValue = value => {
 };
 
 const parseDietImportDate = value => {
-    const dateText = String(value ?? '').trim();
+    const dateText = typeof value === 'string' ? value.trim() : '';
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
     if (!match) return null;
 
@@ -2933,9 +2969,7 @@ const normalizeDietRecordsImportValue = value => {
         }
 
         const normalized = { date, weight: roundDietImportNumber(weight) };
-        const hasFat = rawRecord.fat !== undefined
-            && rawRecord.fat !== null
-            && String(rawRecord.fat).trim() !== '';
+        const hasFat = rawRecord.fat != null && (typeof rawRecord.fat !== 'string' || rawRecord.fat.trim() !== '');
         if (hasFat) {
             const fat = parseFiniteImportNumber(rawRecord.fat);
             if (fat === null || fat < 1 || fat > 70) {
@@ -4125,7 +4159,8 @@ export const setupImportHandler = () => {
                     normalized: normalizedIntegratedFields,
                     skippedFields: skippedIntegratedFields
                 } = normalizeIntegratedImportFields(importedData);
-                const sanitizedContent = sanitizeContentData(importedData);
+                const recoveryDrafts = readRecoveryDrafts(localStorage.getItem(CONSTANTS.LS_KEY_EMERGENCY_CHANGES_BACKUP));
+                const sanitizedContent = sanitizeContentData(importedData, recoveryDrafts);
                 const {
                     targetLabels: integratedImportTargetLabels,
                     clearedCurrentDataLabels
@@ -4196,10 +4231,7 @@ export const setupImportHandler = () => {
                 if (!(await flushPendingChangesForDataOperation('데이터 가져오기'))) return;
 
                 const importPayload = {
-                    folders: sanitizedContent.folders,
-                    trash: sanitizedContent.trash,
-                    favorites: Array.from(new Set(sanitizedContent.favorites)),
-                    lastActiveNotePerFolder: sanitizedContent.lastActiveNotePerFolder || {},
+                    ...sanitizedContent,
                     lastSavedTimestamp: Date.now()
                 };
 
