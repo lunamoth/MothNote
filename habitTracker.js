@@ -1049,6 +1049,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${dayNames.map(day => `<div class="calendar-day-name">${day}</div>`).join('')}
             `;
 
+            // 월간 화면에서 정렬·통계 계산은 날짜마다 달라지지 않습니다.
+            // 완료율/연속 기록순 정렬을 28~31회 반복하면 기록이 많을 때 렌더링이 크게 지연됩니다.
+            const visibleHabits = this.getFilteredHabits();
             let startDayOffset = firstDayOfMonth.getDay();
             for (let i = 0; i < startDayOffset; i++) { html += `<div class="calendar-day other-month"></div>`; }
             
@@ -1056,7 +1059,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const loopDate = new Date(year, month, i);
                 const dateStr = this.getDateString(loopDate);
                 const isToday = this.getDateString(new Date()) === dateStr;
-                const habitsForDay = this.getFilteredHabits().filter(habit => this.isHabitCountableOnDate(habit, loopDate));
+                const habitsForDay = visibleHabits.filter(habit => this.isHabitCountableOnDate(habit, loopDate));
                 
                 const dayOfWeek = loopDate.getDay();
                 let dayClass = '';
@@ -1149,19 +1152,21 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         
         renderStats() {
-            const habits = this.state.habits.filter(h => !h.isArchived);
-            if (habits.length === 0) {
-                 this.renderEmptyState('stats');
+            const activeHabits = this.state.habits.filter(h => !h.isArchived);
+            const visibleHabits = this.getFilteredHabits();
+            // '보관된 습관 보기'가 선택되면 활성 습관이 0개여도 보관된 기록의
+            // 개별 통계는 표시해야 합니다. 검색 결과가 0개인 경우에도 빈 상태를 표시합니다.
+            if (visibleHabits.length === 0) {
+                this.renderEmptyState('stats');
                 return;
             }
             let html = this.getReportHTML();
-            html += this.getStatsDashboardHTML(habits);
+            html += this.getStatsDashboardHTML(activeHabits);
             html += '<div class="stats-grid">';
-            html += this.getFilteredHabits()
-                .map(habit => this.getHabitStatCard(habit)).join('');
+            html += visibleHabits.map(habit => this.getHabitStatCard(habit)).join('');
             html += '</div>';
             this.elements.appContent.innerHTML = html;
-            this.renderStatsCharts(this.getFilteredHabits());
+            this.renderStatsCharts(visibleHabits);
         },
         
         renderTimeline() {

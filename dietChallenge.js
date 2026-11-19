@@ -6633,7 +6633,13 @@
             <div>
                 <select id="calYearSelect">`;
         const currentYear = new Date().getFullYear();
-        for(let y=currentYear-5; y<=currentYear+1; y++) {
+        // 달력의 이전/다음 버튼은 5년 범위를 넘어 이동할 수 있으나,
+        // 고정 연도 선택 목록에는 이전 연도가 없어 월 선택 시 다른 연도로 튀었습니다.
+        // 저장된 실제 기록의 시작 연도와 현재 보고 있는 연도를 모두 포함합니다.
+        const firstRecordYear = Number(AppState.records[0].date.slice(0, 4));
+        const firstSelectableYear = Math.min(currentYear - 5, year, firstRecordYear);
+        const lastSelectableYear = Math.max(currentYear + 1, year);
+        for(let y=firstSelectableYear; y<=lastSelectableYear; y++) {
             html += `<option value="${y}" ${y===year?'selected':''}>${y}년</option>`;
         }
         html += `</select>
