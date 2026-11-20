@@ -2411,6 +2411,33 @@ export const handleExport = async (settings) => {
             if (!shouldSavePartialBackup) {
                 return false;
             }
+
+            // 확인 대화상자는 비동기입니다. 열려 있는 동안 습관/체중 iframe이나
+            // 메인 노트가 변경되었다면 앞서 읽은 스냅샷으로 완전한 듯한 백업을
+            // 생성해서는 안 됩니다. 특히 아래 data_guardian 업적 저장이 예전
+            // 습관 스냅샷을 localStorage에 다시 써서 새 실천 기록을 지울 수 있습니다.
+            const currentAppStateResult = await withAppStateWriteLock(() => storageGet('appState'));
+            const currentHasAppState = Boolean(currentAppStateResult)
+                && Object.prototype.hasOwnProperty.call(currentAppStateResult, 'appState');
+            if (currentHasAppState !== hasPersistedAppState
+                || (currentHasAppState && JSON.stringify(currentAppStateResult.appState) !== JSON.stringify(rawExportState))) {
+                showToast('부분 백업 확인 중 노트가 변경되어 오래된 백업 생성을 중단했습니다. 다시 백업해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                return false;
+            }
+            const optionalSnapshots = [
+                [CONSTANTS.LS_KEY_SETTINGS, storedSettingsResult],
+                [HABIT_TRACKER_DATA_KEY, habitTrackerResult],
+                [LEGACY_HABIT_DATA_KEY, legacyHabitResult],
+                [LEGACY_HABIT_V2_DATA_KEY, legacyHabitV2Result],
+                [DIET_CHALLENGE_DATA_KEY, dietChallengeResult],
+                [DIET_CHALLENGE_SETTINGS_KEY, dietChallengeSettingsResult]
+            ];
+            for (const [key, snapshot] of optionalSnapshots) {
+                if (snapshot.ok && localStorage.getItem(key) !== snapshot.value) {
+                    showToast('부분 백업 확인 중 부가 기록 또는 설정이 변경되어 오래된 데이터의 덮어쓰기와 누락을 방지했습니다. 다시 백업해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                    return false;
+                }
+            }
         }
 
         let habitTrackerDataForExport = habitTrackerData;

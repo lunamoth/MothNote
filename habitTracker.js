@@ -1985,17 +1985,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     totalCompletions++;
                     const currentDate = this.parseDateString(dateStr);
                     if (lastCompletionDate) {
-                        let missedPracticeDay = false;
-                        let checkDate = new Date(lastCompletionDate);
-                        checkDate.setDate(checkDate.getDate() + 1);
-                        
-                        while(this.getDateString(checkDate) < this.getDateString(currentDate)) {
-                            if (this.isHabitForDate(habit, checkDate)) {
-                                missedPracticeDay = true;
-                                break;
-                            }
-                            checkDate.setDate(checkDate.getDate() + 1);
-                        }
+                        // 여러 해 동안 기록을 쉬었다가 재개한 경우에도 날짜를 하루씩
+                        // 순회하지 않습니다. 두 완료일 사이의 예정 요일 존재 여부를
+                        // 주 단위로 계산해 오래된 백업으로 인한 UI 멈춤을 방지합니다.
+                        const gapStart = new Date(lastCompletionDate);
+                        gapStart.setDate(gapStart.getDate() + 1);
+                        const gapEnd = new Date(currentDate);
+                        gapEnd.setDate(gapEnd.getDate() - 1);
+                        const missedPracticeDay = this.getHabitOpportunityCountsByWeekday(habit, gapStart, gapEnd)
+                            .some(count => count > 0);
                         currentLongestStreak = missedPracticeDay ? 1 : currentLongestStreak + 1;
                     } else {
                         currentLongestStreak = 1;
