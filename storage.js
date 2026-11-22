@@ -211,6 +211,21 @@ const getNoteFallbackTime = (originalId, noteDraft, fallback) => {
 
 const isReservedItemId = id => RESERVED_ITEM_IDS.has(String(id));
 
+// JSON 백업/구버전 데이터의 불리언 메타데이터를 엄격하게 읽습니다.
+// Boolean('false')는 true이므로 문자열을 그대로 강제 변환하면 고정/즐겨찾기 상태가 뒤집힙니다.
+// 손상되어 해석할 수 없는 값은 조용히 반대 상태로 기록하지 않고 상위 검증에서 차단합니다.
+const parseNoteBooleanMetadata = value => {
+    if (typeof value === 'boolean') return value;
+    if (value === 1 || value === '1') return true;
+    if (value === 0 || value === '0') return false;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'true') return true;
+        if (normalized === 'false') return false;
+    }
+    return null;
+};
+
 const normalizeFolderName = (value, fallback = '새 폴더') => {
     // 폴더 이름 입력은 길이를 제한하지 않으므로, 로드/가져오기에서도
     // 임의로 자르지 않습니다. 일치하지 않는 제한은 정상 저장된 이름을
@@ -227,22 +242,20 @@ const getUniqueFolderName = (name, usedNameKeys) => {
         return baseName;
     }
 
-    let counter = 2;
-    while (counter < 10000) {
-        const suffix = ` (${counter})`;
-        const candidate = `${baseName}${suffix}`;
+    // 기존 9,999회 고정 제한 후 Date.now()를 붙이면 동일 밀리초에
+    // 여러 폴더가 복원될 때 다시 같은 이름이 만들어져 고유성 제약이 깨집니다.
+    // 이미 사용된 이름이 N개라면 서로 다른 후보 N+1개 중 하나는 반드시 비어 있습니다.
+    const searchLimit = usedNameKeys.size + 2;
+    for (let counter = 2; counter <= searchLimit; counter += 1) {
+        const candidate = `${baseName} (${counter})`;
         const candidateKey = candidate.toLowerCase();
         if (!usedNameKeys.has(candidateKey)) {
             usedNameKeys.add(candidateKey);
             return candidate;
         }
-        counter += 1;
     }
 
-    const fallbackSuffix = ` (${Date.now()})`;
-    const fallbackName = `${baseName}${fallbackSuffix}`;
-    usedNameKeys.add(fallbackName.toLowerCase());
-    return fallbackName;
+    throw new Error('중복되지 않는 폴더 이름을 생성할 수 없습니다.');
 };
 
 const isValidItemIdForType = (id, prefix) => (
@@ -447,6 +460,8 @@ export const verifyAndSanitizeLoadedData = (data, noteDraft = null) => {
         // 본문은 빈 노트도 항상 문자열입니다. null, 숫자, 불리언을 빈 문자열이나
         // 다른 문자열로 자동 변환하면 손상된 원본을 이후 저장에서 덮어쓸 수 있습니다.
         || typeof note.content !== 'string'
+        || (hasOwn(note, 'isPinned') && parseNoteBooleanMetadata(note.isPinned) === null)
+        || (hasOwn(note, 'wasFavorite') && parseNoteBooleanMetadata(note.wasFavorite) === null)
     );
     const hasInvalidOptionalArray = key => hasOwn(data, key) && !Array.isArray(data[key]);
     // 현재 MothNote 폴더 스키마에서 notes는 필수 배열입니다. 백업/저장소의 해당
@@ -597,7 +612,7 @@ export const verifyAndSanitizeLoadedData = (data, noteDraft = null) => {
         // 정제 시각이 마지막 편집 시각으로 둔갑해 유일한 미저장 초안을 폐기하지 않게 합니다.
         assignNormalizedValue(note, 'createdAt', normalizeTimestamp(note.createdAt, getNoteFallbackTime(originalId, noteDraft, now)));
         assignNormalizedValue(note, 'updatedAt', normalizeTimestamp(note.updatedAt, note.createdAt));
-        assignNormalizedValue(note, 'isPinned', Boolean(note.isPinned));
+        assignNormalizedValue(note, 'isPinned', hasOwn(note, 'isPinned') ? parseNoteBooleanMetadata(note.isPinned) : false);
 
         if (isTrash) {
             assignNormalizedValue(note, 'type', CONSTANTS.ITEM_TYPE.NOTE);
@@ -605,7 +620,7 @@ export const verifyAndSanitizeLoadedData = (data, noteDraft = null) => {
             if (note.originalFolderId !== undefined && note.originalFolderId !== null) {
                 assignNormalizedValue(note, 'originalFolderId', String(note.originalFolderId));
             }
-            if ('wasFavorite' in note) assignNormalizedValue(note, 'wasFavorite', Boolean(note.wasFavorite));
+            if ('wasFavorite' in note) assignNormalizedValue(note, 'wasFavorite', parseNoteBooleanMetadata(note.wasFavorite));
         } else if (note.type !== undefined) {
             delete note.type;
             markChanged(false);
@@ -2016,6 +2031,12 @@ const sanitizeContentData = (data, recoveryDrafts = {}) => {
         }
         assertSafeTextField(rawNote, 'title', '노트 제목');
         assertSafeTextField(rawNote, 'content', '노트 본문');
+        if (hasOwnDataField(rawNote, 'isPinned') && parseNoteBooleanMetadata(rawNote.isPinned) === null) {
+            throw new Error('노트의 고정 상태를 판별할 수 없어 원본 보호를 위해 가져오기를 중단했습니다.');
+        }
+        if (isTrash && hasOwnDataField(rawNote, 'wasFavorite') && parseNoteBooleanMetadata(rawNote.wasFavorite) === null) {
+            throw new Error('휴지통 노트의 즐겨찾기 이력을 판별할 수 없어 원본 보호를 위해 가져오기를 중단했습니다.');
+        }
         const noteId = getUniqueId(CONSTANTS.ID_PREFIX.NOTE, rawNote.id, noteIdMap);
         const createdAt = normalizeTimestamp(rawNote.createdAt, getNoteFallbackTime(rawNote.id, recoveryDrafts.noteUpdate, now));
         const updatedAt = normalizeTimestamp(rawNote.updatedAt, createdAt);
@@ -2026,7 +2047,7 @@ const sanitizeContentData = (data, recoveryDrafts = {}) => {
             content: String(rawNote.content ?? ''),
             createdAt,
             updatedAt,
-            isPinned: Boolean(rawNote.isPinned),
+            isPinned: hasOwnDataField(rawNote, 'isPinned') ? parseNoteBooleanMetadata(rawNote.isPinned) : false,
         };
 
         if (isTrash) {
@@ -2036,7 +2057,7 @@ const sanitizeContentData = (data, recoveryDrafts = {}) => {
                 note.originalFolderId = String(rawNote.originalFolderId);
             }
             // 삭제 당시 즐겨찾기였는지를 보존해야 복원 시 즐겨찾기도 함께 복구됩니다.
-            if ('wasFavorite' in rawNote) note.wasFavorite = Boolean(rawNote.wasFavorite);
+            if ('wasFavorite' in rawNote) note.wasFavorite = parseNoteBooleanMetadata(rawNote.wasFavorite);
         }
         return note;
     };
