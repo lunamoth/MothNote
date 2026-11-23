@@ -1,6 +1,6 @@
 // renderer.js
 
-import { state, setState, findFolder, findNote, CONSTANTS } from './state.js';
+import { state, setState, findFolder, findNote, CONSTANTS, getFirstNonEmptyNoteLine } from './state.js';
 import {
     folderList, noteList, addNoteBtn, emptyTrashBtn, notesPanelTitle, noteSortSelect,
     editorContainer, placeholderContainer, noteTitleInput, noteContentTextarea, noteContentView,
@@ -40,7 +40,7 @@ const getTextStatistics = (content) => {
 
     for (let index = 0; index < text.length; index += 1) {
         const char = text[index];
-        if (char === '\n') lineCount += 1;
+        if (char === '\n' || (char === '\r' && text[index + 1] !== '\n')) lineCount += 1;
 
         const isWhitespace = whitespacePattern.test(char);
         if (isWhitespace) {
@@ -57,25 +57,10 @@ const getTextStatistics = (content) => {
 // [메이저 버그 수정] 긴 단일 행이나 대용량 본문 전체가 목록 DOM에 복사되지 않도록
 // 첫 번째 비어 있지 않은 행만 탐색하고, 미리보기 길이를 제한합니다.
 const getFirstNonEmptyLineSnippet = content => {
-    const text = String(content ?? '');
-    let start = 0;
-
-    while (start <= text.length) {
-        const newlineIndex = text.indexOf('\n', start);
-        const end = newlineIndex === -1 ? text.length : newlineIndex;
-        const line = text.slice(start, end).trim();
-
-        if (line) {
-            return line.length > NOTE_SNIPPET_MAX_LENGTH
-                ? `${line.slice(0, NOTE_SNIPPET_MAX_LENGTH).trimEnd()}…`
-                : line;
-        }
-
-        if (newlineIndex === -1) break;
-        start = newlineIndex + 1;
-    }
-
-    return '';
+    const line = getFirstNonEmptyNoteLine(content);
+    return line.length > NOTE_SNIPPET_MAX_LENGTH
+        ? `${line.slice(0, NOTE_SNIPPET_MAX_LENGTH).trimEnd()}…`
+        : line;
 };
 
 // [수정] marked 모듈을 안전하게 로드하는 비동기 함수를 추가합니다.

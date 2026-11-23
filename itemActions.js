@@ -1440,6 +1440,16 @@ export const handleRestoreItem = async (id, type) => {
     }
 };
 
+// 확인 이후 같은 ID가 복원되었다가 다시 삭제되거나 폴더의 자식이 바뀔 수 있습니다.
+const matchesConfirmedTrashItem = (confirmed, latest) => {
+    if (!confirmed || !latest || confirmed.id !== latest.id || confirmed.deletedAt !== latest.deletedAt) return false;
+    if (!Array.isArray(confirmed.notes)) {
+        return !Array.isArray(latest.notes) && confirmed.title === latest.title && confirmed.content === latest.content;
+    }
+    return confirmed.name === latest.name && Array.isArray(latest.notes) && confirmed.notes.length === latest.notes.length
+        && confirmed.notes.every((note, index) => matchesConfirmedTrashItem(note, latest.notes[index]));
+};
+
 export const handlePermanentlyDeleteItem = async (id, type) => {
     if (!(await finishPendingRename())) {
         showToast("이름 변경 저장에 실패하여 영구 삭제를 취소했습니다.", CONSTANTS.TOAST_TYPE.ERROR);
@@ -1469,7 +1479,10 @@ export const handlePermanentlyDeleteItem = async (id, type) => {
             const originalTrashItems = [...latestData.trash];
             const itemIndex = originalTrashItems.findIndex(i => i.id === id);
             
-            if (itemIndex === -1) return null;
+            if (!matchesConfirmedTrashItem(item, originalTrashItems[itemIndex])) {
+                showToast('삭제 대상이 변경되었습니다. 휴지통을 확인한 뒤 다시 시도해 주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                return null;
+            }
             
             const [deletedItem] = latestData.trash.splice(itemIndex, 1);
             
@@ -1516,11 +1529,17 @@ export const handleEmptyTrash = async () => {
     if (!(await ensurePendingEditorStateSaved('휴지통 비우기'))) return;
     if (state.trash.length === 0) return;
 
-    const message = CONSTANTS.MESSAGES.CONFIRM.EMPTY_TRASH(state.trash.length);
+    const confirmedItems = new Map(state.trash.map(item => [item.id, item]));
+    const message = CONSTANTS.MESSAGES.CONFIRM.EMPTY_TRASH(confirmedItems.size);
 
     await withConfirmation(
         { title: CONSTANTS.MODAL_TITLES.EMPTY_TRASH, message: message, confirmText: '💥 모두 영구적으로 삭제', confirmButtonType: 'danger' },
         () => performTransactionalUpdate(latestData => {
+            if (latestData.trash.length !== confirmedItems.size
+                || !latestData.trash.every(item => matchesConfirmedTrashItem(confirmedItems.get(item.id), item))) {
+                showToast('확인 중 휴지통 항목이 변경되었습니다. 목록을 확인한 뒤 다시 비워 주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+                return null;
+            }
             let postUpdateState = {};
 
             const noteIdsInTrash = new Set();
@@ -1584,7 +1603,7 @@ const deriveFinalNoteTitle = (rawTitle, content) => {
         // [MAJOR BUG FIX] 제목이 비어 있는 대형 노트를 저장할 때 첫 줄 하나를 얻기 위해
         // 본문 전체를 split()으로 배열화하지 않습니다. 첫 개행 위치까지만 잘라 자동 제목을 만듭니다.
         const normalizedContent = String(content);
-        const firstNewlineIndex = normalizedContent.indexOf('\n');
+        const firstNewlineIndex = normalizedContent.search(/[\r\n]/);
         let firstLine = normalizedContent.slice(0, firstNewlineIndex === -1 ? normalizedContent.length : firstNewlineIndex).trim();
         if (firstLine) {
             const hasKorean = /[\uAC00-\uD7AF]/.test(firstLine);
@@ -1597,6 +1616,13 @@ const deriveFinalNoteTitle = (rawTitle, content) => {
     }
 
     return finalTitle;
+};
+
+// 한 줄 제목 입력칸은 CR과 LF를 제거합니다. 표시된 제목 그대로라면 원문을 보존합니다.
+export const preserveUnchangedEditorTitle = (storedTitle, editorTitle) => {
+    const current = String(editorTitle ?? '');
+    if (typeof storedTitle !== 'string' || storedTitle === current) return current;
+    return storedTitle.replace(/[\r\n]/g, '') === current ? storedTitle : current;
 };
 
 // textarea.value는 CRLF와 단독 CR을 LF로 정규화합니다. 본문을 변경하지 않고
@@ -1628,12 +1654,11 @@ export async function saveCurrentNoteIfChanged() {
     }
 
     const noteIdToSave = state.dirtyNoteId || state.activeNoteId;
-    const titleToSave = noteTitleInput?.value ?? '';
+    const storedNote = findNote(noteIdToSave).item;
+    const editorTitleAtStart = noteTitleInput?.value ?? '';
+    const titleToSave = preserveUnchangedEditorTitle(storedNote?.title, editorTitleAtStart);
     const editorContentAtStart = noteContentTextarea?.value ?? '';
-    const contentToSave = preserveUnchangedEditorContent(
-        findNote(noteIdToSave).item?.content,
-        editorContentAtStart
-    );
+    const contentToSave = preserveUnchangedEditorContent(storedNote?.content, editorContentAtStart);
     const saveStartedAt = Date.now();
 
     if (!noteIdToSave) {
@@ -1689,9 +1714,9 @@ export async function saveCurrentNoteIfChanged() {
         return false;
     }
 
-    let liveTitle = noteTitleInput?.value ?? titleToSave;
+    const liveTitle = noteTitleInput?.value ?? editorTitleAtStart;
     const liveContent = noteContentTextarea?.value ?? editorContentAtStart;
-    const titleChangedDuringSave = liveTitle !== titleToSave;
+    const titleChangedDuringSave = liveTitle !== editorTitleAtStart;
     // 원본에 CRLF가 있으면 저장할 원문과 textarea 값은 원래 다릅니다.
     // 저장 중 입력 여부는 원문이 아니라 저장 시작 시의 textarea 값과 비교합니다.
     const contentChangedDuringSave = liveContent !== editorContentAtStart;
@@ -1699,13 +1724,7 @@ export async function saveCurrentNoteIfChanged() {
     const savedTitle = payload?.savedTitle ?? titleToSave;
     const savedContent = payload?.savedContent ?? contentToSave;
 
-    // 제목 입력이 저장 중 바뀌지 않았다면 자동 생성된 최종 제목을 편집기에 반영합니다.
-    // 이렇게 해야 빈 제목이 저장본과 계속 다르다고 판단되어 자동 저장이 반복되지 않습니다.
-    if (!titleChangedDuringSave && noteTitleInput && liveTitle !== savedTitle) {
-        noteTitleInput.value = savedTitle;
-        liveTitle = savedTitle;
-    }
-
+    // 자동 제목은 최신 본문까지 저장하고 편집기의 소유자를 다시 확인한 뒤 반영합니다.
     const activeEditorStillOwnsSavedNote = state.activeNoteId === noteIdToSave;
     const anotherNoteBecameDirty = state.isDirty && state.dirtyNoteId && state.dirtyNoteId !== noteIdToSave;
 
@@ -1738,7 +1757,7 @@ export async function saveCurrentNoteIfChanged() {
         // 저장 전의 소유권 스냅샷을 사용하면 새 노트 편집기에 이전 노트 내용을 주입하게 되므로,
         // DOM을 쓰기 직전에 현재 소유자를 다시 확인합니다.
         if (state.activeNoteId === noteIdToSave) {
-            if (noteTitleInput && noteTitleInput.value !== savedTitle) {
+            if (noteTitleInput && preserveUnchangedEditorTitle(savedTitle, noteTitleInput.value) !== savedTitle) {
                 noteTitleInput.value = savedTitle;
             }
             if (noteContentTextarea
@@ -1766,7 +1785,7 @@ export async function handleUserInput() {
     const { item: activeNote } = findNote(state.activeNoteId);
     if (!activeNote) return;
 
-    const currentTitle = noteTitleInput.value;
+    const currentTitle = preserveUnchangedEditorTitle(activeNote.title, noteTitleInput.value);
     const currentContent = preserveUnchangedEditorContent(activeNote.content, noteContentTextarea.value);
     const hasChanged = activeNote.title !== currentTitle || activeNote.content !== currentContent;
 

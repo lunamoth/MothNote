@@ -1790,7 +1790,7 @@
                 let count = 0;
                 let rejectedCount = 0;
                 const overwrittenDates = [];
-                const nextRecords = cloneDietRecords(AppState.records);
+                const recordsByDate = new Map(AppState.records.map(record => [record.date, record]));
                 // CSV 파일 자체에 동일 날짜가 여러 번 나타나면 기존에는 마지막 행이
                 // 앞선 행을 조용히 덮어써 어느 체중/체지방 기록이 원본인지 사라졌습니다.
                 // 파일 안의 충돌은 가져오기 전체를 중단하여 기존 저장값을 보존합니다.
@@ -1853,26 +1853,23 @@
                                 continue;
                             }
                             importedDates.set(rec.date, signature);
-                            const idx = nextRecords.findIndex(r => r.date === rec.date);
-                            if (idx >= 0) {
+                            const previousRecord = recordsByDate.get(rec.date);
+                            if (previousRecord) {
                                 // Date,Weight 두 열만 제공하는 CSV로 기존 날짜를 갱신할 때,
                                 // 파일에 존재하지 않는 체지방률 열을 '삭제'로 해석하면
                                 // 과거에 직접 입력한 유일한 체지방 기록이 사라집니다.
                                 // 체지방률 열이 실제로 들어온 경우에만 그 값(빈 값 포함)을 적용합니다.
-                                if (!hasFatColumn && Object.prototype.hasOwnProperty.call(nextRecords[idx], 'fat')) {
-                                    rec.fat = nextRecords[idx].fat;
+                                if (!hasFatColumn && Object.prototype.hasOwnProperty.call(previousRecord, 'fat')) {
+                                    rec.fat = previousRecord.fat;
                                 }
-                                const previousRecord = nextRecords[idx];
                                 const hadFat = Object.prototype.hasOwnProperty.call(previousRecord, 'fat');
                                 const hasImportedFat = Object.prototype.hasOwnProperty.call(rec, 'fat');
                                 if (previousRecord.weight !== rec.weight || hadFat !== hasImportedFat
                                     || (hadFat && previousRecord.fat !== rec.fat)) {
                                     overwrittenDates.push(rec.date);
                                 }
-                                nextRecords[idx] = rec;
-                            } else {
-                                nextRecords.push(rec);
                             }
+                            recordsByDate.set(rec.date, rec);
                             count++;
                         } else {
                             rejectedCount++;
@@ -1881,7 +1878,11 @@
                         rejectedCount++;
                     }
                 }
-                const sanitizedRecords = sanitizeDietRecords(nextRecords);
+                if (count === 0) {
+                    showToast(`가져올 수 있는 체중 기록이 없습니다. 제외한 행 ${rejectedCount}건입니다.`);
+                    return;
+                }
+                const sanitizedRecords = sanitizeDietRecords(Array.from(recordsByDate.values()));
                 if (overwrittenDates.length > 0) {
                     // 같은 날짜의 기록을 조용히 덮어쓰면 오래된 CSV가 최신 측정값이나
                     // 체지방률을 지울 수 있습니다. 전체 파일을 검증한 다음 실제로 값이
@@ -7121,9 +7122,8 @@
         const template = DomUtil.getTemplate('template-history-row');
         const fragment = document.createDocumentFragment();
 
-        const rev = [...AppState.records].reverse();
-        rev.forEach(r => {
-            const idx = AppState.records.findIndex(o => o.date === r.date);
+        for (let idx = AppState.records.length - 1; idx >= 0; idx--) {
+            const r = AppState.records[idx];
             let diffStr = '-';
             let cls = '';
             if(idx > 0) {
@@ -7147,7 +7147,7 @@
             btnDelete.dataset.date = r.date;
 
             fragment.appendChild(clone);
-        });
+        }
         DomUtil.clearAndAppend(container, fragment);
         applyInlineEditDraftToRow();
     }

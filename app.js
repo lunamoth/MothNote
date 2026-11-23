@@ -40,6 +40,7 @@ import {
     getPendingRenameEmergencySnapshot,
     persistEmergencyChangesBackupEntry,
     preserveUnchangedEditorContent,
+    preserveUnchangedEditorTitle,
     performTransactionalUpdate,
     performDeleteItem,
     handleTextareaKeyDown,
@@ -2023,11 +2024,12 @@ const setupGlobalEventListeners = () => {
                 let hasChanges = false;
 
                 if (isNoteDirty && state.activeNoteId === state.dirtyNoteId) {
+                    const storedNote = findNote(state.dirtyNoteId).item;
                     changesToBackup.noteUpdate = {
                         noteId: state.dirtyNoteId,
-                        title: noteTitleInput?.value ?? '',
+                        title: preserveUnchangedEditorTitle(storedNote?.title, noteTitleInput?.value),
                         content: preserveUnchangedEditorContent(
-                            findNote(state.dirtyNoteId).item?.content,
+                            storedNote?.content,
                             noteContentTextarea?.value ?? ''
                         ),
                         capturedAt: Date.now()

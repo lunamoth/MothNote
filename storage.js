@@ -64,7 +64,7 @@ export const storageRemove = (keys) =>
   });
 
 // [버그 수정] 순환 참조 해결을 위해 generateUniqueId를 state.js에서 가져오도록 수정합니다.
-import { state, setState, buildNoteMap, CONSTANTS, generateUniqueId } from './state.js';
+import { state, setState, buildNoteMap, CONSTANTS, generateUniqueId, getFirstNonEmptyNoteLine } from './state.js';
 import { showToast, showConfirm, importFileInput, sortNotes, showAlert, showPrompt } from './components.js';
 import { updateNoteCreationDates } from './itemActions.js';
 // [수정] welcomeNote.js에서 환영 메시지 내용을 가져옵니다.
@@ -3268,25 +3268,7 @@ const validateSimplenoteNotesCollection = (notes, fieldName, { optional = false 
 const normalizeSimplenoteContent = (note) => String(note?.content ?? '');
 
 const getSimplenoteTitle = (content, createdAt) => {
-    // [MAJOR BUG FIX] 대형 Simplenote 노트에서 제목 한 줄을 찾기 위해 전체 본문을
-    // split()으로 배열화하지 않습니다. 개행 위치를 순차 탐색해 첫 비어 있지 않은 줄만 읽습니다.
-    const text = String(content ?? '');
-    let start = 0;
-    let firstNonEmptyLine = null;
-
-    while (start <= text.length) {
-        const newlineIndex = text.indexOf('\n', start);
-        const end = newlineIndex === -1 ? text.length : newlineIndex;
-        const line = text.slice(start, end).trim();
-        if (line) {
-            firstNonEmptyLine = line;
-            break;
-        }
-        if (newlineIndex === -1) break;
-        start = newlineIndex + 1;
-    }
-
-    return (firstNonEmptyLine ? firstNonEmptyLine.slice(0, 100) : null)
+    return getFirstNonEmptyNoteLine(content).slice(0, 100)
         || `가져온 노트 ${new Date(createdAt).toLocaleDateString()}`;
 };
 
@@ -3830,15 +3812,17 @@ const parseNotesnookZip = async (archiveBuffer) => {
         // 본문 메타데이터가 노트로 유입되지 않도록 저장 전에 명시적으로 거부합니다.
         // 파일 맨 앞의 --- 구분자 쌍과 Notesnook 내보내기 메타데이터 키를 함께
         // 확인하므로 일반 Markdown의 수평선(---)은 거부하지 않습니다.
-        const yamlHeader = /^---\r?\n([\s\S]{0,32768}?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(contentForMetadata);
-        if (yamlHeader && /^[ \t]*(?:title|created_at|updated_at|tags)[ \t]*:/im.test(yamlHeader[1])) {
-            throw new Error('Notesnook Markdown + Frontmatter ZIP은 지원하지 않습니다. Notesnook에서 일반 Markdown 형식으로 내보낸 ZIP을 선택해주세요.');
+        if (/^---[\r\n]/.test(contentForMetadata)) {
+            const closingMarker = /[\r\n]---[ \t]*(?=[\r\n]|$)/.exec(contentForMetadata);
+            if (closingMarker && /^[ \t]*(?:title|created_at|updated_at|tags)[ \t]*:/im.test(contentForMetadata.slice(0, closingMarker.index))) {
+                throw new Error('Notesnook Markdown + Frontmatter ZIP은 지원하지 않습니다. Notesnook에서 일반 Markdown 형식으로 내보낸 ZIP을 선택해주세요.');
+            }
         }
         // 첫 H1은 제목 필드 결정에만 사용하고, Markdown 본문에는 손대지 않습니다.
         // CommonMark의 ATX 제목은 들여쓰기가 최대 3칸이며, 탭/4칸 들여쓰기는
         // 제목이 아니라 코드 블록이므로 파일명으로 제목을 결정합니다.
         // 본문 중간에 있는 H1 역시 메타데이터로 오인하지 않습니다.
-        const leadingHeading = /^(?:[ \t]*\r?\n)* {0,3}#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(contentForMetadata);
+        const leadingHeading = /^(?:[ \t]*[\r\n])* {0,3}#[ \t]+([^\r\n]+)/.exec(contentForMetadata);
         const fallbackFilename = entry.name.slice(entry.name.lastIndexOf('/') + 1).replace(/\.(md|markdown)$/i, '');
         const title = (leadingHeading?.[1]?.trim() || fallbackFilename || '제목 없는 노트').trim();
         // 노트 생성·수정 시각은 ZIP 파일 메타데이터에서 복원합니다.

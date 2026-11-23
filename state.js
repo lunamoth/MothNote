@@ -310,6 +310,14 @@ const findItem = (id, type) => {
 export const findFolder = (id) => findItem(id, CONSTANTS.ITEM_TYPE.FOLDER);
 export const findNote = (id) => findItem(id, CONSTANTS.ITEM_TYPE.NOTE);
 
+export const getFirstNonEmptyNoteLine = (content) => {
+    for (const match of String(content ?? '').matchAll(/[^\r\n]+/g)) {
+        const line = match[0].trim();
+        if (line) return line;
+    }
+    return '';
+};
+
 // --- [버그 수정] 순환 참조 해결을 위해 storage.js에서 이동 ---
 /**
  * 앱의 전체 상태(활성 노트, 휴지통)를 확인하여

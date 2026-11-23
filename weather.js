@@ -1806,11 +1806,16 @@
         const sunsetTime = formatTime(dayData.sunset?.[index]);
         const precipHours = formatNumber(dayData.precipitation_hours?.[index]);
 
-        let precipType = "";
-        if ((toFiniteNumber(dayData.rain_sum?.[index]) ?? 0) > 0) precipType += "비 ";
-        if ((toFiniteNumber(dayData.showers_sum?.[index]) ?? 0) > 0) precipType += "소나기 ";
-        if ((toFiniteNumber(dayData.snowfall_sum?.[index]) ?? 0) > 0) precipType += "눈 ";
-        precipType = precipType.trim() || "없음";
+        const rain = toFiniteNumber(dayData.rain_sum?.[index]);
+        const showers = toFiniteNumber(dayData.showers_sum?.[index]);
+        const snow = toFiniteNumber(dayData.snowfall_sum?.[index]);
+        const total = toFiniteNumber(dayData.precipitation_sum?.[index]);
+        const types = [];
+        if (rain > 0) types.push('비');
+        if (showers > 0) types.push('소나기');
+        if (snow > 0) types.push('눈');
+        const knownDry = total === 0 || (total === null && rain === 0 && showers === 0 && snow === 0);
+        const precipType = types.length ? types.join(' ') : (knownDry ? '없음' : '유형 미상');
         
         let dailyAqiHTML = `<div class="detail-item air-quality"><span class="label">대기질</span><span class="value">정보 없음</span></div>`;
         if (hourlyAqiData?.time?.length > 0) {
@@ -1906,7 +1911,7 @@
 
 
     function getTwoWeekTrendAssessment(dailyData, index) {
-        const code = Number(dailyData?.weather_code?.[index]);
+        const code = toFiniteNumber(dailyData?.weather_code?.[index]);
         const maxTemp = toFiniteNumber(dailyData?.temperature_2m_max?.[index]);
         const minTemp = toFiniteNumber(dailyData?.temperature_2m_min?.[index]);
         const rainProbability = toFiniteNumber(dailyData?.precipitation_probability_max?.[index]);
@@ -1957,7 +1962,12 @@
         if ((gust ?? 0) >= 45) return { tag: '바람 경향', tone: 'warn', note: '바람 또는 돌풍 신호가 있어 야외 일정은 최신 예보로 다시 확인해 주세요.' };
         if ((maxTemp ?? -Infinity) >= 30) return { tag: '더위 경향', tone: 'warn', note: '낮 기온이 높게 예보되어 더위 흐름을 참고하시면 좋습니다.' };
         if ((minTemp ?? Infinity) <= 0) return { tag: '추위 경향', tone: 'warn', note: '아침 최저기온이 낮아질 수 있어 보온 흐름을 참고해 주세요.' };
-        if (hasUvSignal) return { tag: '햇빛 경향', tone: 'info', note: '뚜렷한 강수 신호가 없고 낮 시간대 햇빛·자외선 흐름이 두드러집니다.' };
+        if (hasUvSignal) return { tag: '햇빛 경향', tone: 'info', note: '낮 시간대 햇빛·자외선 흐름이 두드러집니다.' };
+        const hasPrecipAmountData = precipitation !== null || (rainSum !== null && showersSum !== null && snowfallSum !== null);
+        if (!Object.hasOwn(CONFIG.WMO_MAP, code) || !hasPrecipAmountData
+            || [rainProbability, gust, minTemp, maxTemp, uv].includes(null)) {
+            return { tag: '자료 부족', tone: 'info', note: '일부 예보값이 없어 이 날의 전반적인 경향을 판단하기 어렵습니다.' };
+        }
         return { tag: '무난 경향', tone: 'good', note: '현재 자료상 큰 위험 신호는 약하지만, 장기 예보는 변동될 수 있습니다.' };
     }
 
