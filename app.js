@@ -57,6 +57,10 @@ let weatherCitySearchRequestId = 0;
 let weatherCitySearchAbortController = null;
 
 const persistAppSettings = (settingsToPersist) => {
+    if (window.isReplacementImportActive || window.isImportReloadPending) {
+        showToast('데이터 복원 또는 재시작이 진행 중이어서 설정을 저장하지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        return null;
+    }
     if (window.isInitializing || window.hasInitializationFailed) {
         showToast('초기화 또는 복구가 완료되지 않아 설정을 저장하지 않았습니다. 새 탭에서 복구를 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
         return null;

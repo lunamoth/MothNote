@@ -290,6 +290,17 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         // ----- DATA & STATE MANAGEMENT -----
+        readBackupAchievement() {
+            // 전체 백업은 부모 화면에서 같은 저장소에 이 업적만 추가합니다.
+            // 열린 iframe의 이전 메모리 상태가 다음 저장에서 업적을 지우지 않도록 합니다.
+            const raw = localStorage.getItem('habitTrackerDataV2_integrated');
+            if (raw === null) return null;
+            const stored = JSON.parse(raw);
+            const achievement = stored?.achievements?.data_guardian;
+            return achievement && typeof achievement === 'object' && !Array.isArray(achievement)
+                && typeof achievement.unlockedAt === 'string' ? { ...achievement } : null;
+        },
+
         saveData({ allowCorruptDataReplacement = false } = {}) {
             // 전체 백업을 교체하는 동안 이전 iframe의 상태로 복원된 기록을
             // 덮어쓰지 않습니다. 실패를 반환해 호출자가 기존 메모리도 되돌리게 합니다.
@@ -310,7 +321,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // [수정] 데이터 저장 키를 MothNote와 통합될 키로 변경
             try {
-                localStorage.setItem('habitTrackerDataV2_integrated', JSON.stringify(this.state, (key, value) => key === 'chartInstances' ? undefined : value));
+                // 명시적 초기화는 업적도 지워야 하므로 이 경우에는 병합하지 않습니다.
+                const backupAchievement = allowCorruptDataReplacement ? null : this.readBackupAchievement();
+                const nextState = backupAchievement
+                    ? { ...this.state, achievements: { ...this.state.achievements, data_guardian: backupAchievement } }
+                    : this.state;
+                localStorage.setItem('habitTrackerDataV2_integrated', JSON.stringify(nextState, (key, value) => key === 'chartInstances' ? undefined : value));
+                if (backupAchievement) this.state.achievements = nextState.achievements;
                 if (allowCorruptDataReplacement) {
                     this._hadDataLoadError = false;
                     this._hasPersistedIntegratedData = true;
@@ -2690,6 +2707,14 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         renderAchievements() {
+            if (!this._hadDataLoadError && !isParentTrackerReplacementPending()) {
+                try {
+                    const backupAchievement = this.readBackupAchievement();
+                    if (backupAchievement) this.state.achievements.data_guardian = backupAchievement;
+                } catch (error) {
+                    console.warn('Could not read the backup achievement.', error);
+                }
+            }
             this.elements.achievementsGrid.innerHTML = Object.entries(achievementList).map(([id, ach]) => `
                 <div class="achievement-card ${this.state.achievements[id] ? 'unlocked' : ''}">
                     <div class="achievement-icon">${this.state.achievements[id] ? ach.icon : '❓'}</div>

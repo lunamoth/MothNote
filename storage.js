@@ -92,6 +92,8 @@ const DIET_CHALLENGE_SETTINGS_KEY = 'diet_pro_settings'; // dietChallenge.js의 
 // 대용량 파일을 읽는 중 다른 파일을 다시 선택하면 두 FileReader 콜백이
 // 각자의 롤백 백업과 재시작 타이머를 서로 덮어쓸 수 있으므로 single-flight로 제한합니다.
 let importOperationInProgress = false;
+// 백업의 appState/부가 저장소 스냅샷과 업적 저장이 전체 복원과 교차하지 않게 합니다.
+let exportOperationInProgress = false;
 
 // 가져오기 롤백 백업은 정상 appState뿐 아니라, 사용자가 정상 백업으로 복구하려는
 // 손상 원본도 바이트 의미상 최대한 그대로 보존해야 합니다. 새 형식은 동일 스냅샷의
@@ -2279,6 +2281,19 @@ const flushPendingChangesForDataOperation = async (operationName) => {
 
 // [BUG FIX & 기능 추가] 습관 트래커 및 다이어트 챌린지 데이터를 포함하도록 handleExport 함수 수정
 export const handleExport = async (settings) => {
+    if (importOperationInProgress || window.isImporting || exportOperationInProgress) {
+        showToast('데이터 가져오기 또는 백업이 진행 중입니다. 현재 작업이 끝난 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+        return false;
+    }
+    exportOperationInProgress = true;
+    try {
+        return await exportCurrentData(settings);
+    } finally {
+        exportOperationInProgress = false;
+    }
+};
+
+const exportCurrentData = async (settings) => {
     // 초기화가 실패했거나 비상 복구가 아직 끝나지 않은 경우 메모리 상태는
     // 빈 초기값이거나 마지막 저장본일 수 있습니다. 그대로 내보내면 유일한
     // 미저장 초안 또는 미완료 가져오기 복구본이 빠진 파일을 완전 백업으로
@@ -2630,8 +2645,8 @@ export const handleImport = async () => {
         showToast('가져오기 입력 요소를 찾을 수 없어 작업을 시작하지 못했습니다.', CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
-    if (importOperationInProgress || window.isImporting) {
-        showToast('이미 데이터 가져오기가 진행 중입니다. 현재 작업이 끝난 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
+    if (importOperationInProgress || window.isImporting || exportOperationInProgress) {
+        showToast('데이터 가져오기 또는 백업이 진행 중입니다. 현재 작업이 끝난 뒤 다시 시도해주세요.', CONSTANTS.TOAST_TYPE.ERROR);
         return;
     }
     importFileInput.click();
@@ -3856,8 +3871,8 @@ export const setupImportHandler = () => {
 
         // 첫 번째 FileReader가 끝나기 전에 두 번째 파일이 선택되면
         // 서로 다른 확인 모달·롤백 백업·재시작 타이머가 겹칠 수 있습니다.
-        if (importOperationInProgress) {
-            showToast('이미 다른 데이터 가져오기가 진행 중이어서 새 파일을 열지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
+        if (importOperationInProgress || window.isImporting || exportOperationInProgress) {
+            showToast('다른 데이터 가져오기 또는 백업이 진행 중이어서 새 파일을 열지 않았습니다.', CONSTANTS.TOAST_TYPE.ERROR);
             e.target.value = '';
             return;
         }
@@ -4274,6 +4289,10 @@ export const setupImportHandler = () => {
                 window.isImporting = true;
                 window.isImportReloadPending = false;
 
+                // showModal()로 열린 설정 dialog는 일반 z-index 오버레이보다 위에 있습니다.
+                // 실제 교체 전에 닫아 오래된 설정 조작과 오버레이의 포커스 차단을 방지합니다.
+                const settingsDialog = document.getElementById('settings-modal');
+                if (settingsDialog?.open) settingsDialog.close();
                 overlay = document.createElement('div');
                 overlay.className = 'import-overlay';
                 overlay.tabIndex = -1;
