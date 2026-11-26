@@ -4,6 +4,7 @@
     // --- CONFIGURATION ---
     const CONFIG = {
         API_BASE_URL: "https://api.open-meteo.com/v1/forecast",
+        ARCHIVE_API_BASE_URL: "https://archive-api.open-meteo.com/v1/archive",
         AIR_QUALITY_API_BASE_URL: "https://air-quality-api.open-meteo.com/v1/air-quality",
         PARTICLE_DENSITY_SNOW_DIVISOR: 25000,
         PARTICLE_DENSITY_RAIN_DIVISOR: 18000,
@@ -2103,8 +2104,11 @@
     function startWeatherEffect(effectType) { const effect = _appState.weatherEffect; if (effect.animationFrameId) cancelAnimationFrame(effect.animationFrameId); effect.currentEffectType = effectType; effect.particles = []; weatherEffectsCtx.clearRect(0, 0, DOM.weatherEffectsCanvas.width, DOM.weatherEffectsCanvas.height); if (effectType) { createParticles(effectType); if (effect.particles.length > 0) animateParticles(); } }
     
     // --- DATA FETCHING AND PROCESSING ---
-    async function fetchJsonWithTimeout(url) {
+    async function fetchJsonWithTimeout(url, { signal, ...options } = {}) {
         const controller = new AbortController();
+        const cancel = () => controller.abort();
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener('abort', cancel, { once: true });
         let requestTimedOut = false;
         const timeoutId = setTimeout(() => {
             requestTimedOut = true;
@@ -2112,7 +2116,7 @@
         }, CONFIG.REQUEST_TIMEOUT_MS);
 
         try {
-            const response = await fetch(url, { signal: controller.signal });
+            const response = await fetch(url, { ...options, signal: controller.signal });
             let data = null;
             try {
                 data = await response.json();
@@ -2129,6 +2133,7 @@
             throw error;
         } finally {
             clearTimeout(timeoutId);
+            signal?.removeEventListener('abort', cancel);
         }
     }
 
@@ -2216,6 +2221,7 @@
         startWeatherEffect(currentWeatherDetails.effect);
         const updateTime = new Date(timestamp);
         DOM.lastUpdated.textContent = `마지막 업데이트: ${updateTime.toLocaleDateString('ko-KR')} ${updateTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit'})}`;
+        monthlyWeather?.sync(weatherData.timezone);
     }
 
     // 상세 날씨 화면이 다시 보일 때 visibilitychange가 연속 발생하면 여러 요청이
@@ -2270,7 +2276,12 @@
             const weatherData = weatherResult.status === 'fulfilled' ? weatherResult.value.data : null;
             const aqiData = aqiResult.status === 'fulfilled' ? aqiResult.value.data : null;
             const fetchTimestamp = Date.now();
-            if (!weatherData) { const errorInfo = weatherResult.reason; const errorMessage = errorInfo?.originalError?.message || '날씨 정보 로드 실패'; renderError(errorMessage, errorInfo?.failedUrl); return; }
+            if (!weatherData) {
+                const errorInfo = weatherResult.reason;
+                renderError(errorInfo?.originalError?.message || '날씨 정보 로드 실패', errorInfo?.failedUrl);
+                monthlyWeather?.sync();
+                return;
+            }
             const weatherSourceTimestamp = cachedWeather?.timestamp ?? fetchTimestamp;
             const aqiSourceTimestamp = aqiData
                 ? (cachedAqi?.timestamp ?? fetchTimestamp)
@@ -2286,11 +2297,571 @@
             if (!isLatestRequest()) return;
             console.error('날씨 화면 구성 중 오류:', error);
             renderError('날씨 화면 구성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+            monthlyWeather?.sync();
         } finally {
             if (isLatestRequest()) renderSkeleton(false);
         }
     }
     
+    function createMonthlyWeather() {
+        if (LAT === null || LON === null) return null;
+        const root = document.getElementById('monthlyWeather');
+        const el = id => document.getElementById(`mw-${id}`);
+        const fields = ['min', 'mean', 'max'];
+        const names = { min: '최저', mean: '평균', max: '최고' };
+        const fieldsByApiName = {
+            temperature_2m_min: 'min', temperature_2m_mean: 'mean', temperature_2m_max: 'max',
+            weather_code: 'code', precipitation_sum: 'rain'
+        };
+        const firstYear = 1941; // 1940년 재분석 자료부터 전년 비교가 가능합니다.
+        const dayMs = 86400000;
+        const forecastLifetime = 30 * 60 * 1000;
+        const storePrefix = 'mothnote_weather_calendar_v1:';
+        const locationPrefix = `${storePrefix}${LAT},${LON}:`;
+        const coordinates = `${Math.abs(LAT)}°${LAT < 0 ? 'S' : 'N'}, ${Math.abs(LON)}°${LON < 0 ? 'W' : 'E'}`;
+        let zone = '', dateFormatter = null, today = '', selected = '', year = 0, month = 0;
+        let metric = 'mean', current = {}, prior = {}, recent = {};
+        let controller = null, lastLoad = 0, hadErrors = false;
+        let forecastRecord = null;
+
+        root.hidden = false;
+        el('location').textContent = `설정 위치 ${coordinates}`;
+
+        function iso(y, m, d) {
+            return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+
+        function monthLength(y, m) {
+            return new Date(Date.UTC(y, m, 0)).getUTCDate();
+        }
+
+        function shift(date, days) {
+            return new Date(Date.parse(`${date}T00:00:00Z`) + days * dayMs).toISOString().slice(0, 10);
+        }
+
+        function previous(date) {
+            const [y, m, d] = date.split('-').map(Number);
+            return d <= monthLength(y - 1, m) ? iso(y - 1, m, d) : null;
+        }
+
+        function setZone(value) {
+            if (!value || value === zone) return false;
+            try {
+                dateFormatter = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: value, year: 'numeric', month: '2-digit', day: '2-digit'
+                });
+            } catch {
+                return false;
+            }
+            zone = value;
+            el('location').textContent = `설정 위치 ${coordinates} · 현지 시간대 ${zone}`;
+            return true;
+        }
+
+        function localDate(timestamp = Date.now()) {
+            const parts = Object.fromEntries(dateFormatter.formatToParts(timestamp).map(p => [p.type, p.value]));
+            return `${parts.year}-${parts.month}-${parts.day}`;
+        }
+
+        function setSelection(date) {
+            selected = date;
+            [year, month] = date.split('-').map(Number);
+        }
+
+        function updateToday() {
+            const date = localDate();
+            if (!selected || selected === today || selected.slice(0, 7) > shift(date, 15).slice(0, 7)) {
+                setSelection(date);
+            }
+            today = date;
+        }
+
+        function readRecord(key) {
+            try {
+                const entry = JSON.parse(localStorage.getItem(key));
+                if (entry && Number.isFinite(entry.at) && entry.at > 0 && entry.at <= Date.now()
+                    && typeof entry.zone === 'string' && entry.rows && typeof entry.rows === 'object' && !Array.isArray(entry.rows)) {
+                    return entry;
+                }
+            } catch { /* 캐시 없이도 조회할 수 있습니다. */ }
+            return null;
+        }
+
+        function saveRecord(key, entry) {
+            try {
+                // 노트 등 같은 출처의 다른 데이터에는 손대지 않고 달력 캐시만 제한합니다.
+                const keys = Object.keys(localStorage).filter(k => k.startsWith(storePrefix) && k !== key);
+                if (keys.length >= 48) {
+                    const oldest = keys.map(k => [k, readRecord(k)?.at || 0]).sort((a, b) => a[1] - b[1]);
+                    for (const [expired] of oldest.slice(0, keys.length - 47)) localStorage.removeItem(expired);
+                }
+                localStorage.setItem(key, JSON.stringify(entry));
+            } catch { /* 저장 공간이 부족해도 현재 자료는 화면에 표시합니다. */ }
+        }
+
+        function parseRows(daily, kind) {
+            if (!Array.isArray(daily?.time) || !daily.time.length) throw new Error('일별 자료 없음');
+            const rows = {};
+            daily.time.forEach((date, index) => {
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+                const row = { kind };
+                let hasValue = false;
+                for (const [apiName, field] of Object.entries(fieldsByApiName)) {
+                    const value = daily[apiName]?.[index];
+                    row[field] = Number.isFinite(value) ? value : null;
+                    if (row[field] !== null) hasValue = true;
+                }
+                if (hasValue) rows[date] = row;
+            });
+            return rows;
+        }
+
+        // 최근 6일과 16일 예보를 한 번 받아 월을 옮겨도 오늘 요약과 같은 자료를 사용합니다.
+        // 재분석은 월별로 보관하되, 아직 진행 중인 월은 조회 가능한 종료일을 연장합니다.
+        async function requestPeriod(range, signal) {
+            const isForecast = !range;
+            const kind = isForecast ? 'forecast' : 'archive';
+            const key = locationPrefix + (isForecast ? kind : `${kind}:${zone}:${range.start}`);
+            const saved = (isForecast && forecastRecord) || readRecord(key);
+            const age = Date.now() - (saved?.at || 0);
+            const covered = isForecast
+                ? dateFormatter && saved?.zone === zone && localDate(saved.at) === localDate()
+                : saved?.end >= range.end;
+            if (saved && covered && age >= 0 && age < (isForecast ? forecastLifetime : 7 * dayMs)) {
+                return { ...saved, cached: true };
+            }
+
+            const params = new URLSearchParams({
+                latitude: String(LAT), longitude: String(LON), timezone: isForecast ? 'auto' : zone,
+                daily: Object.keys(fieldsByApiName).join(','), temperature_unit: 'celsius', precipitation_unit: 'mm'
+            });
+            if (isForecast) {
+                params.set('past_days', '6');
+                params.set('forecast_days', '16');
+            } else {
+                params.set('start_date', range.start);
+                params.set('end_date', range.end);
+            }
+            const endpoint = isForecast ? CONFIG.API_BASE_URL : CONFIG.ARCHIVE_API_BASE_URL;
+            try {
+                const { response, data } = await fetchJsonWithTimeout(`${endpoint}?${params}`, { signal, cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const rows = parseRows(data.daily, kind);
+                if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                const entry = { at: Date.now(), zone: data.timezone || zone, end: range?.end, rows };
+                if (isForecast) forecastRecord = entry;
+                saveRecord(key, entry);
+                return entry;
+            } catch (error) {
+                if (signal.aborted) throw error;
+                const period = isForecast ? '최근 자료와 예보' : `${range.start}~${range.end}`;
+                return {
+                    rows: saved?.rows || {}, zone: saved?.zone, cached: Boolean(saved),
+                    warning: `${period} ${saved ? '갱신 실패 (저장된 자료 사용)' : '불러오기 실패'}`
+                };
+            }
+        }
+
+        function archiveMonth(y, m, cutoff, signal) {
+            const start = iso(y, m, 1);
+            if (start > cutoff) return { rows: {} };
+            const last = iso(y, m, monthLength(y, m));
+            return requestPeriod({ start, end: last < cutoff ? last : cutoff }, signal);
+        }
+
+        function rowsForMonth(y, m, archive, cutoff) {
+            const prefix = iso(y, m, 1).slice(0, 7);
+            const lastForecast = shift(today, 15);
+            const rows = {};
+            for (const [date, row] of Object.entries(archive)) {
+                if (date.startsWith(prefix) && date <= cutoff) rows[date] = row;
+            }
+            for (const [date, row] of Object.entries(recent)) {
+                if (date.startsWith(prefix) && date > cutoff && date <= lastForecast) rows[date] = row;
+            }
+            return rows;
+        }
+
+        function showStatus(message, warning = false) {
+            el('status').textContent = message;
+            el('status').classList.toggle('mw-warning', warning);
+        }
+
+        async function loadMonth() {
+            controller?.abort();
+            const active = new AbortController();
+            const { signal } = active;
+            controller = active;
+            current = {};
+            prior = {};
+            hadErrors = false;
+            el('csv').disabled = true;
+            showStatus('설정 위치의 날씨를 불러오는 중입니다…');
+            try {
+                const forecast = requestPeriod(null, signal);
+                // 기본 예보를 가져오지 못한 경우에도 달력 응답/캐시의 현지 시간대로 시작합니다.
+                if (!dateFormatter) {
+                    const first = await forecast;
+                    if (signal.aborted) return;
+                    setZone(first.zone);
+                    if (!dateFormatter) throw new Error('설정 위치의 현지 시간대를 확인할 수 없습니다.');
+                }
+                updateToday();
+                updateSelectors();
+                render();
+                const cutoff = shift(today, -7);
+                const [latest, thisMonth, lastYear] = await Promise.all([
+                    forecast, archiveMonth(year, month, cutoff, signal), archiveMonth(year - 1, month, cutoff, signal)
+                ]);
+                if (signal.aborted) return;
+                recent = latest.rows;
+                current = rowsForMonth(year, month, thisMonth.rows, cutoff);
+                prior = rowsForMonth(year - 1, month, lastYear.rows, cutoff);
+                const results = [latest, thisMonth, lastYear];
+                const warnings = results.map(result => result.warning).filter(Boolean);
+                hadErrors = warnings.length > 0;
+                const count = `${Object.keys(current).length}일 / 전년 ${Object.keys(prior).length}일 자료`;
+                const source = results.some(result => result.cached) ? '저장된 자료 포함' : '불러오기 완료';
+                showStatus(`${count} · ${hadErrors ? warnings.join(' · ') : source} · 예보 범위 ${shift(today, 15)}까지`, hadErrors);
+            } catch (error) {
+                if (signal.aborted) return;
+                hadErrors = true;
+                showStatus(`${error.message} ‘오늘’을 눌러 다시 시도해 주세요.`, true);
+            } finally {
+                if (controller === active) {
+                    controller = null;
+                    lastLoad = Date.now();
+                    if (today) render();
+                    el('csv').disabled = !Object.keys(current).length && !Object.keys(prior).length;
+                }
+            }
+        }
+
+        function sync(hint) {
+            const zoneChanged = setZone(hint || zone || readRecord(locationPrefix + 'forecast')?.zone);
+            const newDay = dateFormatter && today !== localDate();
+            if (zoneChanged || (!controller && (!lastLoad || newDay || hadErrors || Date.now() - lastLoad >= forecastLifetime))) {
+                void loadMonth();
+            }
+        }
+
+        function go(y, m, d = 1) {
+            if (!dateFormatter) return;
+            updateToday();
+            const date = iso(y, m, Math.min(d, monthLength(y, m)));
+            if (y < firstYear || m < 1 || m > 12 || date.slice(0, 7) > shift(today, 15).slice(0, 7)) return;
+            setSelection(date);
+            void loadMonth();
+        }
+
+        function updateSelectors() {
+            const [maxYear, maxMonth] = shift(today, 15).split('-').map(Number);
+            const yearSelect = el('year'), monthSelect = el('month');
+            if (Number(yearSelect.options[0]?.value) !== maxYear) {
+                yearSelect.replaceChildren(...Array.from({ length: maxYear - firstYear + 1 },
+                    (_, index) => new Option(`${maxYear - index}년`, maxYear - index)));
+            }
+            if (!monthSelect.length) {
+                for (let m = 1; m <= 12; m++) monthSelect.add(new Option(`${m}월`, m));
+            }
+            for (const opt of monthSelect.options) opt.disabled = year === maxYear && Number(opt.value) > maxMonth;
+            yearSelect.value = String(year);
+            monthSelect.value = String(month);
+            yearSelect.disabled = monthSelect.disabled = false;
+            el('prev').disabled = year === firstYear && month === 1;
+            el('next').disabled = year === maxYear && month === maxMonth;
+            el('month-title').textContent = `${year}년 ${month}월`;
+            el('compare-year').textContent = `${year}년 / ${year - 1}년 비교`;
+        }
+
+        function node(tag, className, textValue) {
+            const element = document.createElement(tag);
+            if (className) element.className = className;
+            if (textValue !== undefined) element.textContent = textValue;
+            return element;
+        }
+
+        function number(value) {
+            return Number.isFinite(value) ? (Math.abs(value) < 0.05 ? '0.0' : value.toFixed(1)) : '—';
+        }
+
+        function difference(a, b) {
+            return Number.isFinite(a) && Number.isFinite(b) ? a - b : null;
+        }
+
+        function signed(value) {
+            return Number.isFinite(value) ? `${value >= 0.05 ? '+' : ''}${number(value)}°` : '—';
+        }
+
+        function tone(value) {
+            if (!Number.isFinite(value) || Math.abs(value) < 0.05) return 'mw-neutral';
+            return value > 0 ? 'mw-hot' : 'mw-cold';
+        }
+
+        function sourceLabel(date, row) {
+            if (date > shift(today, 15)) return '예보 없음';
+            if (!row) return controller ? '불러오는 중' : '자료 없음';
+            if (date >= today) return '예보';
+            return row.kind === 'archive' ? '과거 자료' : '최근 모델 자료';
+        }
+
+        function conditions(row) {
+            return Number.isFinite(row?.code) ? getWeatherDetails(row.code) : { icon: '', description: '자료 없음' };
+        }
+
+        function temperatureRow(row, rowYear, isCurrent) {
+            const line = node('span', `mw-temps ${isCurrent ? 'mw-current' : 'mw-prior'}`);
+            line.append(node('span', 'mw-year', `${String(rowYear).slice(-2)}년`));
+            for (const field of fields) {
+                const color = isCurrent && field !== 'mean' ? (field === 'min' ? 'mw-cold' : 'mw-hot') : '';
+                line.append(node('span', color, number(row?.[field])));
+            }
+            return line;
+        }
+
+        function renderGrid() {
+            const grid = el('grid');
+            const focusedDate = grid.contains(document.activeElement) ? document.activeElement.dataset.date : null;
+            const fragment = document.createDocumentFragment();
+            for (const day of ['일', '월', '화', '수', '목', '금', '토']) fragment.append(node('span', 'mw-weekday', day));
+            const first = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+            const days = monthLength(year, month);
+            const totalCells = Math.ceil((first + days) / 7) * 7;
+            for (let i = 0; i < totalCells; i++) {
+                const d = i - first + 1;
+                if (d < 1 || d > days) {
+                    const blank = node('div', 'mw-blank');
+                    blank.setAttribute('aria-hidden', 'true');
+                    fragment.append(blank);
+                    continue;
+                }
+                const date = iso(year, month, d), past = previous(date);
+                const a = current[date], b = prior[past];
+                const delta = difference(a?.[metric], b?.[metric]);
+                const weather = conditions(a);
+                const day = node('button', 'mw-day');
+                day.type = 'button';
+                day.dataset.date = date;
+                day.tabIndex = date === selected ? 0 : -1;
+                day.setAttribute('aria-pressed', String(date === selected));
+                if (date === today) day.setAttribute('aria-current', 'date');
+                day.setAttribute('aria-label', `${date}, ${sourceLabel(date, a)}, ${weather.description}, 최저 ${number(a?.min)}, 평균 ${number(a?.mean)}, 최고 ${number(a?.max)}, 전년 ${names[metric]} 차이 ${signed(delta)}`);
+                const head = node('span', 'mw-day-head');
+                const weekdayClass = i % 7 === 0 ? ' mw-sunday' : i % 7 === 6 ? ' mw-saturday' : '';
+                const icon = node('span', 'mw-icon', weather.icon);
+                icon.title = weather.description;
+                head.append(node('span', `mw-date${weekdayClass}`, d), icon);
+                day.append(head, node('span', 'mw-source', sourceLabel(date, a)),
+                    temperatureRow(a, year, true), temperatureRow(b, year - 1, false),
+                    node('span', `mw-delta ${tone(delta)}`, past ? `${names[metric]} ${signed(delta)}` : '전년 동일 날짜 없음'));
+                fragment.append(day);
+            }
+            grid.replaceChildren(fragment);
+            if (focusedDate) grid.querySelector(`[data-date="${focusedDate}"]`)?.focus({ preventScroll: true });
+        }
+
+        function renderStats() {
+            el('today-label').textContent = `오늘 · ${today.slice(5).replace('-', '/')} · 설정 위치`;
+            const daily = recent[today];
+            const weather = conditions(daily);
+            el('today-value').textContent = daily ? `${fields.map(key => number(daily[key])).join(' / ')}°` : '—';
+            el('today-note').textContent = daily
+                ? `${weather.icon} ${weather.description} · 최저 / 평균 / 최고 예보` : '최저 / 평균 / 최고 · °C';
+            const completed = Object.entries(current).filter(([date]) => date < today);
+            const deltas = completed.map(([date, row]) => difference(row.mean, prior[previous(date)]?.mean)).filter(Number.isFinite);
+            const mean = deltas.length ? deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length : null;
+            el('month-diff').textContent = signed(mean);
+            el('month-diff').className = `mw-number ${tone(mean)}`;
+            el('diff-note').textContent = `완료된 ${deltas.length}일의 평균기온 비교`;
+            const ranges = completed.map(([, row]) => row).filter(row => Number.isFinite(row.min) && Number.isFinite(row.max));
+            el('month-range').textContent = ranges.length
+                ? `${number(Math.min(...ranges.map(row => row.min)))} / ${number(Math.max(...ranges.map(row => row.max)))}°` : '—';
+            el('range-note').textContent = `완료된 ${ranges.length}일의 최저 / 최고`;
+            const warm = deltas.filter(delta => delta >= 0.05).length;
+            const cool = deltas.filter(delta => delta <= -0.05).length;
+            el('warm-days').textContent = deltas.length ? `${warm} / ${deltas.length}일` : '—';
+            el('warm-note').textContent = deltas.length
+                ? `높음 ${warm} · 낮음 ${cool} · 같음 ${deltas.length - warm - cool}일` : '비교 가능한 날짜 기준';
+        }
+
+        function renderDetail() {
+            const past = previous(selected), a = current[selected], b = prior[past];
+            el('detail-title').textContent = `${selected} 상세 비교`;
+            el('detail-hint').textContent = `${sourceLabel(selected, a)} · ${past ? `전년도 ${past}` : '전년도 동일 날짜 없음'}`;
+            el('current-head').textContent = `${year}년`;
+            el('prior-head').textContent = `${year - 1}년`;
+            const rows = fields.map(field => {
+                const row = node('tr');
+                const label = node('th', '', `${names[field]}기온`);
+                label.scope = 'row';
+                const delta = difference(a?.[field], b?.[field]);
+                row.append(label, node('td', '', formatWithUnit(a?.[field], 1, '°C')),
+                    node('td', '', formatWithUnit(b?.[field], 1, '°C')), node('td', tone(delta), signed(delta)));
+                return row;
+            });
+            el('detail-rows').replaceChildren(...rows);
+            const describe = row => {
+                const { icon, description } = conditions(row);
+                return `${icon} ${description} · 강수량 ${formatWithUnit(row?.rain, 1, ' mm')}`.trim();
+            };
+            el('extra').textContent = `선택일 ${describe(a)}  |  전년 ${past ? describe(b) : '동일 날짜 없음'}`;
+        }
+
+        function svgNode(tag, attrs, label) {
+            const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+            for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+            if (label !== undefined) element.textContent = label;
+            return element;
+        }
+
+        function renderChart() {
+            if (!year) return;
+            el('chart-title').textContent = `월간 ${names[metric]}기온 추이`;
+            el('chart-year').textContent = `${year}년`;
+            el('chart-prior').textContent = `${year - 1}년`;
+            const chart = el('chart');
+            const dates = Array.from({ length: monthLength(year, month) }, (_, i) => iso(year, month, i + 1));
+            const a = dates.map(date => current[date]?.[metric]);
+            const b = dates.map(date => prior[previous(date)]?.[metric]);
+            const values = [...a, ...b].filter(Number.isFinite);
+            if (!values.length) {
+                chart.replaceChildren(node('p', 'mw-hint', controller ? '기온 자료를 불러오는 중입니다.' : '표시할 기온 자료가 없습니다.'));
+                return;
+            }
+            const width = chart.clientWidth || 540, height = chart.clientHeight || 225;
+            const left = 45, right = 18, top = 12, bottom = 27;
+            const lo = Math.floor((Math.min(...values) - 1) / 5) * 5;
+            const hi = Math.ceil((Math.max(...values) + 1) / 5) * 5;
+            const x = i => left + i * (width - left - right) / (dates.length - 1);
+            const y = v => top + (hi - v) * (height - top - bottom) / (hi - lo);
+            const svg = svgNode('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img',
+                'aria-label': `${year}년과 ${year - 1}년의 ${names[metric]}기온 선 그래프` });
+            for (let i = 0; i <= 4; i++) {
+                const value = lo + (hi - lo) * i / 4;
+                svg.append(svgNode('line', { x1: left, x2: width - right, y1: y(value), y2: y(value), stroke: 'var(--border-color)' }),
+                    svgNode('text', { x: left - 5, y: y(value) + 4, 'text-anchor': 'end' }, `${number(value)}°`));
+            }
+            const ticks = [1, 5, 10, 15, 20, 25, dates.length];
+            for (const d of ticks) svg.append(svgNode('text', { x: x(d - 1), y: height - 6, 'text-anchor': 'middle' }, `${d}일`));
+            const index = Number(selected.slice(-2)) - 1;
+            svg.append(svgNode('line', { x1: x(index), x2: x(index), y1: top, y2: height - bottom,
+                stroke: 'var(--mw-muted)', 'stroke-dasharray': '3 3' }));
+            for (const [series, chartYear, color, dash] of [[b, year - 1, 'var(--mw-muted)', '5 4'], [a, year, 'var(--mw-accent)', 'none']]) {
+                let path = '', connected = false;
+                const points = document.createDocumentFragment();
+                series.forEach((value, i) => {
+                    if (Number.isFinite(value)) {
+                        path += `${connected ? 'L' : 'M'}${x(i).toFixed(2)},${y(value).toFixed(2)} `;
+                        const point = svgNode('circle', { cx: x(i), cy: y(value), r: i === index ? 4 : 2, fill: color });
+                        point.append(svgNode('title', {}, `${chartYear}년 ${month}월 ${i + 1}일 · ${number(value)}°C`));
+                        points.append(point);
+                        connected = true;
+                    } else {
+                        connected = false;
+                    }
+                });
+                svg.append(svgNode('path', { d: path, stroke: color, 'stroke-width': 2, 'stroke-dasharray': dash,
+                    fill: 'none', 'stroke-linejoin': 'round' }), points);
+            }
+            chart.replaceChildren(svg);
+        }
+
+        function render() {
+            renderGrid();
+            renderStats();
+            renderDetail();
+            renderChart();
+        }
+
+        function stepMonth(offset) {
+            const date = new Date(Date.UTC(year, month - 1 + offset, 1));
+            go(date.getUTCFullYear(), date.getUTCMonth() + 1);
+        }
+
+        function activateDay(button) {
+            const old = el('grid').querySelector('[aria-pressed="true"]');
+            if (old) {
+                old.tabIndex = -1;
+                old.setAttribute('aria-pressed', 'false');
+            }
+            selected = button.dataset.date;
+            button.tabIndex = 0;
+            button.setAttribute('aria-pressed', 'true');
+            renderDetail();
+            renderChart();
+        }
+
+        el('grid').addEventListener('click', event => {
+            const button = getClosestElement(event.target, 'button[data-date]');
+            if (button) activateDay(button);
+        });
+        el('grid').addEventListener('keydown', event => {
+            const button = getClosestElement(event.target, 'button[data-date]');
+            const offset = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
+            if (!button || !offset) return;
+            const next = el('grid').querySelector(`[data-date="${shift(button.dataset.date, offset)}"]`);
+            if (next) {
+                event.preventDefault();
+                activateDay(next);
+                next.focus();
+            }
+        });
+        el('prev').addEventListener('click', () => stepMonth(-1));
+        el('next').addEventListener('click', () => stepMonth(1));
+        el('year').addEventListener('change', event => {
+            const nextYear = Number(event.target.value);
+            const [maxYear, maxMonth] = shift(localDate(), 15).split('-').map(Number);
+            go(nextYear, Math.min(month, nextYear === maxYear ? maxMonth : 12));
+        });
+        el('month').addEventListener('change', event => go(year, Number(event.target.value)));
+        el('today').addEventListener('click', () => {
+            if (dateFormatter) setSelection(localDate());
+            void loadMonth();
+        });
+
+        const metricButtons = root.querySelectorAll('button[data-metric]');
+        for (const button of metricButtons) {
+            button.addEventListener('click', () => {
+                metric = button.dataset.metric;
+                for (const other of metricButtons) other.setAttribute('aria-pressed', String(other === button));
+                if (year) {
+                    renderGrid();
+                    renderChart();
+                }
+            });
+        }
+
+        el('csv').addEventListener('click', () => {
+            const rows = [['날짜', '전년 날짜', '최저(°C)', '평균(°C)', '최고(°C)', '전년 최저(°C)', '전년 평균(°C)',
+                '전년 최고(°C)', '최저 차이(°C)', '평균 차이(°C)', '최고 차이(°C)', '자료 유형', '강수량(mm)', '전년 강수량(mm)']];
+            const csvNumber = value => Number.isFinite(value) ? number(value) : '';
+            for (let d = 1; d <= monthLength(year, month); d++) {
+                const date = iso(year, month, d), past = previous(date);
+                const a = current[date], b = prior[past];
+                rows.push([date, past || '', ...fields.map(f => csvNumber(a?.[f])), ...fields.map(f => csvNumber(b?.[f])),
+                    ...fields.map(f => csvNumber(difference(a?.[f], b?.[f]))), sourceLabel(date, a), csvNumber(a?.rain), csvNumber(b?.rain)]);
+            }
+            const blob = new Blob(['\uFEFF', rows.map(row => row.join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `MothNote_Weather_${LAT}_${LON}_${selected.slice(0, 7)}.csv`;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+        });
+
+        const chartObserver = new ResizeObserver(entries => {
+            if (entries[0].contentRect.width > 0) renderChart();
+        });
+        chartObserver.observe(el('chart'));
+        window.addEventListener('pagehide', () => controller?.abort());
+        window.addEventListener('pageshow', event => { if (event.persisted) void loadMonth(); });
+
+        return { sync };
+    }
+
     // --- EVENT LISTENERS & INITIALIZATION ---
     function setupEventListeners() {
         DOM.closeModalButton.onclick = () => DOM.hourlyModal.classList.remove(CONFIG.MODAL_ACTIVE_CLASS);
@@ -2298,7 +2869,12 @@
         window.addEventListener('resize', () => { setupWeatherEffectsCanvas(); if (_appState.weatherEffect.currentEffectType) { startWeatherEffect(_appState.weatherEffect.currentEffectType); } });
         window.addEventListener('message', (event) => { if (event.origin !== window.location.origin || event.source !== window.parent) { console.warn('Blocked a message from an untrusted source:', event.origin); return; } if (event.data && event.data.type === 'setTheme') { applyTheme(event.data.theme === 'dark' ? 'dark' : 'light'); } });
         DOM.forecastContainer.addEventListener('click', event => { const card = getClosestElement(event.target, '.weather-card'); if (card?.dataset.dateStr && card.dataset.dayName && card.dataset.monthDay) { renderHourlyDataInModal(card.dataset.dateStr, card.dataset.dayName, card.dataset.monthDay); } });
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadWeatherData(); } });
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                monthlyWeather?.sync();
+                loadWeatherData();
+            }
+        });
     }
 
     function initialize() {
@@ -2310,6 +2886,7 @@
         loadWeatherData();
     }
 
+    const monthlyWeather = createMonthlyWeather();
     initialize();
 
 })();

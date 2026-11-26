@@ -1996,6 +1996,161 @@
             text-decoration: underline;
         }
 
+        .monthly-weather {
+            --mw-accent: #285fac;
+            --mw-hot: #b34130;
+            --mw-cold: #205fa4;
+            --mw-muted: #526478;
+            --mw-selected: #ebf3ff;
+            --mw-on-accent: #fff;
+            margin-top: 24px;
+            font-size: 17.5px;
+            line-height: 1.45;
+            font-variant-numeric: tabular-nums;
+        }
+        :root[data-theme="dark"] .monthly-weather {
+            --mw-accent: #a6cdff;
+            --mw-hot: #ffb0a0;
+            --mw-cold: #a6cdff;
+            --mw-muted: #c5d2dd;
+            --mw-selected: #30465d;
+            --mw-on-accent: #203348;
+            color-scheme: dark;
+        }
+        .monthly-weather *, .monthly-weather *::before { box-sizing: border-box; }
+        .monthly-weather :is(button, select) {
+            font: inherit;
+            color: var(--primary-text-color);
+            background: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 9px;
+            padding: 7px 12px;
+            cursor: pointer;
+        }
+        .monthly-weather button:hover:enabled { border-color: var(--mw-accent); }
+        .monthly-weather :is(button, select):disabled { opacity: .45; cursor: default; }
+        .monthly-weather :is(button, select, a):focus-visible { outline: 3px solid var(--mw-accent); outline-offset: 2px; }
+        .mw-overview { display: grid; grid-template-columns: 1.3fr repeat(3, minmax(0, 1fr)); gap: 12px; }
+        .mw-stat, .mw-panel {
+            min-width: 0;
+            background: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 6px 20px var(--shadow-color);
+        }
+        .mw-stat { padding: 16px 18px; }
+        .mw-stat-label { font-size: 15px; color: var(--mw-muted); font-weight: 650; }
+        .mw-number { margin: 7px 0 5px; font-size: 31.25px; font-weight: 750; letter-spacing: -.045em; line-height: 1.22; }
+        .mw-stat-note { font-size: 13.75px; color: var(--mw-muted); }
+        .mw-today-stat { color: #fff; background: linear-gradient(125deg, #244e96, #276bb3); border-color: transparent; }
+        .mw-today-stat .mw-stat-label, .mw-today-stat .mw-stat-note { color: #edf4ff; }
+        .mw-month-panel { margin-top: 18px; overflow: hidden; }
+        .mw-toolbar, .mw-subbar, .mw-nav, .mw-views, .mw-legend, .mw-segments, .mw-chart-legend {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+        .mw-toolbar { justify-content: space-between; gap: 12px; padding: 18px 20px; }
+        .mw-nav h2 { font-size: 27.5px; letter-spacing: -.045em; margin: 0 5px; }
+        .monthly-weather .mw-arrow { font-size: 25px; line-height: 1; padding: 6px 12px 9px; }
+        .monthly-weather .mw-today-button { background: var(--mw-accent); color: var(--mw-on-accent); font-weight: 700; }
+        .mw-segments { background: var(--bg-color); padding: 3px; border-radius: 9px; gap: 3px; }
+        .mw-segments button { background: transparent; color: var(--mw-muted); border: 0; padding: 7px 10px; font-size: 15px; }
+        .mw-segments button[aria-pressed="true"] { background: var(--card-bg-color); color: var(--mw-accent); font-weight: 700; box-shadow: 0 1px 5px var(--shadow-color); }
+        .mw-subbar { justify-content: space-between; padding: 0 20px 14px; font-size: 15px; color: var(--mw-muted); }
+        .mw-legend { column-gap: 12px; }
+        .mw-dot { display: inline-block; width: 8px; height: 8px; background: currentColor; border-radius: 50%; margin-right: 5px; }
+        .mw-hot { color: var(--mw-hot); }
+        .mw-cold { color: var(--mw-cold); }
+        .mw-neutral { color: var(--mw-muted); }
+        .mw-scroll { overflow-x: auto; }
+        .mw-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            min-width: 1092px;
+            border-block: 1px solid var(--border-color);
+        }
+        .mw-weekday { text-align: center; padding: 9px 2px; font-size: 15px; font-weight: 700; color: var(--mw-muted); background: var(--bg-color); }
+        .monthly-weather .mw-day, .mw-blank {
+            min-width: 0; border: 0; border-top: 1px solid var(--border-color); border-right: 1px solid var(--border-color);
+            border-radius: 0; padding: 10px 9px;
+        }
+        .mw-grid > :nth-child(7n) { border-right: 0; }
+        .mw-blank { background: var(--bg-color); }
+        .monthly-weather .mw-day { display: flex; flex-direction: column; gap: 6px; min-height: 155px; text-align: left; }
+        .mw-grid .mw-day:hover:enabled, .mw-grid .mw-day[aria-pressed="true"] { background: var(--mw-selected); border-color: var(--border-color); }
+        .mw-grid .mw-day[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--mw-accent); }
+        .mw-grid .mw-day:focus-visible { outline-offset: -3px; }
+        .mw-day-head { display: flex; align-items: center; justify-content: space-between; gap: 3px; }
+        .mw-date { display: inline-grid; place-items: center; min-width: 29px; height: 29px; font-size: 18.75px; font-weight: 750; }
+        .mw-weekday:first-child, .mw-sunday { color: var(--mw-hot); }
+        .mw-weekday:nth-child(7), .mw-saturday { color: var(--mw-cold); }
+        .mw-day[aria-current="date"] .mw-date { background: var(--mw-accent); color: var(--mw-on-accent); border-radius: 50%; }
+        .mw-icon { font-size: 22.5px; line-height: 1; }
+        .mw-source, .mw-year { font-size: 12.5px; color: var(--mw-muted); }
+        .mw-temps { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 3px; align-items: baseline; font-size: 13.75px; }
+        .mw-temps > :not(:first-child) { text-align: right; white-space: nowrap; }
+        .mw-current { font-weight: 700; }
+        .mw-prior { color: var(--mw-muted); }
+        .mw-delta { border-top: 1px dashed var(--border-color); padding-top: 5px; margin-top: auto; font-size: 13.75px; font-weight: 700; }
+        .mw-status, .mw-notes { font-size: 15px; line-height: 1.65; color: var(--mw-muted); }
+        .mw-status { padding: 10px 20px; margin: 0; }
+        .mw-status.mw-warning { color: var(--mw-hot); }
+        .mw-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+        .mw-detail { padding: 20px; }
+        .mw-detail h2 { margin: 0 0 5px; font-size: 22.5px; letter-spacing: -.035em; }
+        .mw-hint, .mw-extra { font-size: 15px; color: var(--mw-muted); line-height: 1.6; }
+        .mw-hint { margin: 0 0 13px; }
+        .mw-extra { margin: 12px 0 0; border-top: 1px solid var(--border-color); padding-top: 12px; }
+        .mw-table { width: 100%; border-collapse: collapse; font-size: 16.25px; }
+        .mw-table :is(th, td) { text-align: right; padding: 10px 5px; border-bottom: 1px solid var(--border-color); }
+        .mw-table :is(th, td):first-child { text-align: left; }
+        .mw-table thead th { color: var(--mw-muted); font-size: 13.75px; }
+        .mw-table tbody th { font-weight: 500; }
+        .mw-table td:last-child { font-weight: 700; }
+        .mw-table tr:last-child td, .mw-table tbody tr:last-child th { border-bottom: 0; }
+        .mw-chart { height: 225px; }
+        .mw-chart svg { display: block; width: 100%; height: 100%; }
+        .mw-chart text { fill: var(--mw-muted); font-size: 12.5px; }
+        .mw-chart-legend { gap: 16px; margin-top: 7px; font-size: 13.75px; color: var(--mw-muted); }
+        .mw-line { display: inline-block; width: 21px; border-top: 2px solid var(--mw-accent); margin-right: 6px; vertical-align: middle; }
+        .mw-line-prior { border-top: 2px dashed var(--mw-muted); }
+        .mw-notes { margin-top: 16px; }
+        .mw-notes p { margin: 4px 0; }
+        .mw-notes a { color: var(--mw-accent); }
+        .mw-scroll-hint { display: none; }
+        @media (max-width: 1142px) {
+            .mw-scroll-hint { display: inline; }
+            .mw-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 800px) {
+            .mw-stat { padding: 13px; }
+            .mw-number { font-size: 27.5px; }
+            .mw-toolbar { padding: 12px; }
+            .mw-nav { gap: 5px; }
+            .mw-nav h2 { font-size: 22.5px; }
+            .mw-nav select { font-size: 15px; padding: 7px 4px; }
+            .mw-subbar { padding: 0 12px 10px; font-size: 13.75px; }
+            .mw-details { grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+            .mw-detail { padding: 15px; }
+            .mw-status { padding: 9px 12px; }
+            .mw-chart { height: 205px; }
+            .mw-temps { font-size: 12.5px; }
+            .mw-grid { min-width: 980px; }
+            .monthly-weather .mw-day { padding: 8px 6px; min-height: 145px; }
+        }
+        @media (max-width: 522px) {
+            .mw-overview { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+        }
+        @media print {
+            .mw-views, .mw-nav button, .mw-nav select, .mw-scroll-hint { display: none; }
+            .mw-scroll { overflow: visible; }
+            .mw-grid { min-width: 0; }
+            .monthly-weather .mw-day { padding: 4px 2px; min-height: 100px; }
+            .mw-temps, .mw-temps .mw-year { font-size: 9px; gap: 1px; }
+            .mw-panel, .mw-stat { box-shadow: none; }
+            .mw-stat, .mw-detail, .mw-day { break-inside: avoid; }
+            .mw-details { grid-template-columns: 1fr; }
+        }
+
     </style>
 </head>
 <body>
@@ -2256,6 +2411,91 @@
             <strong>8~16일 구간은 변동성이 커서 정밀 예보보다 경향으로 참고해 주세요.</strong>
             8일차 이후 카드에는 경향 관련 표시가 함께 붙습니다.
         </div>
+
+        <section id="monthlyWeather" class="monthly-weather" aria-label="월간 날씨 달력과 전년 비교" hidden>
+            <div class="mw-overview" role="group" aria-label="날씨 요약">
+                <div class="mw-stat mw-today-stat">
+                    <div class="mw-stat-label" id="mw-today-label">오늘 · 설정 위치</div>
+                    <div class="mw-number" id="mw-today-value">—</div>
+                    <div class="mw-stat-note" id="mw-today-note">최저 / 평균 / 최고 · °C</div>
+                </div>
+                <div class="mw-stat">
+                    <div class="mw-stat-label">월간 평균기온 차이</div>
+                    <div class="mw-number" id="mw-month-diff">—</div>
+                    <div class="mw-stat-note" id="mw-diff-note">전년 같은 날짜 기준</div>
+                </div>
+                <div class="mw-stat">
+                    <div class="mw-stat-label">월간 최저 / 최고</div>
+                    <div class="mw-number" id="mw-month-range">—</div>
+                    <div class="mw-stat-note" id="mw-range-note">오늘 이전 날짜 기준</div>
+                </div>
+                <div class="mw-stat">
+                    <div class="mw-stat-label">전년보다 따뜻했던 날</div>
+                    <div class="mw-number" id="mw-warm-days">—</div>
+                    <div class="mw-stat-note" id="mw-warm-note">비교 가능한 날짜 기준</div>
+                </div>
+            </div>
+
+            <section class="mw-panel mw-month-panel" aria-label="월간 날씨 달력">
+                <div class="mw-toolbar">
+                    <div class="mw-nav">
+                        <button type="button" id="mw-prev" class="mw-arrow" aria-label="이전 달" disabled>‹</button>
+                        <h2 id="mw-month-title">월간 날씨</h2>
+                        <button type="button" id="mw-next" class="mw-arrow" aria-label="다음 달" disabled>›</button>
+                        <select id="mw-year" aria-label="연도" disabled></select>
+                        <select id="mw-month" aria-label="월" disabled></select>
+                        <button type="button" id="mw-today" class="mw-today-button">오늘</button>
+                    </div>
+                    <div class="mw-views">
+                        <div class="mw-segments" role="group" aria-label="기온 차이 비교 기준">
+                            <button type="button" data-metric="min" aria-pressed="false">최저</button>
+                            <button type="button" data-metric="mean" aria-pressed="true">평균</button>
+                            <button type="button" data-metric="max" aria-pressed="false">최고</button>
+                        </div>
+                        <button type="button" id="mw-csv" disabled>CSV 저장</button>
+                    </div>
+                </div>
+                <div class="mw-subbar">
+                    <div class="mw-legend">
+                        <span>일별 기온(°C) &nbsp;<b class="mw-cold">최저</b> · <b>평균</b> · <b class="mw-hot">최고</b></span>
+                        <span><i class="mw-dot mw-hot"></i>전년보다 높음</span>
+                        <span><i class="mw-dot mw-cold"></i>전년보다 낮음</span>
+                    </div>
+                    <span class="mw-scroll-hint">좌우로 밀어 달력을 확인하세요.</span>
+                    <span id="mw-compare-year"></span>
+                </div>
+                <div class="mw-scroll">
+                    <div id="mw-grid" class="mw-grid" role="group" aria-label="일요일부터 토요일까지의 달력"></div>
+                </div>
+                <p id="mw-status" class="mw-status" role="status" aria-live="polite">설정 위치의 날씨를 불러오는 중입니다.</p>
+            </section>
+
+            <div class="mw-details">
+                <section class="mw-panel mw-detail" aria-labelledby="mw-detail-title">
+                    <h2 id="mw-detail-title">날짜별 상세 비교</h2>
+                    <p class="mw-hint" id="mw-detail-hint">달력에서 날짜를 선택하세요.</p>
+                    <table class="mw-table">
+                        <thead><tr><th scope="col">기온</th><th scope="col" id="mw-current-head">선택일</th><th scope="col" id="mw-prior-head">전년</th><th scope="col">차이</th></tr></thead>
+                        <tbody id="mw-detail-rows"></tbody>
+                    </table>
+                    <p class="mw-extra" id="mw-extra"></p>
+                </section>
+                <section class="mw-panel mw-detail" aria-labelledby="mw-chart-title">
+                    <h2 id="mw-chart-title">월간 평균기온 추이</h2>
+                    <p class="mw-hint">같은 월·일끼리 비교합니다. 자료가 없는 날짜에서는 선이 끊깁니다.</p>
+                    <div class="mw-chart" id="mw-chart"></div>
+                    <div class="mw-chart-legend">
+                        <span><i class="mw-line"></i><span id="mw-chart-year"></span></span>
+                        <span><i class="mw-line mw-line-prior"></i><span id="mw-chart-prior"></span></span>
+                    </div>
+                </section>
+            </div>
+            <div class="mw-notes">
+                <p><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · <span id="mw-location">설정 위치</span> · 섭씨(°C)</p>
+                <p>과거 기온은 재분석 자료이며, 최근과 미래 기온은 예보 모델 자료입니다. 관측소 실측값과 차이가 있을 수 있습니다. 예보는 오늘을 포함해 최대 16일까지 표시합니다.</p>
+                <p>평균기온은 API의 일별 평균값입니다. 기온 차이는 선택 연도의 값에서 전년 같은 날의 값을 뺀 수치입니다. 월간 통계는 오늘 이전 날짜로 계산하며, 전년 비교에서는 짝이 없는 2월 29일과 결측값을 제외합니다. 연결이 끊기면 같은 위치에 저장된 자료를 사용합니다.</p>
+            </div>
+        </section>
     </div>
 
     <div id="hourlyModal" class="modal">
