@@ -1687,7 +1687,11 @@ export async function saveCurrentNoteIfChanged() {
             return null;
         }
 
-        const finalTitle = deriveFinalNoteTitle(titleToSave, contentToSave);
+        // 본문만 수정할 때는 기존 제목의 공백 등 원문을 다시 정규화하지 않습니다.
+        // 명시적으로 제목을 수정하거나 빈 제목에 내용을 입력할 때만 자동 제목 규칙을 적용합니다.
+        const finalTitle = titleToSave === noteToSave.title && titleToSave.length > 0
+            ? titleToSave
+            : deriveFinalNoteTitle(titleToSave, contentToSave);
 
         noteToSave.title = finalTitle;
         noteToSave.content = contentToSave;

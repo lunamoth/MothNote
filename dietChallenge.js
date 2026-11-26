@@ -483,7 +483,8 @@
                 continue;
             }
 
-            const change = records[index].weight - records[index - 1].weight;
+            // 저장 기록은 소수 첫째 자리이므로 부동소수점 오차 없이 경계를 비교합니다.
+            const change = MathUtil.diff(records[index].weight, records[index - 1].weight);
             if (Math.abs(change) < 0.2) {
                 stableRecordCount += 1;
                 continue;
@@ -3675,8 +3676,11 @@
 		
 
         // 80. 버티기 승리 (HODL Victory)
-        if (maxPlateau > 10 && s.current < s.lastRec.weight) { 
-             htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">🚀 버티기는 승리한다:</span> "긴 정체기를 뚫고 드디어 하락 추세로 돌아섰습니다! 포기하지 않은 당신의 승리입니다."</li>`);
+        // current와 lastRec.weight는 같은 마지막 기록이므로 서로 비교하면 항상 false입니다.
+        // 마지막 13개 연속 기록에서 11일 이상 유지된 뒤 마지막 날 0.2kg 이상
+        // 감소한 경우만 표시합니다. 과거 정체기나 기록 공백을 현재 돌파로 오인하지 않습니다.
+        if (hasConsecutivePlateauBreak(AppState.records.slice(-13), 12, 0.2)) {
+             htmlLines.push(`<li class="insight-item text-primary"><span class="insight-label">🚀 버티기는 승리한다:</span> "최근 11일 이상 하루 체중 변화가 0.2kg 미만으로 유지된 뒤 마지막 기록에서 0.2kg 이상 감소했습니다. 이후 추세는 추가 기록으로 확인해 보세요."</li>`);
         }
 
         // 81. 아홉수 (Ending with 9)

@@ -2481,33 +2481,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const possible = Array(7).fill(0);
             const completed = Array(7).fill(0);
             
-            let firstLogDate = new Date();
-            firstLogDate.setHours(0,0,0,0);
-
-            if (habits.length > 0) {
-                // 전체 로그를 Math.min()의 인수로 전개하면 대용량 백업에서 엔진의
-                // 인수 한도를 넘어 통계 화면 전체가 RangeError로 중단됩니다.
-                // 중간 Date 배열도 만들지 않고 가장 이른 시각만 누적합니다.
-                let earliestLogTimestamp = Infinity;
-                habits.forEach(habit => {
-                    Object.keys(habit.logs).forEach(dateString => {
-                        const logDate = this.parseDateString(dateString);
-                        if (!Number.isNaN(logDate.getTime()) && this.isHabitWithinTrackingRange(habit, logDate)) {
-                            earliestLogTimestamp = Math.min(earliestLogTimestamp, logDate.getTime());
-                        }
-                    });
-                });
-                if (Number.isFinite(earliestLogTimestamp)) {
-                    firstLogDate = new Date(earliestLogTimestamp);
-                }
-            }
-            
             const today = new Date();
             today.setHours(0,0,0,0);
             habits.forEach(habit => {
+                // 첫 로그 이전의 예정일도 실제 미완료입니다. 각 습관의 생성일을
+                // 시작점으로 삼아 로그가 없거나 늦게 시작한 습관의 실패를 누락하지 않습니다.
+                const createdDate = this.getHabitCreatedLocalDate(habit);
+                if (!createdDate) return;
                 const opportunityCounts = this.getHabitOpportunityCountsByWeekday(
                     habit,
-                    firstLogDate,
+                    createdDate,
                     today
                 );
                 opportunityCounts.forEach((count, dayOfWeek) => {
@@ -2520,7 +2503,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const logDate = this.parseDateString(dateString);
                     if (Number.isNaN(logDate.getTime())
                         || this.getDateString(logDate) !== dateString
-                        || logDate < firstLogDate
+                        || logDate < createdDate
                         || logDate > today
                         || !this.isHabitCountableOnDate(habit, logDate)
                         || !this.isHabitCompletedOn(habit, dateString)) {

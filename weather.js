@@ -88,6 +88,9 @@
         return Boolean(
             current
             && typeof current === 'object'
+            && typeof current.time === 'string'
+            && current.time.trim() !== ''
+            && !Number.isNaN(new Date(current.time).getTime())
             && toFiniteNumber(temperature) !== null
             && toFiniteNumber(weatherCode) !== null
             && (isDay === 0 || isDay === 1)
@@ -1534,15 +1537,9 @@
         applySpecificIconAnimation(DOM.currentWeatherIcon, weatherDetails.icon);
 
         const closestTimeIndex = getClosestHourlyIndex(current.time, hourly);
-        if (closestTimeIndex >= 0) {
-            if (DOM.currentApparentTemp) DOM.currentApparentTemp.textContent = `${formatNumber(getHourlyValue(hourly, 'apparent_temperature', closestTimeIndex), 0, 'N/A')}°C`;
-            if (DOM.currentHumidity) DOM.currentHumidity.textContent = `${formatNumber(getHourlyValue(hourly, 'relative_humidity_2m', closestTimeIndex), 0, 'N/A')}%`;
-            if (DOM.currentPrecipitation) DOM.currentPrecipitation.textContent = `${formatNumber(getHourlyValue(hourly, 'precipitation', closestTimeIndex), 1, '0')} mm`;
-        } else {
-            if (DOM.currentApparentTemp) DOM.currentApparentTemp.textContent = 'N/A°C';
-            if (DOM.currentHumidity) DOM.currentHumidity.textContent = 'N/A%';
-            if (DOM.currentPrecipitation) DOM.currentPrecipitation.textContent = '0 mm';
-        }
+        if (DOM.currentApparentTemp) DOM.currentApparentTemp.textContent = formatWithUnit(getCurrentObservation(current, hourly, 'apparent_temperature', closestTimeIndex), 0, '°C', 'N/A');
+        if (DOM.currentHumidity) DOM.currentHumidity.textContent = formatWithUnit(getCurrentObservation(current, hourly, 'relative_humidity_2m', closestTimeIndex), 0, '%', 'N/A');
+        if (DOM.currentPrecipitation) DOM.currentPrecipitation.textContent = formatWithUnit(getCurrentObservation(current, hourly, 'precipitation', closestTimeIndex), 1, ' mm', 'N/A');
     }
 
     function observationItem(icon, label, value, hint) {
@@ -1553,6 +1550,14 @@
         </div>`;
     }
 
+    // 현재 관측값과 정시 예보가 동시에 있으면 현재 관측값이 우선입니다.
+    // 숫자 0은 유효한 값이며, 양쪽 모두 결측이면 null을 유지합니다.
+    function getCurrentObservation(current, hourly, field, index, legacyField = field) {
+        return toFiniteNumber(current?.[field])
+            ?? toFiniteNumber(current?.[legacyField])
+            ?? toFiniteNumber(getHourlyValue(hourly, field, index));
+    }
+
     function renderDetailedObservations(current, hourly) {
         if (!DOM.detailedObservationGrid) return;
         if (!current) {
@@ -1561,16 +1566,17 @@
         }
 
         const index = getClosestHourlyIndex(current.time, hourly);
-        const temp = getHourlyValue(hourly, 'temperature_2m', index) ?? current.temperature;
-        const apparent = getHourlyValue(hourly, 'apparent_temperature', index);
-        const humidity = getHourlyValue(hourly, 'relative_humidity_2m', index);
-        const precipitation = getHourlyValue(hourly, 'precipitation', index);
+        const observation = (field, legacyField) => getCurrentObservation(current, hourly, field, index, legacyField);
+        const temp = observation('temperature_2m', 'temperature');
+        const apparent = observation('apparent_temperature');
+        const humidity = observation('relative_humidity_2m');
+        const precipitation = observation('precipitation');
         const precipitationProbability = getHourlyValue(hourly, 'precipitation_probability', index);
-        const cloudCover = getHourlyValue(hourly, 'cloud_cover', index);
-        const pressure = getHourlyValue(hourly, 'pressure_msl', index) ?? getHourlyValue(hourly, 'surface_pressure', index);
-        const windSpeed = getHourlyValue(hourly, 'wind_speed_10m', index) ?? current.windspeed;
-        const windDirection = getHourlyValue(hourly, 'wind_direction_10m', index) ?? current.winddirection;
-        const windGust = getHourlyValue(hourly, 'wind_gusts_10m', index);
+        const cloudCover = observation('cloud_cover');
+        const pressure = observation('pressure_msl') ?? observation('surface_pressure');
+        const windSpeed = observation('wind_speed_10m', 'windspeed');
+        const windDirection = observation('wind_direction_10m', 'winddirection');
+        const windGust = observation('wind_gusts_10m');
         const dewPoint = calculateDewPoint(temp, humidity);
         const windChill = calculateWindChill(temp, windSpeed);
 

@@ -551,10 +551,6 @@ export const verifyAndSanitizeLoadedData = (data, noteDraft = null) => {
         markMinorChanged();
         return {};
     };
-    const normalizeText = (value, fallback) => {
-        const text = String(value ?? fallback ?? '').trim();
-        return text;
-    };
     const normalizeTimestamp = (value, fallback = now, shouldNotify = true) => {
         const timestamp = toValidTimestamp(value);
         if (timestamp !== null) return timestamp;
@@ -609,7 +605,9 @@ export const verifyAndSanitizeLoadedData = (data, noteDraft = null) => {
         const note = rawNote;
         const originalId = note.id;
         normalizeId(note, CONSTANTS.ID_PREFIX.NOTE, CONSTANTS.ITEM_TYPE.NOTE);
-        assignNormalizedValue(note, 'title', normalizeText(note.title, '제목 없음') || '제목 없음');
+        // 저장된 문자열 제목은 가져오기와 동일하게 공백·줄바꿈·빈 문자열까지 보존합니다.
+        // 표시용 대체 제목은 렌더러에서만 적용합니다.
+        assignNormalizedValue(note, 'title', String(note.title ?? '제목 없는 노트'));
         assignNormalizedValue(note, 'content', String(note.content ?? ''));
         // 정제 시각이 마지막 편집 시각으로 둔갑해 유일한 미저장 초안을 폐기하지 않게 합니다.
         assignNormalizedValue(note, 'createdAt', normalizeTimestamp(note.createdAt, getNoteFallbackTime(originalId, noteDraft, now)));
