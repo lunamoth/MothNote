@@ -95,10 +95,9 @@ const toFiniteDashboardWeatherNumber = value => {
     return Number.isFinite(parsed) ? parsed : null;
 };
 
-const normalizeWeatherCoordinateForCache = (value) => {
-    const parsed = toFiniteDashboardWeatherNumber(value);
-    return parsed === null ? null : Number(parsed.toFixed(4));
-};
+// 상세 날씨와 월간 달력은 실제 설정 좌표를 사용하므로 대시보드도
+// 임의 반올림 없이 같은 위치 키를 사용해야 위치 변경/캐시 판단이 일치합니다.
+const normalizeWeatherCoordinateForCache = value => toFiniteDashboardWeatherNumber(value);
 
 const getWeatherLocationKey = (weather = {}) => {
     const lat = normalizeWeatherCoordinateForCache(weather.lat);
@@ -198,7 +197,8 @@ const buildDashboardWeatherTitle = (weather, temp, statusLine = '') => {
 
 const parseStrictNumberInput = (value) => {
     const rawValue = String(value ?? '').trim();
-    if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawValue)) return null;
+    // number 입력칸/저장값의 지수 표기도 유효한 십진수이면 허용합니다.
+    if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i.test(rawValue)) return null;
     const numberValue = Number(rawValue);
     return Number.isFinite(numberValue) ? numberValue : null;
 };

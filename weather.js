@@ -35,7 +35,9 @@
     const urlParams = new URLSearchParams(window.location.search);
     const parseCoordinateParam = (value, min, max) => {
         const rawValue = String(value ?? '').trim();
-        if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawValue)) return null;
+        // 부모 화면이 숫자를 URL로 직렬화하면 0.0000001 등은 1e-7로 표현됩니다.
+        // 유한한 십진수(지수 표기 포함)만 허용하고 아래에서 좌표 범위를 검사합니다.
+        if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i.test(rawValue)) return null;
         const numberValue = Number(rawValue);
         return Number.isFinite(numberValue) && numberValue >= min && numberValue <= max ? numberValue : null;
     };
@@ -416,17 +418,21 @@
         return { description: `코드 ${normalizedCode}`, icon: "❓", effect: null };
     }
 
+    // API의 오프셋 없는 ISO 시각은 조회 위치의 벽시계 시각입니다.
+    // UTC를 계산용 좌표계로만 사용해 PC의 DST/시간대 보정을 적용하지 않습니다.
+    function parseWeatherWallTime(value) {
+        if (typeof value !== 'string' || !value.trim()) return NaN;
+        const text = value.trim();
+        const local = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text);
+        return Date.parse(local ? `${text}Z` : text);
+    }
+
     function formatTime(dateString, includeSeconds = false) {
-        if (!dateString) return "N/A";
-        try {
-            const date = new Date(dateString);
-            const options = { hour: '2-digit', minute: '2-digit', hour12: false };
-            if (includeSeconds) options.second = '2-digit';
-            return date.toLocaleTimeString('ko-KR', options);
-        } catch (e) {
-            console.error("Error formatting time:", dateString, e);
-            return "N/A";
-        }
+        const timestamp = parseWeatherWallTime(dateString);
+        if (!Number.isFinite(timestamp)) return "N/A";
+        const date = new Date(timestamp);
+        const time = date.toISOString().slice(11, includeSeconds ? 19 : 16);
+        return time;
     }
 
     function degreesToCardinal(deg) {
@@ -868,14 +874,9 @@
         const [datePart, timePart = '00:00'] = String(iso).split('T');
         const [year, month, day] = datePart.split('-').map(Number);
         const [hour = 0, minute = 0] = timePart.split(':').map(Number);
-        const date = new Date(year, (month || 1) - 1, day || 1, hour || 0, minute || 0);
-        date.setHours(date.getHours() + hours);
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        const h = String(date.getHours()).padStart(2, '0');
-        const min = String(date.getMinutes()).padStart(2, '0');
-        return `${y}-${m}-${d}T${h}:${min}`;
+        const date = new Date(Date.UTC(year, (month || 1) - 1, day || 1, hour || 0, minute || 0));
+        date.setUTCHours(date.getUTCHours() + hours);
+        return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 16) : '';
     }
 
     function formatHourRange(hourly, startIndex, endIndex) {
@@ -924,18 +925,12 @@
         if (!hourly?.time?.length || !Array.isArray(hourly[variable]) || !Number.isInteger(hours) || hours < 1) return null;
         // API 시각은 대상 지역의 시간대 오프셋이 없는 ISO 문자열입니다.
         // 컴퓨터 시간대/DST 보정에 영향받지 않도록 표기된 시각끼리 비교합니다.
-        const parseTimestamp = value => {
-            if (typeof value !== 'string' || !value.trim()) return NaN;
-            const text = value.trim();
-            const isLocalIsoTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text);
-            return Date.parse(isLocalIsoTime ? `${text}Z` : text);
-        };
-        const referenceTime = parseTimestamp(currentTime);
+        const referenceTime = parseWeatherWallTime(currentTime);
         if (!Number.isFinite(referenceTime)) return null;
         let currentIndex = -1;
         let latestTime = -Infinity;
         for (let index = 0; index < hourly.time.length; index += 1) {
-            const timestamp = parseTimestamp(hourly.time[index]);
+            const timestamp = parseWeatherWallTime(hourly.time[index]);
             if (Number.isFinite(timestamp) && timestamp <= referenceTime && timestamp > latestTime) {
                 currentIndex = index;
                 latestTime = timestamp;
@@ -947,7 +942,7 @@
         let sum = 0;
         let previousTime = null;
         for (let index = start; index <= currentIndex; index += 1) {
-            const timestamp = parseTimestamp(hourly.time[index]);
+            const timestamp = parseWeatherWallTime(hourly.time[index]);
             const value = toFiniteNumber(hourly[variable][index]);
             if (!Number.isFinite(timestamp) || value === null || value < 0
                 || (previousTime !== null && timestamp - previousTime !== 3600000)) return null;
@@ -1275,21 +1270,26 @@
     function getClosestHourlyIndex(currentTime, hourly) {
         if (!hourly?.time?.length) return -1;
         if (!currentTime) return 0;
-        const currentDate = new Date(currentTime);
-        if (Number.isNaN(currentDate.getTime())) return 0;
-        return hourly.time.reduce((closestIdx, timeStr, currentIdx) => {
-            const diff = Math.abs(new Date(timeStr) - currentDate);
-            const prevDiff = Math.abs(new Date(hourly.time[closestIdx]) - currentDate);
-            return diff < prevDiff ? currentIdx : closestIdx;
-        }, 0);
+        const currentDate = parseWeatherWallTime(currentTime);
+        if (!Number.isFinite(currentDate)) return 0;
+        let closestIndex = 0;
+        let closestDiff = Infinity;
+        hourly.time.forEach((timeStr, index) => {
+            const diff = Math.abs(parseWeatherWallTime(timeStr) - currentDate);
+            if (diff < closestDiff) {
+                closestDiff = diff;
+                closestIndex = index;
+            }
+        });
+        return closestIndex;
     }
 
     function getHourlyStartIndex(hourly, currentTime) {
         if (!hourly?.time?.length) return -1;
         if (!currentTime) return 0;
-        const currentDate = new Date(currentTime);
-        if (Number.isNaN(currentDate.getTime())) return 0;
-        const index = hourly.time.findIndex((timeStr) => new Date(timeStr) >= currentDate);
+        const currentDate = parseWeatherWallTime(currentTime);
+        if (!Number.isFinite(currentDate)) return 0;
+        const index = hourly.time.findIndex((timeStr) => parseWeatherWallTime(timeStr) >= currentDate);
         return index >= 0 ? index : Math.max(0, getClosestHourlyIndex(currentTime, hourly));
     }
 
@@ -1735,21 +1735,27 @@
 
     function renderNext24Hours(current, hourly) {
         if (!DOM.next24HoursList) return;
-        if (!hourly?.time?.length) {
+        const currentTimestamp = parseWeatherWallTime(current?.time);
+        const startIndex = getHourlyStartIndex(hourly, current?.time);
+        // 잘린 시계열에 현재 이후 예보가 없으면 마지막 과거 관측값을 다음 24시간
+        // 예보로 표시하지 않습니다. 예보 범위를 확인할 수 없을 때도 결측으로 처리합니다.
+        if (startIndex < 0 || !Number.isFinite(currentTimestamp)
+            || !(parseWeatherWallTime(hourly?.time?.[startIndex]) >= currentTimestamp)) {
             setSafeHTML(DOM.next24HoursList, '<div class="next-24h-card"><span class="time">자료 없음</span><span class="icon">⚠️</span><span class="temp">—</span><small>시간별 예보를 불러오지 못했습니다.</small></div>');
             return;
         }
-        const startIndex = getHourlyStartIndex(hourly, current?.time);
         const endIndex = Math.min(startIndex + 24, hourly.time.length);
         const cards = [];
 
         for (let index = startIndex; index < endIndex; index += 1) {
             const weatherDetails = getWeatherDetails(hourly.weather_code?.[index], hourly.is_day?.[index] === 1);
-            const timeLabel = index === startIndex ? `지금 · ${formatTime(hourly.time[index])}` : formatTime(hourly.time[index]);
+            const timeLabel = parseWeatherWallTime(hourly.time[index]) === currentTimestamp
+                ? `지금 · ${formatTime(hourly.time[index])}` : formatTime(hourly.time[index]);
             const temp = getHourlyValue(hourly, 'temperature_2m', index);
             const apparent = getHourlyValue(hourly, 'apparent_temperature', index);
             const precipProb = getHourlyValue(hourly, 'precipitation_probability', index);
-            const windSpeed = getHourlyValue(hourly, 'wind_speed_10m', index) ?? current?.windspeed;
+            // 미래 시간대의 결측 풍속을 현재 풍속으로 채우면 실제 예보처럼 표시됩니다.
+            const windSpeed = getHourlyValue(hourly, 'wind_speed_10m', index);
             const cloudCover = getHourlyValue(hourly, 'cloud_cover', index);
             cards.push(`<article class="next-24h-card">
                 <span class="time">${escapeHTML(timeLabel)}</span>
@@ -1764,7 +1770,7 @@
     function renderWeeklyTempChart(dailyData) {
         if (!dailyData?.time?.length) return;
         const limit = Math.min(7, dailyData.time.length);
-        const labels = dailyData.time.slice(0, limit).map(dateStr => new Date(`${dateStr}T00:00:00`).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+        const labels = dailyData.time.slice(0, limit).map(dateStr => new Date(`${dateStr}T00:00:00Z`).toLocaleDateString('ko-KR', { timeZone: 'UTC', month: 'short', day: 'numeric' }));
         const maxTemps = Array.isArray(dailyData.temperature_2m_max) ? dailyData.temperature_2m_max.slice(0, limit) : [];
         const minTemps = Array.isArray(dailyData.temperature_2m_min) ? dailyData.temperature_2m_min.slice(0, limit) : [];
         const chartColors = getChartColors();
@@ -1792,12 +1798,12 @@
     function createForecastCardHTML(dayData, index, hourlyAqiData, options = {}) {
         const isTrendCard = Boolean(options.isTrendCard);
         const dateString = dayData.time[index];
-        const dateObj = new Date(`${dateString}T00:00:00`);
+        const dateObj = new Date(`${dateString}T00:00:00Z`);
         
-        const dayNameOriginal = dateObj.toLocaleDateString('ko-KR', { weekday: 'long' });
+        const dayNameOriginal = dateObj.toLocaleDateString('ko-KR', { timeZone: 'UTC', weekday: 'long' });
         const dayNameFormattedForCard = `(${dayNameOriginal})`;
 
-        const monthDay = dateObj.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+        const monthDay = dateObj.toLocaleDateString('ko-KR', { timeZone: 'UTC', month: 'short', day: 'numeric' });
         const weatherDetails = getWeatherDetails(dayData.weather_code?.[index], true);
 
         const tempMin = formatNumber(dayData.temperature_2m_min?.[index]);
@@ -1979,9 +1985,9 @@
     }
 
     function createTwoWeekTrendCardHTML(dailyData, index) {
-        const dateObj = new Date(`${dailyData.time[index]}T00:00:00`);
-        const weekday = dateObj.toLocaleDateString('ko-KR', { weekday: 'short' });
-        const monthDay = dateObj.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+        const dateObj = new Date(`${dailyData.time[index]}T00:00:00Z`);
+        const weekday = dateObj.toLocaleDateString('ko-KR', { timeZone: 'UTC', weekday: 'short' });
+        const monthDay = dateObj.toLocaleDateString('ko-KR', { timeZone: 'UTC', month: 'short', day: 'numeric' });
         const weatherDetails = getWeatherDetails(dailyData.weather_code?.[index], true);
         const assessment = getTwoWeekTrendAssessment(dailyData, index);
         const minTemp = formatWithUnit(dailyData.temperature_2m_min?.[index], 0, '°');
@@ -2050,7 +2056,7 @@
         hourlyFullData.time.forEach((time, index) => {
             if (typeof time === 'string' && time.startsWith(selectedDate)) {
                 hourlyItemsHTML += createHourlyForecastItemHTML(hourlyFullData, index);
-                chartLabels.push(new Date(time));
+                chartLabels.push(formatTime(time));
                 chartTemps.push(toFiniteNumber(hourlyFullData.temperature_2m?.[index]));
                 chartPrecipProbs.push(toFiniteNumber(hourlyFullData.precipitation_probability?.[index]));
             }
@@ -2068,7 +2074,7 @@
         Chart.defaults.color = chartColors.primaryTextColor;
         Chart.defaults.borderColor = chartColors.borderColor;
 
-        _appState.hourlyTempChartInstance = new Chart(ctx, { type: 'line', data: { labels: chartLabels, datasets: [ createChartDatasetOptions('hourlyTemp', chartColors, ctx, '온도 (°C)', chartTemps), createChartDatasetOptions('hourlyPrecip', chartColors, ctx, '강수 확률 (%)', chartPrecipProbs) ] }, options: { ...baseOptions, scales: { x: { ...baseOptions.scales.x, type: 'time', time: { unit: 'hour', tooltipFormat: 'HH:mm', displayFormats: { hour: 'HH:mm' }}}, yTemp: { ...baseOptions.scales.y, type: 'linear', position: 'left', title: { display: true, text: '온도 (°C)', color: chartColors.primaryTextColor, font: {size: 14, weight: '500', family: chartColors.fontFamily}}, ticks: { ...baseOptions.scales.y.ticks, callback: value => `${value}°C`}}, yPrecip: { ...baseOptions.scales.y, type: 'linear', position: 'right', min: 0, max: 100, title: { display: true, text: '강수 확률 (%)', color: chartColors.primaryTextColor, font: {size: 14, weight: '500', family: chartColors.fontFamily}}, ticks: { ...baseOptions.scales.y.ticks, callback: value => `${value}%`}, grid: { ...baseOptions.scales.y.grid, drawOnChartArea: false }} }, interaction: { mode: 'nearest', axis: 'x', intersect: false } } });
+        _appState.hourlyTempChartInstance = new Chart(ctx, { type: 'line', data: { labels: chartLabels, datasets: [ createChartDatasetOptions('hourlyTemp', chartColors, ctx, '온도 (°C)', chartTemps), createChartDatasetOptions('hourlyPrecip', chartColors, ctx, '강수 확률 (%)', chartPrecipProbs) ] }, options: { ...baseOptions, scales: { x: { ...baseOptions.scales.x, type: 'category'}, yTemp: { ...baseOptions.scales.y, type: 'linear', position: 'left', title: { display: true, text: '온도 (°C)', color: chartColors.primaryTextColor, font: {size: 14, weight: '500', family: chartColors.fontFamily}}, ticks: { ...baseOptions.scales.y.ticks, callback: value => `${value}°C`}}, yPrecip: { ...baseOptions.scales.y, type: 'linear', position: 'right', min: 0, max: 100, title: { display: true, text: '강수 확률 (%)', color: chartColors.primaryTextColor, font: {size: 14, weight: '500', family: chartColors.fontFamily}}, ticks: { ...baseOptions.scales.y.ticks, callback: value => `${value}%`}, grid: { ...baseOptions.scales.y.grid, drawOnChartArea: false }} }, interaction: { mode: 'nearest', axis: 'x', intersect: false } } });
         DOM.hourlyModal.classList.add(CONFIG.MODAL_ACTIVE_CLASS);
     }
 
@@ -2358,8 +2364,8 @@
             return true;
         }
 
-        function localDate(timestamp = Date.now()) {
-            const parts = Object.fromEntries(dateFormatter.formatToParts(timestamp).map(p => [p.type, p.value]));
+        function localDate(timestamp = Date.now(), formatter = dateFormatter) {
+            const parts = Object.fromEntries(formatter.formatToParts(timestamp).map(p => [p.type, p.value]));
             return `${parts.year}-${parts.month}-${parts.day}`;
         }
 
@@ -2403,7 +2409,9 @@
             if (!Array.isArray(daily?.time) || !daily.time.length) throw new Error('일별 자료 없음');
             const rows = {};
             daily.time.forEach((date, index) => {
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+                if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+                const timestamp = Date.parse(`${date}T00:00:00Z`);
+                if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) return;
                 const row = { kind };
                 let hasValue = false;
                 for (const [apiName, field] of Object.entries(fieldsByApiName)) {
@@ -2416,6 +2424,27 @@
             return rows;
         }
 
+        // 날짜 배열만 존재하거나 기온이 null인 일별 응답을 완전한 캐시로 간주하지 않습니다.
+        // 불완전한 응답은 표시할 수 있는 값만 사용하되 정상 캐시를 훼손하지 않습니다.
+        function hasCompletePeriod(rows, start, end) {
+            if (!rows || !start || !end || start > end) return false;
+            // 이 함수에는 최대 한 달 또는 22일의 예보만 전달됩니다.
+            for (let date = start; date <= end; date = shift(date, 1)) {
+                const row = rows[date];
+                if (!row || !Object.values(fieldsByApiName).every(field => Number.isFinite(row[field]))) return false;
+            }
+            return true;
+        }
+
+        function getExpectedPeriod(range, forecastZone, timestamp = Date.now()) {
+            if (range) return range;
+            const formatter = new Intl.DateTimeFormat('en-CA', {
+                timeZone: forecastZone, year: 'numeric', month: '2-digit', day: '2-digit'
+            });
+            const date = localDate(timestamp, formatter);
+            return { start: shift(date, -6), end: shift(date, 15) };
+        }
+
         // 최근 6일과 16일 예보를 한 번 받아 월을 옮겨도 오늘 요약과 같은 자료를 사용합니다.
         // 재분석은 월별로 보관하되, 아직 진행 중인 월은 조회 가능한 종료일을 연장합니다.
         async function requestPeriod(range, signal) {
@@ -2426,9 +2455,12 @@
             const age = Date.now() - (saved?.at || 0);
             const covered = isForecast
                 ? dateFormatter && saved?.zone === zone && localDate(saved.at) === localDate()
-                : saved?.end >= range.end;
+                : saved?.zone === zone && saved?.end >= range.end;
             if (saved && covered && age >= 0 && age < (isForecast ? forecastLifetime : 7 * dayMs)) {
-                return { ...saved, cached: true };
+                const expected = getExpectedPeriod(range, saved.zone);
+                if (hasCompletePeriod(saved.rows, expected.start, expected.end)) {
+                    return { ...saved, cached: true };
+                }
             }
 
             const params = new URLSearchParams({
@@ -2449,15 +2481,29 @@
                 const rows = parseRows(data.daily, kind);
                 if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
                 const entry = { at: Date.now(), zone: data.timezone || zone, end: range?.end, rows };
+                if (!entry.zone) throw new Error('현지 시간대가 없습니다.');
+                const expected = getExpectedPeriod(range, entry.zone, entry.at);
+                if (!hasCompletePeriod(rows, expected.start, expected.end)) {
+                    const canUseSaved = saved?.zone === entry.zone;
+                    const fallbackRows = canUseSaved ? saved.rows : {};
+                    // 새 응답에 없는 날짜만 저장 자료로 보완합니다. 날짜별 수치를
+                    // 섞거나 null을 0으로 만들지 않고, 불완전 상태를 계속 알립니다.
+                    const availableRows = { ...fallbackRows, ...rows };
+                    return {
+                        ...entry, rows: availableRows, cached: Boolean(canUseSaved),
+                        warning: `${isForecast ? '최근 자료와 예보' : `${range.start}~${range.end}`} 일부 자료 누락${canUseSaved ? ' (저장된 자료 포함)' : ''}`
+                    };
+                }
                 if (isForecast) forecastRecord = entry;
                 saveRecord(key, entry);
                 return entry;
             } catch (error) {
                 if (signal.aborted) throw error;
                 const period = isForecast ? '최근 자료와 예보' : `${range.start}~${range.end}`;
+                const usable = saved && (!zone || saved.zone === zone) ? saved : null;
                 return {
-                    rows: saved?.rows || {}, zone: saved?.zone, cached: Boolean(saved),
-                    warning: `${period} ${saved ? '갱신 실패 (저장된 자료 사용)' : '불러오기 실패'}`
+                    rows: usable?.rows || {}, zone: usable?.zone, cached: Boolean(usable),
+                    warning: `${period} ${usable ? '갱신 실패 (저장된 자료 사용)' : '불러오기 실패'}`
                 };
             }
         }
